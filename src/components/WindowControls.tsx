@@ -1,0 +1,30 @@
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { isTauri } from '../platform';
+import { Icon } from './Icon';
+
+/** Minimize / maximize / close for the frameless window (the title bar is our toolbar). */
+export function WindowControls() {
+  if (!isTauri) return null;
+  const win = getCurrentWindow();
+  return (
+    <div style={{ display: 'flex', alignSelf: 'stretch' }}>
+      <button type="button" className="win-btn" aria-label="Minimize" onClick={() => win.minimize()}>
+        <Icon name="winMin" size={14} strokeWidth={1.4} />
+      </button>
+      <button type="button" className="win-btn" aria-label="Maximize" onClick={() => win.toggleMaximize()}>
+        <Icon name="winMax" size={12} strokeWidth={1.4} />
+      </button>
+      <button type="button" className="win-btn close" aria-label="Close" onClick={() => win.close()}>
+        <Icon name="winClose" size={14} strokeWidth={1.4} />
+      </button>
+    </div>
+  );
+}
+
+/** Stable color per project name, like JetBrains' colored project widget. */
+export function projectColor(name: string): string {
+  const palette = ['#3d7a4b', '#3574f0', '#9b5fc0', '#c2803a', '#2a8f96', '#c25863', '#5b7cc2', '#7d8f2e'];
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return palette[h % palette.length];
+}

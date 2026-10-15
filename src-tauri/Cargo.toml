@@ -1,0 +1,43 @@
+[package]
+name = "phpblitz"
+version = "0.1.0"
+description = "A fast PHP IDE"
+edition = "2021"
+
+[lib]
+name = "phpblitz_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+# Builds the PHP built-in definitions (functions, classes, extensions) at compile time.
+mago-prelude = { version = "=1.57.0", features = ["build"] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Mago: PHP linter, static analyzer and formatter, linked in as libraries.
+mago-orchestrator = "=1.57.0"
+mago-linter = { version = "=1.57.0", features = ["serde"] }
+mago-text-edit = "=1.57.0"
+# Reading (toml) and editing without losing comments (toml_edit) the project's mago.toml.
+toml = "0.8"
+toml_edit = "0.22"
+# File watching (changes made outside PHPBlitz: git, composer, other editors).
+notify-debouncer-mini = "0.7"
+# Find in Files: ripgrep's directory walker (respects .gitignore) and regex engine.
+ignore = "0.4"
+regex = "1"
+# Delete moves files to the Recycle Bin / Trash instead of erasing them.
+trash = "5"
+mago-analyzer = "=1.57.0"
+mago-database = "=1.57.0"
+mago-reporting = "=1.57.0"
+mago-php-version = "=1.57.0"
+mago-prelude = { version = "=1.57.0", features = ["serde"] }
+
+# Dependencies (Mago, Tauri) stay optimized in debug builds, so `tauri dev` analysis is fast.
+[profile.dev.package."*"]
+opt-level = 2
