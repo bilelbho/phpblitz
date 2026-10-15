@@ -2,7 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ContextMenu, type ContextItem } from './ContextMenu';
 import { FileStructurePopup, FindBar, GotoLineDialog, type FindRequest } from './EditorPopups';
 import { setEditorCommands } from '../editorCommands';
-import { buildEditorMenu, codeActionsForSelection, contextActionsMenu, copyText, generateMenu, referenceAt } from '../editorMenu';
+import { buildEditorMenu, codeActionsForSelection, contextActionsMenu, copyText, generateMenu, hasMagoActionsAtCaret, markersAt, quickFixesFor, referenceAt } from '../editorMenu';
+import { EditorHover, type HoverRequest } from './EditorHover';
+import { MarkdownView, runCodeBlock, shellBlocks } from './MarkdownView';
+import { IntentionPopup } from './IntentionPopup';
+import { useSettings, getSettings } from '../settings';
+import { themeId } from '../editor/themes';
+import { setUsagesHandler } from '../monaco';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import type { Workspace } from '../useWorkspace';
@@ -56,7 +62,13 @@ export function EditorArea({ ws }: { ws: Workspace }) {
 
       {tab?.kind === 'file' && ws.loaded[tab.path] !== undefined && (
         <div className="editor-host">
-          <CodeEditor ws={ws} path={tab.path} />
+          {/\.(md|markdown)$/i.test(tab.path) ? (
+            <MarkdownView key={tab.path} ws={ws} path={tab.path}>
+              {(onEditor) => <CodeEditor ws={ws} path={tab.path} onEditor={onEditor} />}
+            </MarkdownView>
+          ) : (
+            <CodeEditor ws={ws} path={tab.path} />
+          )}
         </div>
       )}
       {tab?.kind === 'file' && ws.loaded[tab.path] === undefined && <div className="editor-empty">Loading…</div>}
@@ -129,12 +141,33 @@ function caretPoint(editor: monaco.editor.IStandaloneCodeEditor) {
   return c ? { x: rect.left + c.left, y: rect.top + c.top + c.height } : { x: rect.left + 60, y: rect.top + 40 };
 }
 
-function CodeEditor({ ws, path }: { ws: Workspace; path: string }) {
+function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEditor?: (editor: monaco.editor.IStandaloneCodeEditor) => void }) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const decorations = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
   const [ready, setReady] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
+  /** Alt+Enter / Alt+Insert / lightbulb popup. */
+  const [intentions, setIntentions] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
+  const closeIntentions = useCallback(() => {
+    setIntentions(null);
+    editorRef.current?.focus();
+  }, []);
+  const settings = useSettings().editor;
+  /** PhpStorm-style hover / F2 / Ctrl+Q popup. */
+  const [hover, setHover] = useState<HoverRequest | null>(null);
+  const hoverTimer = useRef(0);
+  /**
+   * Whether the pointer is over the popup. React's mouseenter on the popup runs before the editor's
+   * mouseleave, which schedules a close, so closing checks this instead of relying on the timer being cleared.
+   */
+  const pointerInHover = useRef(false);
+  const closeHover = useCallback(() => {
+    window.clearTimeout(hoverTimer.current);
+    pointerInHover.current = false;
+    setHover(null);
+  }, []);
+  const moreActions = useRef<(line: number, column: number) => void>(() => {});
   const [find, setFind] = useState<FindRequest | null>(null);
   const [findStep, setFindStep] = useState<{ dir: 1 | -1; nonce: number } | null>(null);
   const [popup, setPopup] = useState<'goto' | 'structure' | null>(null);
@@ -145,6 +178,8 @@ function CodeEditor({ ws, path }: { ws: Workspace; path: string }) {
 
   const onMount: OnMount = (editor) => {
     editorRef.current = editor;
+    onEditor?.(editor);
+    setupMarkdown(editor);
     decorations.current = editor.createDecorationsCollection();
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => latest.current.ws.save(latest.current.path));
 
@@ -167,7 +202,85 @@ function CodeEditor({ ws, path }: { ws: Workspace; path: string }) {
     editor.addAction({ id: 'phpblitz.gotoImplementation', label: 'Go to Implementation', keybindings: [KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.KeyB], run: run('editor.action.goToImplementation') });
     editor.addAction({ id: 'phpblitz.rename', label: 'Rename…', keybindings: [KeyMod.Shift | KeyCode.F6], run: run('editor.action.rename') });
     editor.addAction({ id: 'phpblitz.reformat', label: 'Reformat Code', keybindings: [KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.KeyL], run: run('editor.action.formatDocument') });
-    editor.addAction({ id: 'phpblitz.quickDoc', label: 'Quick Documentation', keybindings: [KeyMod.CtrlCmd | KeyCode.KeyQ], run: run('editor.action.showHover') });
+    // ── Hover popup: problems with their quick fix, and documentation ──
+    /** Screen box of the word at `pos`, for placing the popup under it. */
+    const wordBox = (pos: monaco.IPosition) => {
+      const rect = editor.getDomNode()!.getBoundingClientRect();
+      const word = editor.getModel()?.getWordAtPosition(pos);
+      const c = editor.getScrolledVisiblePosition(word ? { lineNumber: pos.lineNumber, column: word.startColumn } : pos);
+      return c ? { x: rect.left + c.left, top: rect.top + c.top, bottom: rect.top + c.top + c.height } : null;
+    };
+    const showHoverAt = (pos: monaco.IPosition, source: HoverRequest['source'], docOnly = false) => {
+      const box = wordBox(pos);
+      if (box) setHover({ line: pos.lineNumber, column: pos.column, ...box, source, docOnly });
+    };
+    let hoverKey = '';
+    const closeMouseHover = () => {
+      if (!pointerInHover.current) setHover((h) => (h?.source === 'mouse' ? null : h));
+    };
+    editor.onMouseMove((e) => {
+      const pos = e.target.position;
+      const onText = e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT && pos ? pos : null;
+      const word = onText && editor.getModel()?.getWordAtPosition(onText);
+      const key = onText ? `${onText.lineNumber}:${word ? word.startColumn : onText.column}` : '';
+      if (key === hoverKey) return;
+      hoverKey = key;
+      window.clearTimeout(hoverTimer.current);
+      hoverTimer.current = window.setTimeout(() => {
+        if (pointerInHover.current) return; // moving through text on the way into the popup
+        if (onText) showHoverAt(onText, 'mouse');
+        else closeMouseHover();
+      }, onText ? 550 : 300);
+    });
+    editor.onMouseLeave(() => {
+      hoverKey = '';
+      window.clearTimeout(hoverTimer.current);
+      hoverTimer.current = window.setTimeout(closeMouseHover, 300);
+    });
+    editor.addAction({
+      id: 'phpblitz.quickDoc',
+      label: 'Quick Documentation',
+      keybindings: [KeyMod.CtrlCmd | KeyCode.KeyQ],
+      run: () => {
+        const pos = editor.getPosition();
+        if (pos) showHoverAt(pos, 'keyboard', true);
+      },
+    });
+    // F2 / Shift+F2: next / previous problem, with its popup (PhpStorm's Next Highlighted Error).
+    const jumpToProblem = (dir: 1 | -1) => {
+      const model = editor.getModel();
+      const pos = editor.getPosition();
+      if (!model || !pos) return;
+      const markers = monaco.editor
+        .getModelMarkers({ resource: model.uri })
+        .sort((a, b) => a.startLineNumber - b.startLineNumber || a.startColumn - b.startColumn);
+      if (!markers.length) return;
+      const after = (m: monaco.editor.IMarker) => m.startLineNumber > pos.lineNumber || (m.startLineNumber === pos.lineNumber && m.startColumn > pos.column);
+      const before = (m: monaco.editor.IMarker) => m.startLineNumber < pos.lineNumber || (m.startLineNumber === pos.lineNumber && m.startColumn < pos.column);
+      const next = dir === 1 ? markers.find(after) ?? markers[0] : [...markers].reverse().find(before) ?? markers[markers.length - 1];
+      const at = { lineNumber: next.startLineNumber, column: next.startColumn };
+      editor.setPosition(at);
+      editor.revealPositionInCenterIfOutsideViewport(at);
+      // After the caret move, so the popup doesn't close right away.
+      setTimeout(() => showHoverAt(at, 'keyboard'), 0);
+    };
+    editor.addAction({ id: 'phpblitz.nextProblem', label: 'Next Highlighted Error', keybindings: [KeyCode.F2], run: () => jumpToProblem(1) });
+    editor.addAction({ id: 'phpblitz.prevProblem', label: 'Previous Highlighted Error', keybindings: [KeyMod.Shift | KeyCode.F2], run: () => jumpToProblem(-1) });
+    // Alt+Shift+Enter: apply the first quick fix of the problem at the caret.
+    editor.addAction({
+      id: 'phpblitz.applyFirstFix',
+      label: 'Apply First Quick Fix',
+      keybindings: [KeyMod.Alt | KeyMod.Shift | KeyCode.Enter],
+      run: async () => {
+        const model = editor.getModel();
+        const pos = editor.getPosition();
+        const marker = model && pos ? markersAt(model, pos)[0] : undefined;
+        const { ws, path } = latest.current;
+        const fix = marker && (await quickFixesFor(editor, ws, path, marker))[0];
+        if (fix) fix.run();
+        else popupActions('context');
+      },
+    });
     editor.addAction({ id: 'phpblitz.paramInfo', label: 'Parameter Info', keybindings: [KeyMod.CtrlCmd | KeyCode.KeyP], run: run('editor.action.triggerParameterHints') });
     editor.addAction({ id: 'phpblitz.typeDeclaration', label: 'Go to Type Declaration', keybindings: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyB], run: run('editor.action.goToTypeDefinition') });
     editor.addAction({ id: 'phpblitz.columnSelection', label: 'Column Selection Mode', keybindings: [KeyMod.Alt | KeyMod.Shift | KeyCode.Insert], run: run('editor.action.toggleColumnSelection') });
@@ -189,12 +302,72 @@ function CodeEditor({ ws, path }: { ws: Workspace; path: string }) {
     // Ctrl+K is a chord prefix in Monaco; take it back for Commit like PhpStorm.
     editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyK, () => latest.current.ws.showLeft('commit'));
 
-    // Alt+Enter and Alt+Insert: the language server's actions in a popup at the caret.
+    // ── Lightbulb: shown on the caret line when Alt+Enter has something to offer ──
+    const bulb = document.createElement('div');
+    bulb.className = 'pb-bulb';
+    bulb.title = 'Show Context Actions (Alt+Enter)';
+    bulb.innerHTML =
+      '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5a4.5 4.5 0 0 0-2.7 8.1c.4.3.7.8.7 1.3V12h4v-1.1c0-.5.3-1 .7-1.3A4.5 4.5 0 0 0 8 1.5Z" fill="#F2C55C"/><path d="M6 13.2h4M6.6 14.6h2.8" stroke="#CED0D6" stroke-width="1.2" stroke-linecap="round"/></svg>' +
+      '<svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M1.5 3 4 5.5 6.5 3" stroke="#A8ADBD" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>';
+    let bulbLine = 0;
+    const bulbWidget: monaco.editor.IContentWidget = {
+      getId: () => 'phpblitz.lightbulb',
+      getDomNode: () => bulb,
+      getPosition: () => (bulbLine ? { position: { lineNumber: bulbLine, column: 1 }, preference: [monaco.editor.ContentWidgetPositionPreference.EXACT] } : null),
+    };
+    editor.addContentWidget(bulbWidget);
+    const showBulb = (line: number) => {
+      bulbLine = line;
+      // Inside the indentation when there is room, else just left of the text.
+      const indent = line ? editor.getModel()!.getLineFirstNonWhitespaceColumn(line) - 1 : 0;
+      bulb.classList.toggle('in-gutter', indent < 3);
+      editor.layoutContentWidget(bulbWidget);
+    };
+    let bulbTimer = 0;
+    let bulbRequest = 0;
+    const updateBulb = () => {
+      window.clearTimeout(bulbTimer);
+      showBulb(0);
+      if (!getSettings().editor.lightbulb) return;
+      bulbTimer = window.setTimeout(async () => {
+        const pos = editor.getPosition();
+        if (!pos) return;
+        const request = ++bulbRequest;
+        const { ws, path } = latest.current;
+        const has = hasMagoActionsAtCaret(editor, ws, path) || (await codeActionsForSelection(editor)).length > 0;
+        if (request === bulbRequest && has && editor.getPosition()?.lineNumber === pos.lineNumber) showBulb(pos.lineNumber);
+      }, 450);
+    };
+    editor.onDidChangeCursorPosition(updateBulb);
+    editor.onDidChangeModelContent(() => showBulb(0));
+    editor.onDidBlurEditorText(() => window.clearTimeout(bulbTimer));
+
+    // Alt+Enter and Alt+Insert: the actions in PhpStorm's intention popup, below the bulb when it shows.
+    const popupPoint = () => {
+      if (bulbLine && bulbLine === editor.getPosition()?.lineNumber) {
+        const r = bulb.getBoundingClientRect();
+        if (r.width) return { x: r.left, y: r.bottom + 2 };
+      }
+      return caretPoint(editor);
+    };
     const popupActions = async (kind: 'context' | 'generate') => {
       const actions = await codeActionsForSelection(editor);
-      const { ws } = latest.current;
-      setMenu({ ...caretPoint(editor), items: kind === 'context' ? contextActionsMenu(actions, ws, { editor, path: latest.current.path }) : generateMenu(actions, ws) });
+      const { ws, path } = latest.current;
+      const uri = editor.getModel()?.uri.toString();
+      setIntentions({ ...popupPoint(), items: kind === 'context' ? contextActionsMenu(actions, ws, { editor, path }) : generateMenu(actions, ws, uri) });
     };
+    bulb.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      popupActions('context');
+    });
+    moreActions.current = (line, column) => {
+      editor.setPosition({ lineNumber: line, column });
+      editor.focus();
+      popupActions('context');
+    };
+    // "N usages" above declarations runs Find Usages.
+    setUsagesHandler((model, position) => latest.current.ws.findUsagesAt(model, position));
     editor.addAction({ id: 'phpblitz.contextActions', label: 'Show Context Actions', keybindings: [KeyMod.Alt | KeyCode.Enter], run: () => popupActions('context') });
     editor.addAction({ id: 'phpblitz.generate', label: 'Generate…', keybindings: [KeyMod.Alt | KeyCode.Insert], run: () => popupActions('generate') });
 
@@ -210,8 +383,8 @@ function CodeEditor({ ws, path }: { ws: Workspace; path: string }) {
       setMenu({
         ...point,
         items: buildEditorMenu(editor, ws, path, actions, {
-          contextActions: () => setMenu({ ...caretPoint(editor), items: contextActionsMenu(actions, ws, { editor, path: latest.current.path }) }),
-          generate: () => setMenu({ ...caretPoint(editor), items: generateMenu(actions, ws) }),
+          contextActions: () => setIntentions({ ...popupPoint(), items: contextActionsMenu(actions, ws, { editor, path: latest.current.path }) }),
+          generate: () => setIntentions({ ...popupPoint(), items: generateMenu(actions, ws, editor.getModel()?.uri.toString()) }),
           gotoLine: () => setPopup('goto'),
         }),
       });
@@ -263,7 +436,11 @@ function CodeEditor({ ws, path }: { ws: Workspace; path: string }) {
     ]);
     editor.onDidDispose(() => setEditorCommands(null));
     editor.onMouseDown((e) => {
-      if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN && e.target.position) {
+      if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN && e.target.position && /\.(md|markdown)$/i.test(latest.current.path)) {
+        // Markdown: ▷ beside a shell code block runs it.
+        const block = shellBlocks(editor.getModel()?.getValue() ?? '').find((b) => b.line === e.target.position!.lineNumber);
+        if (block) runCodeBlock(latest.current.ws, block.code);
+      } else if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN && e.target.position) {
         latest.current.ws.toggleBreakpoint(latest.current.path, e.target.position.lineNumber);
       }
     });
@@ -340,6 +517,29 @@ function CodeEditor({ ws, path }: { ws: Workspace; path: string }) {
     <div style={{ flex: '1 1 auto', minHeight: 0, position: 'relative' }}>
     {ready && path.endsWith('.php') && <Inspections ws={ws} path={path} editor={editorRef.current} />}
     {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={closeMenu} />}
+    {hover && editorRef.current && (
+      <div
+        onMouseEnter={() => {
+          pointerInHover.current = true;
+          window.clearTimeout(hoverTimer.current);
+        }}
+        onMouseLeave={() => {
+          pointerInHover.current = false;
+          if (hover.source === 'mouse') hoverTimer.current = window.setTimeout(closeHover, 300);
+        }}
+      >
+        <EditorHover
+          editor={editorRef.current}
+          ws={ws}
+          path={path}
+          request={hover}
+          onClose={closeHover}
+          onEmpty={closeHover}
+          onMoreActions={() => moreActions.current(hover.line, hover.column)}
+        />
+      </div>
+    )}
+    {intentions && <IntentionPopup x={intentions.x} y={intentions.y} items={intentions.items} model={editorRef.current?.getModel() ?? null} onClose={closeIntentions} />}
     {popup === 'goto' && editorRef.current && <GotoLineDialog editor={editorRef.current} onClose={closePopup} />}
     {popup === 'structure' && editorRef.current && (
       <FileStructurePopup editor={editorRef.current} fileName={path.split('/').pop() ?? path} symbols={ws.structure} onClose={closePopup} />
@@ -348,16 +548,19 @@ function CodeEditor({ ws, path }: { ws: Workspace; path: string }) {
       path={monaco.Uri.file(path).toString()}
       defaultValue={ws.loaded[path]}
       defaultLanguage={languageOf(path)}
-      theme="phpblitz-dark"
+      theme={themeId(settings.scheme)}
       keepCurrentModel
       onMount={onMount}
       onChange={(value) => ws.onEdit(path, value ?? '')}
       loading={<div className="empty">Loading editor…</div>}
       options={{
-        fontFamily: "'JetBrains Mono', Consolas, monospace",
-        fontSize: 13,
-        lineHeight: 21,
-        fontLigatures: false,
+        fontFamily: `'${settings.fontFamily}', 'JetBrains Mono', Consolas, monospace`,
+        fontSize: settings.fontSize,
+        lineHeight: Math.round(settings.fontSize * settings.lineHeight),
+        fontLigatures: settings.ligatures,
+        codeLens: settings.codeVision,
+        codeLensFontFamily: 'Inter, sans-serif',
+        codeLensFontSize: 12,
         glyphMargin: true,
         lineNumbersMinChars: 4,
         lineDecorationsWidth: 14,
@@ -374,8 +577,10 @@ function CodeEditor({ ws, path }: { ws: Workspace; path: string }) {
         bracketPairColorization: { enabled: false },
         guides: { indentation: true, highlightActiveIndentation: false },
         stickyScroll: { enabled: true, maxLineCount: 3 },
-        inlayHints: { enabled: 'on', fontSize: 12, fontFamily: 'Inter, sans-serif' },
+        inlayHints: { enabled: settings.inlayHints ? 'on' : 'off', fontSize: 12, fontFamily: 'Inter, sans-serif', padding: true },
         contextmenu: false,
+        // PHPBlitz shows its own PhpStorm-style popup (EditorHover).
+        hover: { enabled: false },
         lightbulb: { enabled: monaco.editor.ShowLightbulbIconMode.Off },
         overviewRulerLanes: 2,
         hideCursorInOverviewRuler: true,
@@ -436,4 +641,33 @@ function TableView({ table }: { table: string }) {
       </div>
     </>
   );
+}
+
+/** Markdown files: ▷ beside shell code blocks, and a tinted background on code block lines. */
+function setupMarkdown(editor: monaco.editor.IStandaloneCodeEditor) {
+  const model = editor.getModel();
+  if (!model || model.getLanguageId() !== 'markdown') return;
+  const decorations = editor.createDecorationsCollection();
+  const update = () => {
+    const lines = model.getLinesContent();
+    const result: monaco.editor.IModelDeltaDecoration[] = shellBlocks(model.getValue()).map((b) => ({
+      range: new monaco.Range(b.line, 1, b.line, 1),
+      options: { glyphMarginClassName: 'md-run-glyph', glyphMarginHoverMessage: { value: 'Run in terminal' } },
+    }));
+    for (let i = 0; i < lines.length; i++) {
+      const open = lines[i].match(/^\s*(```|~~~)/);
+      if (!open) continue;
+      let j = i + 1;
+      while (j < lines.length && !lines[j].trimStart().startsWith(open[1])) j++;
+      if (j > i + 1) result.push({ range: new monaco.Range(i + 2, 1, j, 1), options: { isWholeLine: true, className: 'md-code-line' } });
+      i = j;
+    }
+    decorations.set(result);
+  };
+  update();
+  let timer = 0;
+  model.onDidChangeContent(() => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(update, 200);
+  });
 }

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Icon, type IconName } from './Icon';
+import type { TextChange } from '../lsp/monacoBridge';
 
 export type ContextItem =
   | {
@@ -12,6 +13,8 @@ export type ContextItem =
       disabled?: boolean;
       run?: () => void;
       submenu?: ContextItem[];
+      /** What running it would change in the current file (Alt+Enter popup preview). */
+      preview?: () => Promise<TextChange[] | null>;
     }
   | { kind: 'sep' };
 

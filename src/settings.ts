@@ -26,12 +26,38 @@ export interface TerminalSettings {
   cursorBlink: boolean;
 }
 
+export interface EditorSettings {
+  /** Color scheme id, see editor/themes.ts. */
+  scheme: string;
+  fontFamily: string;
+  fontSize: number;
+  lineHeight: number;
+  ligatures: boolean;
+  /** "N usages" above declarations. */
+  codeVision: boolean;
+  /** Parameter names and types from the language server, shown inline. */
+  inlayHints: boolean;
+  /** Lightbulb on the caret line when there are context actions. */
+  lightbulb: boolean;
+}
+
 export interface Settings {
+  editor: EditorSettings;
   terminal: TerminalSettings;
 }
 
 /** PhpStorm's defaults where it has one. */
 export const DEFAULT_SETTINGS: Settings = {
+  editor: {
+    scheme: 'islands-dark',
+    fontFamily: 'JetBrains Mono',
+    fontSize: 13,
+    lineHeight: 1.6,
+    ligatures: false,
+    codeVision: true,
+    inlayHints: true,
+    lightbulb: true,
+  },
   terminal: {
     shellPath: '',
     startDir: '',
@@ -58,7 +84,10 @@ const listeners = new Set<() => void>();
 function load(): Settings {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}');
-    return { terminal: { ...DEFAULT_SETTINGS.terminal, ...(saved.terminal ?? {}) } };
+    return {
+      editor: { ...DEFAULT_SETTINGS.editor, ...(saved.editor ?? {}) },
+      terminal: { ...DEFAULT_SETTINGS.terminal, ...(saved.terminal ?? {}) },
+    };
   } catch {
     return DEFAULT_SETTINGS;
   }

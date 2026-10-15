@@ -7,6 +7,7 @@ import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
 import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
 import { inferType, phpIndex, structureOf } from './php';
 import { isLspActive, usageCount } from './lsp/monacoBridge';
+import { getSettings } from './settings';
 
 // Bundle Monaco instead of loading it from a CDN, so the IDE works offline.
 self.MonacoEnvironment = {
@@ -20,100 +21,60 @@ self.MonacoEnvironment = {
 };
 loader.config({ monaco });
 
-// Colors of JetBrains' "Dark" editor scheme (new UI).
-monaco.editor.defineTheme('phpblitz-dark', {
-  base: 'vs-dark',
-  inherit: true,
-  rules: [
-    { token: '', foreground: 'BCBEC4' },
-    { token: 'keyword', foreground: 'CF8E6D' },
-    { token: 'string', foreground: '6AAB73' },
-    { token: 'variable', foreground: 'C77DBB' },
-    { token: 'comment', foreground: '7A7E85', fontStyle: 'italic' },
-    { token: 'number', foreground: '2AACB8' },
-    { token: 'type', foreground: 'BCBEC4' },
-    { token: 'delimiter', foreground: 'BCBEC4' },
-    { token: 'metatag', foreground: 'CF8E6D' },
-    { token: 'tag', foreground: 'D5B778' },
-    { token: 'attribute.name', foreground: 'BABABA' },
-    { token: 'string.key.json', foreground: 'C77DBB' },
-    { token: 'string.value.json', foreground: '6AAB73' },
-  ],
-  colors: {
-    'editor.background': '#1E1F22',
-    'editor.foreground': '#BCBEC4',
-    'editor.lineHighlightBackground': '#26282E',
-    'editor.lineHighlightBorder': '#00000000',
-    'editorLineNumber.foreground': '#4B5059',
-    'editorLineNumber.activeForeground': '#A1A3AB',
-    'editorCursor.foreground': '#CED0D6',
-    'editor.selectionBackground': '#214283',
-    'editor.inactiveSelectionBackground': '#2B3446',
-    'editor.wordHighlightBackground': '#373B39',
-    'editor.wordHighlightStrongBackground': '#3B3B4A',
-    'editorBracketMatch.background': '#43454A',
-    'editorBracketMatch.border': '#00000000',
-    'editorGutter.background': '#1E1F22',
-    'editorInlayHint.foreground': '#868A91',
-    'editorInlayHint.background': '#00000000',
-    'editorWidget.background': '#2B2D30',
-    'editorWidget.border': '#43454A',
-    'editorHoverWidget.background': '#2B2D30',
-    'editorHoverWidget.border': '#43454A',
-    'editorSuggestWidget.background': '#2B2D30',
-    'editorSuggestWidget.border': '#43454A',
-    'editorSuggestWidget.foreground': '#DFE1E5',
-    'editorSuggestWidget.selectedBackground': '#2E436E',
-    'editorSuggestWidget.highlightForeground': '#548AF7',
-    'editorStickyScroll.background': '#1E1F22',
-    'editorStickyScrollHover.background': '#26282E',
-    'editorIndentGuide.background1': '#313438',
-    'editorIndentGuide.activeBackground1': '#43454A',
-    'editorError.foreground': '#F75464',
-    'editorWarning.foreground': '#E5A33D',
-    'editorOverviewRuler.border': '#00000000',
-    'minimap.background': '#1E1F22',
-    'scrollbar.shadow': '#00000000',
-    'scrollbarSlider.background': '#4E515766',
-    'scrollbarSlider.hoverBackground': '#5A5D63aa',
-    'scrollbarSlider.activeBackground': '#5A5D63cc',
-  },
-});
+// Color schemes and the PHP grammar they color.
+import './editor/themes';
+import './editor/phpGrammar';
 
-// "N usages" after declarations, like JetBrains' code vision hints.
-const hintsChanged = new monaco.Emitter<void>();
+// "N usages" on their own line above declarations, like JetBrains' code vision.
+const hintsChanged = new monaco.Emitter<monaco.languages.CodeLensProvider>();
 export function refreshUsageHints() {
-  hintsChanged.fire();
+  hintsChanged.fire(usageLenses);
 }
 
-monaco.languages.registerInlayHintsProvider('php', {
-  onDidChangeInlayHints: hintsChanged.event,
-  async provideInlayHints(model, range) {
-    const declarations = structureOf(model.getValue())
-      .filter((s) => s.line >= range.startLineNumber && s.line <= range.endLineNumber)
-      .filter((s) => (s.kind === 'method' || s.kind === 'property' || s.kind === 'function') && s.name !== '__construct')
-      .slice(0, 60);
-    const hints = await Promise.all(
-      declarations.map(async (s): Promise<monaco.languages.InlayHint | null> => {
-        const text = model.getLineContent(s.line);
-        // With a language server: real reference counts. Without: the name-based estimate.
-        let n: number | null = phpIndex.usages(s.name);
-        if (isLspActive()) {
-          const at = s.kind === 'property' ? text.indexOf('$' + s.name) + 1 : text.search(new RegExp(String.raw`\b${s.name}\s*\(`));
-          n = at >= 0 ? await usageCount(model, s.line, at + 1) : null;
-          if (n === null) return null;
-        }
-        const brace = text.lastIndexOf('{');
-        return {
-          label: n === 0 ? 'no usages' : n === 1 ? '1 usage' : `${n} usages`,
-          position: { lineNumber: s.line, column: brace >= 0 ? brace + 2 : model.getLineMaxColumn(s.line) },
-          paddingLeft: true,
-        };
-      }),
-    );
-    return { hints: hints.filter((h): h is monaco.languages.InlayHint => !!h), dispose() {} };
-  },
+/** Clicking "N usages" runs Find Usages; EditorArea connects it to the workspace. */
+let usagesHandler: ((model: monaco.editor.ITextModel, position: monaco.IPosition) => void) | null = null;
+export function setUsagesHandler(fn: typeof usagesHandler) {
+  usagesHandler = fn;
+}
+const SHOW_USAGES = monaco.editor.registerCommand('phpblitz.showUsages', (_accessor, uri: string, line: number, column: number) => {
+  const model = monaco.editor.getModel(monaco.Uri.parse(uri));
+  if (model) usagesHandler?.(model, { lineNumber: line, column });
 });
+void SHOW_USAGES;
+
+interface UsageLens extends monaco.languages.CodeLens {
+  /** Where the declared name is (1-based), to count its references. */
+  at: { line: number; column: number; name: string };
+}
+
+const usageLenses: monaco.languages.CodeLensProvider = {
+  onDidChange: hintsChanged.event,
+  provideCodeLenses(model) {
+    if (!getSettings().editor.codeVision) return { lenses: [], dispose() {} };
+    const lines = model.getLinesContent();
+    const lenses: UsageLens[] = structureOf(model.getValue())
+      .filter((s) => ['class', 'interface', 'trait', 'enum', 'method', 'property', 'function', 'const'].includes(s.kind) && s.name !== '__construct')
+      .slice(0, 200)
+      .flatMap((s) => {
+        const text = lines[s.line - 1] ?? '';
+        const column = s.kind === 'property' ? text.indexOf('$' + s.name) + 2 : text.search(new RegExp(String.raw`\b${s.name}\b`)) + 1;
+        if (column <= 0) return [];
+        // Above the declaration's attributes (#[Route(...)]) and doc comment, like PhpStorm.
+        let top = s.line;
+        while (top > 1 && /^\s*#\[/.test(lines[top - 2])) top--;
+        return [{ range: new monaco.Range(top, 1, top, 1), at: { line: s.line, column, name: s.name } }];
+      });
+    return { lenses, dispose() {} };
+  },
+  async resolveCodeLens(model, lens) {
+    const { at } = lens as UsageLens;
+    // With a language server: real reference counts. Without: the name-based estimate.
+    const n = isLspActive() ? await usageCount(model, at.line, at.column) : phpIndex.usages(at.name);
+    const title = n === null ? ' ' : n === 0 ? 'no usages' : n === 1 ? '1 usage' : `${n} usages`;
+    return { ...lens, command: { id: 'phpblitz.showUsages', title, arguments: [model.uri.toString(), at.line, at.column] } };
+  },
+};
+monaco.languages.registerCodeLensProvider('php', usageLenses);
 
 // Remove VS Code keybindings whose popups we replace with PhpStorm ones (see EditorArea).
 const { KeyMod, KeyCode } = monaco;
@@ -129,6 +90,12 @@ monaco.editor.addKeybindingRules([
   { keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.F12, command: '-editor.action.peekImplementation' },
   { keybinding: KeyMod.CtrlCmd | KeyCode.F12, command: '-editor.action.goToImplementation' },
   { keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyR, command: '-editor.action.refactor' },
+  // VS Code's problem peek ("1 of 1 problem"); F2 / Shift+F2 show PhpStorm's popup instead.
+  { keybinding: KeyMod.Alt | KeyCode.F8, command: '-editor.action.marker.next' },
+  { keybinding: KeyMod.Shift | KeyMod.Alt | KeyCode.F8, command: '-editor.action.marker.prev' },
+  { keybinding: KeyCode.F8, command: '-editor.action.marker.nextInFiles' },
+  { keybinding: KeyMod.Shift | KeyCode.F8, command: '-editor.action.marker.prevInFiles' },
+  { keybinding: KeyCode.F2, command: '-editor.action.rename' },
 ]);
 
 const { CompletionItemKind, CompletionItemInsertTextRule } = monaco.languages;
@@ -172,3 +139,6 @@ monaco.languages.registerCompletionItemProvider('php', {
 });
 
 export { monaco };
+
+// Registers Monaco providers once per page: reload fully instead of registering them twice on hot update.
+import.meta.hot?.dispose(() => location.reload());

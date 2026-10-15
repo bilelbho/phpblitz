@@ -359,6 +359,17 @@ class TerminalManager {
     this.changed();
   }
 
+  /** Types `command` into the active tab (a new one when there is none or it ended) and presses Enter. */
+  async run(command: string, cwd: string) {
+    let s = this.sessions.find((x) => x.id === this.activeId && !x.exited && x.ptyId !== null) ?? null;
+    if (!s) s = await this.create({ cwd });
+    if (!s || s.ptyId === null) return;
+    this.setActive(s.id);
+    const lines = command.replace(/\r\n/g, '\n').trim().split('\n').join('\r');
+    await invoke('pty_write', { id: s.ptyId, data: lines + '\r' }).catch(() => {});
+    s.term.focus();
+  }
+
   /** Font, cursor… apply to open tabs right away; the shell applies to new tabs. */
   applySettings() {
     const opts = termOptions(getSettings().terminal);

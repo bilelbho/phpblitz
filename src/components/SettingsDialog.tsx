@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { Workspace } from '../useWorkspace';
-import { DEFAULT_SETTINGS, getSettings, saveSettings, type Settings, type TerminalSettings } from '../settings';
+import { DEFAULT_SETTINGS, getSettings, saveSettings, type EditorSettings, type Settings, type TerminalSettings } from '../settings';
 import { terminals, type ShellSpec } from '../terminal/manager';
 import { isTauri } from '../platform';
 import { Icon } from './Icon';
+import { SCHEMES, schemeOf, schemePreview, type SchemeId } from '../editor/themes';
 
 interface Page {
   id: string;
@@ -14,11 +15,35 @@ interface Page {
   group: string;
   /** Words the search box matches besides the label (the page's options). */
   keywords: string;
+  /** The part of the settings "Reset to defaults" resets. */
+  section: keyof Settings;
 }
 
 const PAGES: Page[] = [
   {
+    id: 'color-scheme',
+    label: 'Color Scheme',
+    group: 'Editor',
+    section: 'editor',
+    keywords: 'theme colors dark light darcula high contrast monokai solarized one dark github islands',
+  },
+  {
+    id: 'editor-font',
+    label: 'Font',
+    group: 'Editor',
+    section: 'editor',
+    keywords: 'font family size line height ligatures jetbrains mono',
+  },
+  {
+    id: 'inlay-hints',
+    label: 'Inlay Hints',
+    group: 'Editor',
+    section: 'editor',
+    keywords: 'code vision usages parameter names hints lightbulb intention context actions',
+  },
+  {
     id: 'terminal',
+    section: 'terminal',
     label: 'Terminal',
     group: 'Tools',
     keywords: 'shell path start directory environment variables font size line height tab name application title bell close session copy selection paste middle click shortcuts hyperlinks links cursor shape blink powershell bash cmd',
@@ -46,13 +71,18 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
 
   const apply = () => {
     const t = draft.terminal;
-    const next = { ...draft, terminal: { ...t, fontSize: clamp(t.fontSize, 6, 48, 13), lineHeight: clamp(t.lineHeight, 0.8, 3, 1) } };
+    const ed = draft.editor;
+    const next = {
+      editor: { ...ed, fontSize: clamp(ed.fontSize, 6, 48, 13), lineHeight: clamp(ed.lineHeight, 1, 3, 1.6) },
+      terminal: { ...t, fontSize: clamp(t.fontSize, 6, 48, 13), lineHeight: clamp(t.lineHeight, 0.8, 3, 1) },
+    };
     saveSettings(next);
     terminals.applySettings();
     setDraft(next);
     setSaved(next);
   };
 
+  const setEditor = (patch: Partial<EditorSettings>) => setDraft((d) => ({ ...d, editor: { ...d.editor, ...patch } }));
   const setTerminal = (patch: Partial<TerminalSettings>) => setDraft((d) => ({ ...d, terminal: { ...d.terminal, ...patch } }));
 
   return (
@@ -107,12 +137,15 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
               {active.group} <Icon name="chevronRight" size={11} strokeWidth={2.2} /> {active.label}
             </div>
             <div className="settings-content">
+              {active.id === 'color-scheme' && <ColorSchemePage value={draft.editor} onChange={setEditor} />}
+              {active.id === 'editor-font' && <EditorFontPage value={draft.editor} onChange={setEditor} highlight={query.trim().toLowerCase()} />}
+              {active.id === 'inlay-hints' && <HintsPage value={draft.editor} onChange={setEditor} highlight={query.trim().toLowerCase()} />}
               {active.id === 'terminal' && <TerminalPage ws={ws} value={draft.terminal} onChange={setTerminal} highlight={query.trim().toLowerCase()} />}
             </div>
           </div>
         </div>
         <div className="jb-dialog-buttons settings-buttons">
-          <button type="button" className="link-btn" style={{ marginRight: 'auto' }} onClick={() => setDraft((d) => ({ ...d, [active.id]: DEFAULT_SETTINGS[active.id as keyof Settings] }))}>
+          <button type="button" className="link-btn" style={{ marginRight: 'auto' }} onClick={() => setDraft((d) => ({ ...d, [active.section]: DEFAULT_SETTINGS[active.section] }))}>
             Reset to defaults
           </button>
           <button
@@ -260,4 +293,105 @@ function TerminalPage({ ws, value: t, onChange, highlight }: { ws: Workspace; va
 
 export function clamp(n: number, min: number, max: number, fallback: number) {
   return Number.isFinite(n) && n > 0 ? Math.min(max, Math.max(min, n)) : fallback;
+}
+
+const SAMPLE = `<?php
+namespace App\\Controller;
+
+/** @return Response */
+#[Route('/upload', name: 'upload')]
+public function upload(Request $request): Response
+{
+    $file = $request->files->get('photo');
+    if (!$file) {
+        return new Response('No file', status: 400);
+    }
+    // Saved for later
+    return $this->json(['ok' => true, 'size' => 1024]);
+}`;
+
+function ColorSchemePage({ value, onChange }: { value: EditorSettings; onChange: (patch: Partial<EditorSettings>) => void }) {
+  return (
+    <>
+      <p className="muted" style={{ margin: '4px 0 12px' }}>
+        The editor's colors. The rest of PHPBlitz keeps its dark theme.
+      </p>
+      <div className="scheme-grid" role="radiogroup" aria-label="Color scheme">
+        {(Object.keys(SCHEMES) as SchemeId[]).map((id) => {
+          const p = SCHEMES[id];
+          return (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={value.scheme === id}
+              className={'scheme-card' + (value.scheme === id ? ' on' : '')}
+              onClick={() => onChange({ scheme: id })}
+            >
+              <pre className="scheme-preview" style={{ background: p.bg, color: p.fg }} dangerouslySetInnerHTML={{ __html: schemePreview(id, SAMPLE) }} />
+              <span className="scheme-name">
+                {value.scheme === id && <Icon name="check" size={12} strokeWidth={2.6} />}
+                {p.name}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+function EditorFontPage({ value: e, onChange, highlight }: { value: EditorSettings; onChange: (patch: Partial<EditorSettings>) => void; highlight: string }) {
+  const hit = (label: string) => (highlight && label.toLowerCase().includes(highlight) ? ' hit' : '');
+  return (
+    <>
+      <div className="settings-grid" style={{ marginTop: 12 }}>
+        <label htmlFor="ed-font" className={hit('Font')}>Font:</label>
+        <div className="field" style={{ width: 240 }}>
+          <input id="ed-font" value={e.fontFamily} spellCheck={false} onChange={(ev) => onChange({ fontFamily: ev.target.value })} />
+        </div>
+        <label htmlFor="ed-size" className={hit('Size')}>Size:</label>
+        <div className="settings-row">
+          <div className="field" style={{ width: 80 }}>
+            <input id="ed-size" type="number" min={6} max={48} value={e.fontSize} onChange={(ev) => onChange({ fontSize: Number(ev.target.value) })} onBlur={() => onChange({ fontSize: clamp(e.fontSize, 6, 48, 13) })} />
+          </div>
+          <label htmlFor="ed-line" className={hit('Line height')} style={{ marginLeft: 16 }}>
+            Line height:
+          </label>
+          <div className="field" style={{ width: 80 }}>
+            <input id="ed-line" type="number" min={1} max={3} step={0.1} value={e.lineHeight} onChange={(ev) => onChange({ lineHeight: Number(ev.target.value) })} onBlur={() => onChange({ lineHeight: clamp(e.lineHeight, 1, 3, 1.6) })} />
+          </div>
+        </div>
+      </div>
+      <label className={'settings-check' + hit('Enable ligatures')} style={{ margin: '10px 0' }}>
+        <input type="checkbox" className="checkbox" checked={e.ligatures} onChange={(ev) => onChange({ ligatures: ev.target.checked })} />
+        Enable ligatures
+      </label>
+      <pre
+        className="scheme-preview large"
+        style={{ background: schemeOf(e.scheme).bg, fontFamily: `'${e.fontFamily}', 'JetBrains Mono', monospace`, fontSize: e.fontSize, lineHeight: e.lineHeight, fontVariantLigatures: e.ligatures ? 'normal' : 'none' }}
+        dangerouslySetInnerHTML={{ __html: schemePreview(e.scheme, SAMPLE + '\n// -> => != === <= >=') }}
+      />
+    </>
+  );
+}
+
+function HintsPage({ value: e, onChange, highlight }: { value: EditorSettings; onChange: (patch: Partial<EditorSettings>) => void; highlight: string }) {
+  const hit = (label: string) => (highlight && label.toLowerCase().includes(highlight) ? ' hit' : '');
+  const check = (key: 'codeVision' | 'inlayHints' | 'lightbulb', label: string, help: string) => (
+    <div>
+      <label className={'settings-check' + hit(label)}>
+        <input type="checkbox" className="checkbox" checked={e[key]} onChange={(ev) => onChange({ [key]: ev.target.checked })} />
+        {label}
+      </label>
+      <div className="muted settings-help">{help}</div>
+    </div>
+  );
+  return (
+    <div className="settings-checks" style={{ marginTop: 14, gap: 14 }}>
+      {check('codeVision', 'Code vision: usages', '"N usages" above classes, methods and properties. Click it to find them.')}
+      {check('inlayHints', 'Parameter names and types', 'Hints from the language server, such as content: and status: before arguments.')}
+      {check('lightbulb', 'Show lightbulb for context actions', 'A bulb on the caret line when Alt+Enter has something to offer.')}
+    </div>
+  );
 }

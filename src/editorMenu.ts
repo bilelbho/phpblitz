@@ -8,7 +8,7 @@ import { isTauri } from './platform';
 import { codeActionsAt, isLspActive, type CodeAction } from './lsp/monacoBridge';
 import type { ContextItem } from './components/ContextMenu';
 import { structureOf } from './php';
-import { magoAvailable } from './mago';
+import { magoAvailable, suppressionComment } from './mago';
 
 type Editor = monaco.editor.IStandaloneCodeEditor;
 
@@ -47,12 +47,13 @@ export async function codeActionsForSelection(editor: Editor): Promise<CodeActio
   return actions.sort((a, b) => Number(b.preferred) - Number(a.preferred));
 }
 
-function actionItems(actions: CodeAction[], empty: string, onError: (e: unknown) => void): ContextItem[] {
+function actionItems(actions: CodeAction[], empty: string, onError: (e: unknown) => void, uri?: string): ContextItem[] {
   if (!actions.length) return [{ label: empty, disabled: true }];
   return actions.map((a) => ({
     label: a.title,
     icon: a.kind.startsWith('quickfix') || a.preferred ? 'bulb' : undefined,
     run: () => a.run().catch(onError),
+    preview: uri && a.preview ? () => a.preview!(uri) : undefined,
   }));
 }
 
@@ -75,6 +76,7 @@ function magoProblemItems(problems: Problem[], ws: Workspace, path: string): Con
       label: `${f.title}${f.safety === 'safe' ? '' : ' (may change behavior)'}`,
       icon: 'bulb' as const,
       run: () => ws.applyFix(path, f),
+      preview: async () => f.edits.map((e) => ({ startLine: e.line, startColumn: e.column, endLine: e.endLine, endColumn: e.endColumn, text: e.text })),
     })),
   );
   // One submenu per rule, like PhpStorm's "Inspection 'X' options ▸".
@@ -84,7 +86,7 @@ function magoProblemItems(problems: Problem[], ws: Workspace, path: string): Con
     submenu: [
       { label: p.message, disabled: true },
       SEP,
-      { label: 'Suppress for This Line', run: () => ws.suppressProblem(path, p) },
+      { label: 'Suppress for This Line', run: () => ws.suppressProblem(path, p), preview: async () => suppressPreview(path, p) },
       { label: 'Disable in mago.toml', disabled: ws.backend.kind !== 'disk', run: () => ws.disableMagoRule(p) },
     ],
   }));
@@ -119,13 +121,32 @@ export function contextActionsMenu(actions: CodeAction[], ws: Workspace, mago: {
   const magoItems = mago ? magoProblemItems(magoProblemsAtCaret(mago.editor, ws, mago.path).slice(0, 4), ws, mago.path) : [];
   const lspItems = actions.filter((a) => !isGenerate(a) || a.kind.startsWith('quickfix'));
   if (!lspItems.length && magoItems.length) return magoItems;
-  const lsp = actionItems(lspItems, 'No context actions here', (e) => reportError(ws, e));
+  // Quick fixes (with a bulb) first, then a line, then intentions, like PhpStorm.
+  const isFix = (a: CodeAction) => a.kind.startsWith('quickfix') || a.preferred;
+  const fixes = lspItems.filter(isFix);
+  const intentions = lspItems.filter((a) => !isFix(a));
+  const uri = mago?.editor.getModel()?.uri.toString();
+  const onError = (e: unknown) => reportError(ws, e);
+  const lsp =
+    fixes.length && intentions.length
+      ? [...actionItems(fixes, '', onError, uri), SEP, ...actionItems(intentions, '', onError, uri)]
+      : actionItems(lspItems, 'No context actions here', onError, uri);
   return magoItems.length ? [...magoItems, SEP, ...lsp] : lsp;
 }
 
 /** Alt+Insert: constructors, getters/setters, missing methods… */
-export function generateMenu(actions: CodeAction[], ws: Workspace): ContextItem[] {
-  return actionItems(actions.filter(isGenerate), 'Nothing to generate here', (e) => reportError(ws, e));
+export function generateMenu(actions: CodeAction[], ws: Workspace, uri?: string): ContextItem[] {
+  return actionItems(actions.filter(isGenerate), 'Nothing to generate here', (e) => reportError(ws, e), uri);
+}
+
+/** The `// @mago-expect` line "Suppress for This Line" would add. */
+function suppressPreview(path: string, p: Problem) {
+  const comment = suppressionComment(p);
+  const model = monaco.editor.getModel(monaco.Uri.file(path));
+  if (!comment || !model) return null;
+  const text = model.getLineContent(p.line);
+  const indent = text.slice(0, text.length - text.trimStart().length);
+  return [{ startLine: p.line, startColumn: 1, endLine: p.line, endColumn: 1, text: `${indent}${comment}\n` }];
 }
 
 function reportError(ws: Workspace, e: unknown) {
@@ -282,4 +303,38 @@ export function buildEditorMenu(
       ],
     },
   ];
+}
+
+/** Whether Alt+Enter has Mago fixes or options on the caret's line (for the lightbulb). */
+export function hasMagoActionsAtCaret(editor: Editor, ws: Workspace, path: string): boolean {
+  return magoProblemsAtCaret(editor, ws, path).length > 0;
+}
+
+export interface QuickFix {
+  title: string;
+  run: () => void;
+}
+
+/** Problems (markers) under a position, most severe first. */
+export function markersAt(model: monaco.editor.ITextModel, pos: monaco.IPosition): monaco.editor.IMarker[] {
+  return monaco.editor
+    .getModelMarkers({ resource: model.uri })
+    .filter((m) => monaco.Range.containsPosition(m, pos) || (m.startLineNumber === m.endLineNumber && m.startLineNumber === pos.lineNumber && m.startColumn === m.endColumn))
+    .sort((a, b) => b.severity - a.severity);
+}
+
+/** Fixes for one problem: Mago's own, then the language server's quick fixes for its range. */
+export async function quickFixesFor(editor: Editor, ws: Workspace, path: string, marker: monaco.editor.IMarker): Promise<QuickFix[]> {
+  const model = editor.getModel();
+  if (!model) return [];
+  const mago: QuickFix[] = (ws.problems[path] ?? [])
+    .filter((p) => p.code === marker.code && p.line <= marker.startLineNumber && (p.endLine ?? p.line) >= marker.startLineNumber)
+    .flatMap((p) => p.fixes ?? [])
+    .map((f) => ({ title: f.title, run: () => ws.applyFix(path, f) }));
+  const lsp = isLspActive()
+    ? (await codeActionsAt(model, monaco.Range.lift(marker)).catch(() => []))
+        .filter((a) => a.kind.startsWith('quickfix') || a.preferred)
+        .map((a) => ({ title: a.title, run: () => void a.run().catch((e) => reportError(ws, e)) }))
+    : [];
+  return [...mago, ...lsp];
 }

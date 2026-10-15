@@ -119,6 +119,18 @@ monaco.languages.registerHoverProvider('php', {
   },
 });
 
+/** The language server's documentation at a position as Markdown (PHPBlitz's own hover popup shows it). */
+export async function hoverAt(model: monaco.editor.ITextModel, position: monaco.IPosition): Promise<string | null> {
+  if (!can('hoverProvider')) return null;
+  const hover = await active!.client.request<L.Hover | null>('textDocument/hover', { textDocument: docOf(model), position: toPos(position) }).catch(() => null);
+  if (!hover) return null;
+  const text = markdown(hover.contents)
+    .map((m) => m.value.trim())
+    .filter(Boolean)
+    .join('\n\n---\n\n');
+  return text || null;
+}
+
 monaco.languages.registerDefinitionProvider('php', {
   async provideDefinition(model, position) {
     if (!can('definitionProvider')) return null;
@@ -274,11 +286,22 @@ export async function renameSymbol(path: string, line: number, column: number, n
 
 // ── Code actions (Alt+Enter, Refactor ▸, Generate…) ───────────
 
+/** A text change in one file, 1-based (what the Alt+Enter popup previews). */
+export interface TextChange {
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+  text: string;
+}
+
 export interface CodeAction {
   title: string;
   kind: string;
   preferred: boolean;
   run: () => Promise<void>;
+  /** The action's changes to the file `uri`, or null when it only runs a command. */
+  preview?: (uri: string) => Promise<TextChange[] | null>;
 }
 
 type LspCommand = { title: string; command: string; arguments?: unknown[] };
@@ -314,16 +337,33 @@ export async function codeActionsAt(model: monaco.editor.ITextModel, range: mona
         return { title: cmd.title, kind: '', preferred: false, run: () => execute(cmd) };
       }
       const action = a as LspCodeAction;
+      // Servers may send actions without their edit and fill it in on resolve (once, shared by preview and run).
+      let resolved: Promise<LspCodeAction> | null = null;
+      const full = () => (resolved ??= !action.edit && !action.command && can('codeActionProvider') ? client.request<LspCodeAction>('codeAction/resolve', action) : Promise.resolve(action));
       return {
         title: action.title,
         kind: action.kind ?? '',
         preferred: !!action.isPreferred,
         run: async () => {
-          // Servers may send actions without their edit and fill it in on resolve.
-          let full = action;
-          if (!full.edit && !full.command) full = await client.request<LspCodeAction>('codeAction/resolve', action);
-          await applyEditNow(full.edit);
-          if (full.command) await execute(full.command);
+          const done = await full();
+          await applyEditNow(done.edit);
+          if (done.command) await execute(done.command);
+        },
+        preview: async (uri) => {
+          const edit = (await full()).edit;
+          if (!edit) return null;
+          const same = (u: string) => modelUri(u).toString() === monaco.Uri.parse(uri).toString();
+          const edits = [
+            ...Object.entries(edit.changes ?? {}).filter(([u]) => same(u)).flatMap(([, list]) => list),
+            ...(edit.documentChanges ?? []).filter((dc) => dc.textDocument && same(dc.textDocument.uri)).flatMap((dc) => dc.edits ?? []),
+          ];
+          return edits.map((e) => ({
+            startLine: e.range.start.line + 1,
+            startColumn: e.range.start.character + 1,
+            endLine: e.range.end.line + 1,
+            endColumn: e.range.end.character + 1,
+            text: e.newText,
+          }));
         },
       };
     });
@@ -421,3 +461,6 @@ export async function usageCount(model: monaco.editor.ITextModel, line: number, 
     return null;
   }
 }
+
+// Registers Monaco providers once per page: reload fully instead of registering them twice on hot update.
+import.meta.hot?.dispose(() => location.reload());
