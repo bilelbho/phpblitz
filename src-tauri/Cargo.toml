@@ -40,6 +40,12 @@ mago-database = "=1.57.0"
 mago-reporting = "=1.57.0"
 mago-php-version = "=1.57.0"
 mago-prelude = { version = "=1.57.0", features = ["serde"] }
+postgres = "0.19"
+postgres-native-tls = "0.5"
+native-tls = "0.2"
+mysql = { version = "25", default-features = false, features = ["minimal-rust", "native-tls"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+keyring = { version = "3", features = ["windows-native", "apple-native"] }
 
 # Dependencies (Mago, Tauri) stay optimized in debug builds, so `tauri dev` analysis is fast.
 [profile.dev.package."*"]

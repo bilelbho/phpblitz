@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Backend, ChangeStatus, Entry, GitInfo, Package, Problem, RunResult, TestResult } from './types';
+import type { Backend, ChangeStatus, CommitOptions, Entry, GitInfo, Package, Problem, RunResult, TestResult } from './types';
 
 const PACKAGE_NAME = /^[\w.-]+\/[\w.-]+$/;
 
@@ -82,18 +82,28 @@ export class DiskBackend implements Backend {
     return { branch, changes };
   }
 
+  git(args: string[]): Promise<RunResult> {
+    return this.proc('git', args);
+  }
+
   async lastCommitMessage(): Promise<string | null> {
     const r = await this.proc('git', ['log', '-1', '--format=%B']).catch(() => null);
     return r && r.code === 0 ? r.stdout.trim() : null;
   }
 
-  async gitCommit(paths: string[], message: string, push: boolean, amend = false): Promise<string> {
+  async gitCommit(paths: string[], message: string, push: boolean, options: CommitOptions = {}): Promise<string> {
     const rel = paths.map((p) => this.rel(p));
     if (rel.length) {
       const add = await this.proc('git', ['add', '--', ...rel]);
       if (add.code !== 0) throw new Error(add.stderr || add.stdout);
     }
-    const commit = await this.proc('git', ['commit', ...(amend ? ['--amend'] : []), '-m', message, ...(rel.length ? ['--', ...rel] : [])]);
+    const args = ['commit'];
+    if (options.amend) args.push('--amend');
+    if (options.signOff) args.push('--signoff');
+    // A fixup commit's message is "fixup! <subject>"; anything typed becomes its body.
+    if (options.fixup) args.push(`--fixup=${options.fixup}`);
+    if (!options.fixup || message) args.push('-m', message);
+    const commit = await this.proc('git', [...args, ...(rel.length ? ['--', ...rel] : [])]);
     if (commit.code !== 0) throw new Error(commit.stderr || commit.stdout);
     if (push) {
       const pushed = await this.proc('git', ['push']);

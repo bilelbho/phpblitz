@@ -4,6 +4,7 @@ import { baseName, relativePath, type Problem } from '../backend/types';
 import { Badge, Icon, Play, fileBadge } from './Icon';
 import { FindResults } from './FindInFiles';
 import { TerminalView } from './TerminalView';
+import { GitToolWindow } from './GitToolWindow';
 import { isTauri } from '../platform';
 
 const SEVERITY_COLOR = { error: 'var(--red)', warning: 'var(--orange)', info: 'var(--muted)' } as const;
@@ -18,6 +19,14 @@ export function BottomPanel({ ws, height }: { ws: Workspace; height: number }) {
     ...(ws.findResults ? [{ id: 'find' as const, label: 'Find', count: String(ws.findResults.result.total) }] : []),
     ...(ws.usages ? [{ id: 'usages' as const, label: `Usages of ${ws.usages.name}`, count: ws.usages.loading ? '…' : String(ws.usages.items.length) }] : []),
   ];
+
+  if (ws.bottomTab === 'git') {
+    return (
+      <section className="island bottom" style={{ height }} aria-label="Git">
+        <GitToolWindow ws={ws} />
+      </section>
+    );
+  }
 
   // Terminal is a tool window of its own, like in PhpStorm (not a tab next to Problems).
   if (ws.bottomTab === 'terminal') {

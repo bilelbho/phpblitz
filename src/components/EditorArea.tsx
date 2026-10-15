@@ -14,8 +14,33 @@ import * as monaco from 'monaco-editor';
 import type { Workspace } from '../useWorkspace';
 import { baseName, relativePath } from '../backend/types';
 import { languageOf } from '../php';
-import { SAMPLE_DB } from '../mock';
+import { db } from '../db/store';
+import { TableEditor } from './TableEditor';
+import { QueryConsole } from './QueryConsole';
+import { DiffView } from './DiffView';
+import { HunkPopup } from './HunkPopup';
+import { diffLines, type Hunk } from '../git/diff';
+import type { BlameLine } from '../git/git';
+import type { Tab } from '../useWorkspace';
 import { Badge, Icon, fileBadge } from './Icon';
+
+/** Name, badge and tooltip of an editor tab. */
+function tabInfo(ws: Workspace, t: Tab): { name: string; badge: { text: string; color: string }; title: string } {
+  switch (t.kind) {
+    case 'file':
+      return { name: baseName(t.path), badge: fileBadge(t.path), title: relativePath(ws.backend, t.path) };
+    case 'table':
+      return { name: t.table, badge: { text: 'T', color: '#5fc9be' }, title: `${db.get(t.source)?.name ?? ''} · ${t.schema}.${t.table}` };
+    case 'console':
+      return { name: `console [${db.get(t.source)?.name ?? t.source}]`, badge: { text: 'Q', color: '#e3a869' }, title: `Query console: ${db.get(t.source)?.name ?? ''}` };
+    case 'diff':
+      return {
+        name: t.commit ? `${baseName(t.path)} (${t.commit.slice(0, 7)})` : `Diff: ${baseName(t.path)}`,
+        badge: { text: '±', color: '#6a9ef0' },
+        title: `${relativePath(ws.backend, t.path)}: ${t.commit ? `changes in ${t.commit.slice(0, 8)}` : 'HEAD vs your version'}`,
+      };
+  }
+}
 
 export function EditorArea({ ws }: { ws: Workspace }) {
   const tab = ws.activeTab;
@@ -24,8 +49,7 @@ export function EditorArea({ ws }: { ws: Workspace }) {
       {ws.tabs.length > 0 && <div className="tabs" role="tablist" aria-label="Open files">
         {ws.tabs.map((t) => {
           const isFile = t.kind === 'file';
-          const name = isFile ? baseName(t.path) : t.table;
-          const badge = isFile ? fileBadge(t.path) : { text: 'T', color: '#5fc9be' };
+          const { name, badge, title } = tabInfo(ws, t);
           const active = t.id === ws.activeId;
           const dirty = isFile && ws.dirty.has(t.path);
           const preview = isFile && !!t.preview;
@@ -44,9 +68,7 @@ export function EditorArea({ ws }: { ws: Workspace }) {
                     ws.closeTab(t.id);
                   }
                 }}
-                title={
-                  (isFile ? relativePath(ws.backend, t.path) : `${SAMPLE_DB.schema}.${t.table}`) + (preview ? '\nPreview tab: double-click to keep it open' : '')
-                }
+                title={title + (preview ? '\nPreview tab: double-click to keep it open' : '')}
               >
                 <Badge text={badge.text} color={badge.color} />
                 {name}
@@ -72,7 +94,9 @@ export function EditorArea({ ws }: { ws: Workspace }) {
         </div>
       )}
       {tab?.kind === 'file' && ws.loaded[tab.path] === undefined && <div className="editor-empty">Loading…</div>}
-      {tab?.kind === 'table' && <TableView table={tab.table} />}
+      {tab?.kind === 'table' && <TableEditor key={tab.id} ws={ws} source={tab.source} schema={tab.schema} table={tab.table} />}
+      {tab?.kind === 'console' && <QueryConsole key={tab.id} ws={ws} source={tab.source} />}
+      {tab?.kind === 'diff' && <DiffView key={tab.id} ws={ws} path={tab.path} commit={tab.commit} />}
       {!tab && (
         <div className="editor-empty">
           <div className="shortcut-row">
@@ -168,6 +192,14 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     setHover(null);
   }, []);
   const moreActions = useRef<(line: number, column: number) => void>(() => {});
+  /** Changes against HEAD (gutter markers), and the popup for one of them. */
+  const hunks = useRef<Hunk[]>([]);
+  const gitDecorations = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
+  const [hunkPopup, setHunkPopup] = useState<{ x: number; y: number; index: number } | null>(null);
+  const closeHunk = useCallback(() => setHunkPopup(null), []);
+  /** Git blame per line while annotating (state for the gutter labels, ref for clicks). */
+  const blame = useRef<BlameLine[] | null>(null);
+  const [blameLines, setBlameLines] = useState<BlameLine[] | null>(null);
   const [find, setFind] = useState<FindRequest | null>(null);
   const [findStep, setFindStep] = useState<{ dir: 1 | -1; nonce: number } | null>(null);
   const [popup, setPopup] = useState<'goto' | 'structure' | null>(null);
@@ -301,6 +333,9 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     });
     // Ctrl+K is a chord prefix in Monaco; take it back for Commit like PhpStorm.
     editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyK, () => latest.current.ws.showLeft('commit'));
+    // Ctrl+Shift+K: Push… (Monaco's "delete line" otherwise); Ctrl+T: Update Project.
+    editor.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyK, () => latest.current.ws.git && latest.current.ws.setGitDialog({ kind: 'push' }));
+    editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyT, () => latest.current.ws.git && latest.current.ws.runGit('Update project', () => latest.current.ws.gitRepo.pull()));
 
     // ── Lightbulb: shown on the caret line when Alt+Enter has something to offer ──
     const bulb = document.createElement('div');
@@ -436,6 +471,20 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     ]);
     editor.onDidDispose(() => setEditorCommands(null));
     editor.onMouseDown((e) => {
+      const line = e.target.position?.lineNumber;
+      // Change marker: the HEAD version of those lines.
+      if (e.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS && line && (e.target.element as HTMLElement | null)?.className.includes('git-mark')) {
+        const count = editor.getModel()!.getLineCount();
+        const index = hunks.current.findIndex((h) => (h.count ? line >= h.start && line < h.start + h.count : line === Math.min(h.start, count)));
+        if (index >= 0) setHunkPopup({ x: e.event.posx + 12, y: e.event.posy + 4, index });
+        return;
+      }
+      // Annotations: clicking a line's author shows its commit in the Git log.
+      if (e.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS && line && blame.current) {
+        const b = blame.current[line - 1];
+        if (b && !/^0+$/.test(b.hash)) latest.current.ws.showCommit(b.hash);
+        return;
+      }
       if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN && e.target.position && /\.(md|markdown)$/i.test(latest.current.path)) {
         // Markdown: ▷ beside a shell code block runs it.
         const block = shellBlocks(editor.getModel()?.getValue() ?? '').find((b) => b.line === e.target.position!.lineNumber);
@@ -459,6 +508,122 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       })),
     );
   }, [ready, path, ws.breakpoints]);
+
+  // Git: change markers against HEAD, updated while typing.
+  useEffect(() => {
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    if (!ready || !editor || !model) return;
+    const deco = (gitDecorations.current ??= editor.createDecorationsCollection());
+    if (!ws.git) {
+      deco.clear();
+      hunks.current = [];
+      return;
+    }
+    let live = true;
+    let base: string | null = null;
+    let timer = 0;
+    const colors = { added: '#549159', modified: '#375fad', deleted: '#868a91' };
+    const update = () => {
+      if (base === null) {
+        deco.clear();
+        hunks.current = [];
+        return;
+      }
+      const list = diffLines(base.split(/\r?\n/), model.getLinesContent());
+      hunks.current = list;
+      const count = model.getLineCount();
+      deco.set(
+        list.map((h) => {
+          const start = h.count ? h.start : Math.min(h.start, count);
+          const end = h.count ? h.start + h.count - 1 : start;
+          return {
+            range: new monaco.Range(start, 1, end, 1),
+            options: {
+              isWholeLine: true,
+              linesDecorationsClassName: `git-mark git-${h.kind}${!h.count && h.start > count ? ' at-end' : ''}`,
+              overviewRuler: { color: colors[h.kind], position: monaco.editor.OverviewRulerLane.Left },
+            },
+          };
+        }),
+      );
+    };
+    ws.gitRepo.head(path).then((text) => {
+      if (!live) return;
+      base = text;
+      update();
+    });
+    const sub = model.onDidChangeContent(() => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(update, 250);
+    });
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+      sub.dispose();
+    };
+  }, [ready, path, ws.git, ws.gitRepo]);
+
+  // Git blame in the line-number column (Annotate with Git Blame).
+  const annotate = ws.annotated.has(path);
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!ready || !editor) return;
+    if (!annotate) {
+      blame.current = null;
+      setBlameLines(null);
+      return;
+    }
+    let live = true;
+    ws.gitRepo
+      .blame(path)
+      .then((lines) => {
+        if (!live) return;
+        blame.current = lines;
+        setBlameLines(lines);
+      })
+      .catch((e) => {
+        ws.notify({ title: 'Annotate failed', body: String(e instanceof Error ? e.message : e), tone: 'error' });
+        ws.toggleAnnotate(path);
+      });
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, path, annotate, ws.git]);
+
+  const rollbackHunk = (h: Hunk) => {
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    if (!model) return;
+    const count = model.getLineCount();
+    const old = h.oldLines.join('\n');
+    let range: monaco.Range;
+    let text: string;
+    if (!h.count) {
+      // Deleted lines go back in before the line after the gap (or at the end).
+      if (h.start > count) {
+        range = new monaco.Range(count, model.getLineMaxColumn(count), count, model.getLineMaxColumn(count));
+        text = '\n' + old;
+      } else {
+        range = new monaco.Range(h.start, 1, h.start, 1);
+        text = old + '\n';
+      }
+    } else if (!h.oldLines.length) {
+      // Added lines are removed, with their line break.
+      const last = h.start + h.count - 1;
+      range = last < count ? new monaco.Range(h.start, 1, last + 1, 1) : new monaco.Range(Math.max(1, h.start - 1), h.start > 1 ? model.getLineMaxColumn(h.start - 1) : 1, last, model.getLineMaxColumn(last));
+      text = '';
+    } else {
+      const last = h.start + h.count - 1;
+      range = new monaco.Range(h.start, 1, last, model.getLineMaxColumn(last));
+      text = old;
+    }
+    model.pushStackElement();
+    model.pushEditOperations([], [{ range, text }], () => null);
+    model.pushStackElement();
+    setHunkPopup(null);
+  };
 
   // Problems → squiggles
   useEffect(() => {
@@ -539,6 +704,32 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         />
       </div>
     )}
+    {hunkPopup && hunks.current[hunkPopup.index] && (
+      <HunkPopup
+        x={hunkPopup.x}
+        y={hunkPopup.y}
+        hunk={hunks.current[hunkPopup.index]}
+        index={hunkPopup.index}
+        total={hunks.current.length}
+        language={editorRef.current?.getModel()?.getLanguageId() ?? ''}
+        onMove={(dir) => {
+          const n = hunks.current.length;
+          const index = (hunkPopup.index + dir + n) % n;
+          const h = hunks.current[index];
+          const editor = editorRef.current!;
+          editor.revealLineInCenterIfOutsideViewport(h.start);
+          const top = editor.getTopForLineNumber(Math.min(h.start, editor.getModel()!.getLineCount())) - editor.getScrollTop();
+          const rect = editor.getDomNode()!.getBoundingClientRect();
+          setHunkPopup({ x: hunkPopup.x, y: rect.top + top + 22, index });
+        }}
+        onRollback={() => rollbackHunk(hunks.current[hunkPopup.index])}
+        onDiff={() => {
+          setHunkPopup(null);
+          ws.openDiff(path);
+        }}
+        onClose={closeHunk}
+      />
+    )}
     {intentions && <IntentionPopup x={intentions.x} y={intentions.y} items={intentions.items} model={editorRef.current?.getModel() ?? null} onClose={closeIntentions} />}
     {popup === 'goto' && editorRef.current && <GotoLineDialog editor={editorRef.current} onClose={closePopup} />}
     {popup === 'structure' && editorRef.current && (
@@ -562,7 +753,8 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         codeLensFontFamily: 'Inter, sans-serif',
         codeLensFontSize: 12,
         glyphMargin: true,
-        lineNumbersMinChars: 4,
+        lineNumbersMinChars: blameLines ? 31 : 4,
+        lineNumbers: blameLines ? (n) => `${blameLabel(blameLines[n - 1]).padEnd(26)}${String(n).padStart(4)}` : 'on',
         lineDecorationsWidth: 14,
         folding: true,
         showFoldingControls: 'mouseover',
@@ -593,55 +785,6 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
   );
 }
 
-function TableView({ table }: { table: string }) {
-  const data = SAMPLE_DB.tables[table];
-  if (!data) return <div className="editor-empty">Table not found.</div>;
-  return (
-    <>
-      <div className="tw-toolbar" style={{ height: 38, gap: 14, padding: '0 12px', borderBottom: '1px solid var(--line)' }}>
-        <span style={{ fontWeight: 600 }}>
-          {SAMPLE_DB.schema}.{table}
-        </span>
-        <code className="mono" style={{ fontSize: 12, padding: '2px 8px', borderRadius: 4, background: 'var(--raised)', color: '#c2c8d2' }}>
-          SELECT * FROM {table} LIMIT 500
-        </code>
-        <span className="grow" />
-        <span className="muted">{data.rows.length} rows · sample data</span>
-      </div>
-      <div className="grid-wrap">
-        <table className="grid">
-          <thead>
-            <tr>
-              <th className="num" />
-              {data.columns.map((c) => (
-                <th key={c.name}>
-                  {c.key && (
-                    <span className="mono" style={{ fontSize: 10, marginRight: 6, color: c.key === 'pk' ? 'var(--yellow)' : c.key === 'fk' ? 'var(--blue)' : 'var(--purple)' }}>
-                      {c.key.toUpperCase()}
-                    </span>
-                  )}
-                  {c.name} <span className="muted" style={{ fontSize: 11, fontWeight: 400 }}>{c.type}</span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {data.rows.map((row, i) => (
-              <tr key={i}>
-                <td className="num">{i + 1}</td>
-                {row.map((v, j) => (
-                  <td key={j} className={v === null ? 'null' : /^[\d.]+$/.test(v) ? 'number' : undefined}>
-                    {v ?? '<null>'}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
-  );
-}
 
 /** Markdown files: ▷ beside shell code blocks, and a tinted background on code block lines. */
 function setupMarkdown(editor: monaco.editor.IStandaloneCodeEditor) {
@@ -670,4 +813,12 @@ function setupMarkdown(editor: monaco.editor.IStandaloneCodeEditor) {
     window.clearTimeout(timer);
     timer = window.setTimeout(update, 200);
   });
+}
+
+/** "2026-10-12  Lina M." for the annotation gutter. */
+function blameLabel(b: BlameLine | undefined): string {
+  if (!b) return '';
+  if (/^0+$/.test(b.hash)) return 'Not committed yet';
+  const [first, last] = b.author.split(' ');
+  return `${b.date.slice(0, 10)}  ${first}${last ? ` ${last[0]}.` : ''}`;
 }

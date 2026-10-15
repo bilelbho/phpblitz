@@ -59,23 +59,26 @@ Without a server, a built-in regex index gives basic completion and structure.
 | `src-tauri/src/lsp.rs` | Starts language servers and relays LSP messages to the UI |
 | `src-tauri/src/watcher.rs` | Watches the project for outside changes (git, composer, other editors) |
 | `src-tauri/src/pty.rs` | Terminal shells in a pseudo-terminal (ConPTY on Windows); detects PowerShell, cmd, Git Bash, WSL |
+| `src-tauri/src/db.rs` | PostgreSQL, MySQL/MariaDB and SQLite connections; passwords in the OS credential store |
 | `src-tauri/src/search.rs` | Find in Files / Replace in Files (ripgrep's walker + regex) |
 | `src-tauri/src/mago.rs` | Mago lint, incremental analysis and formatting (`build.rs` embeds PHP's built-in definitions) |
 | `src/terminal/manager.ts` | Terminal tabs: xterm.js views and their shells, kept alive while the panel is hidden |
 | `src/settings.ts` | Settings (Ctrl+Alt+S) saved per machine; the Terminal page lives in `components/SettingsDialog.tsx` |
+| `src/git/` | Git commands for the Git tool window, branches popup and annotations (`git.ts`); line diff for change markers (`diff.ts`) |
+| `src/db/` | Data sources, per-database SQL (schema tree, pages), `.env` import |
 | `src/mago.ts` | UI side of Mago: checks, project issues, formatter |
 | `src/lsp/` | LSP client (`client.ts`) and Monaco integration (`monacoBridge.ts`) |
 | `src/backend/` | `Backend` interface; `DiskBackend` (real folder via Rust) and `SampleBackend` (in-memory demo) |
 | `src/useWorkspace.ts` | All state for an open project: tabs, index, git, composer, tests, terminal |
 | `src/php.ts` | Regex-based PHP structure, class index, type guessing and Laravel routes |
 | `src/monaco.ts` | Offline Monaco setup, theme, PHP member completion |
-| `src/mock.ts` | Still mocked: database data and AI replies |
+| `src/mock.ts` | Still mocked: AI replies (and the sample project's database) |
 | `src/components/` | UI: tool windows, editor, panels, Search Everywhere |
 
 ## Real vs. mocked
 
 Real: open folder, file tree, editing and saving, PHP class index and `->` / `::` completion,
-structure, Laravel routes, `php -l` errors, Git status and commit/push, Composer packages
+structure, Laravel routes, `php -l` errors, Git (status, commit/push, change markers, diff viewer, branches, log with graph, annotate, stash), Composer packages
 (`composer outdated` / `update`), PHPUnit, an interactive terminal (tabs you can drag to reorder, any installed shell), breakpoints in the gutter.
 
-Mocked for now: database connections, AI assistant, Xdebug debugging.
+Mocked for now: AI assistant, Xdebug debugging.

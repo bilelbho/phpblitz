@@ -24,6 +24,13 @@ export interface GitChange {
   status: ChangeStatus;
 }
 
+export interface CommitOptions {
+  amend?: boolean;
+  signOff?: boolean;
+  /** Hash of the commit this one fixes: `git commit --fixup` (the message is generated). */
+  fixup?: string;
+}
+
 export interface GitInfo {
   branch: string;
   changes: GitChange[];
@@ -97,9 +104,11 @@ export interface Backend {
   /** null when the project is not a Git repository or git is missing. */
   gitInfo(): Promise<GitInfo | null>;
   /** Returns a one-line summary; throws with git's message on failure. */
-  gitCommit(paths: string[], message: string, push: boolean, amend?: boolean): Promise<string>;
+  gitCommit(paths: string[], message: string, push: boolean, options?: CommitOptions): Promise<string>;
   /** Message of the last commit, for "Amend last commit". */
   lastCommitMessage(): Promise<string | null>;
+  /** Runs git with these arguments in the project (git/git.ts builds on this). */
+  git(args: string[]): Promise<RunResult>;
 
   packages(): Promise<Package[]>;
   /** Package name → latest version, for direct dependencies that are outdated. */

@@ -1,5 +1,5 @@
-// Features that are mocked for now. Each one gets a real implementation later:
-// database → a Rust driver (sqlx), AI → a model API call with project context.
+// Mocked for now: AI replies (later: a model API call with project context).
+// SAMPLE_DB is the sample project's database, served by db/store.ts's sample driver.
 
 import { structureOf } from './php';
 

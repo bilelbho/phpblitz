@@ -391,6 +391,12 @@ function define(id: SchemeId, p: Palette) {
       'editorError.foreground': p.error,
       'editorWarning.foreground': p.warning,
       'editorOverviewRuler.border': '#00000000',
+      // Diff viewer, in JetBrains' green / red tones.
+      'diffEditor.insertedLineBackground': p.dark ? '#2a3d2c80' : '#e3f5e6',
+      'diffEditor.insertedTextBackground': p.dark ? '#3c6a4380' : '#bde8c4',
+      'diffEditor.removedLineBackground': p.dark ? '#4a2c2e80' : '#fbe4e4',
+      'diffEditor.removedTextBackground': p.dark ? '#7a3c4080' : '#f4b9b9',
+      'diffEditor.diagonalFill': p.dark ? '#ffffff10' : '#00000010',
       'minimap.background': p.bg,
       'scrollbar.shadow': '#00000000',
       'scrollbarSlider.background': p.dark ? '#4E515766' : '#C9CCD666',

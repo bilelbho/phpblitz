@@ -1,6 +1,6 @@
 import type { Workspace } from '../useWorkspace';
 import { relativePath } from '../backend/types';
-import { SAMPLE_DB } from '../mock';
+import { db } from '../db/store';
 import { Icon, Sym } from './Icon';
 
 const LSP_STATE: Record<string, [string, string]> = {
@@ -64,7 +64,9 @@ export function StatusBar({ ws }: { ws: Workspace }) {
     const member = [...ws.structure].reverse().find((s) => s.depth > 0 && s.kind === 'method' && s.line <= ws.cursor.line);
     if (member) crumbs.push({ label: `${member.name}()`, sym: ['m', '#e55765'] });
   } else if (tab?.kind === 'table') {
-    crumbs.push({ label: SAMPLE_DB.schema }, { label: tab.table });
+    crumbs.push({ label: db.get(tab.source)?.name ?? tab.source }, { label: tab.schema }, { label: tab.table });
+  } else if (tab?.kind === 'console') {
+    crumbs.push({ label: db.get(tab.source)?.name ?? tab.source }, { label: 'console' });
   }
 
   const loaded = tab?.kind === 'file' ? ws.loaded[tab.path] : undefined;

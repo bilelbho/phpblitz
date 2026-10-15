@@ -293,15 +293,28 @@ export function buildEditorMenu(
         { label: 'Terminal', icon: 'terminal', run: () => ws.showBottom('terminal') },
       ],
     },
-    {
-      label: 'Git',
-      icon: 'git',
-      disabled: !ws.git,
-      submenu: [
-        { label: 'Commit File…', shortcut: SHORTCUTS.commit, run: () => ws.showLeft('commit') },
-        { label: 'Refresh Status', icon: 'refresh', run: ws.refreshGit },
-      ],
-    },
+    { label: 'Git', icon: 'git', disabled: !ws.git, submenu: gitSubmenu(ws, path, false) },
+  ];
+}
+
+/** Right-click ▸ Git, in the editor and the Project tree. */
+export function gitSubmenu(ws: Workspace, path: string, isDir: boolean): ContextItem[] {
+  const inside = (p: string) => p === path || p.startsWith(path + '/');
+  const changes = (ws.git?.changes ?? []).filter((c) => (isDir ? inside(c.path) : c.path === path) && c.status !== 'U');
+  const change = !isDir ? ws.git?.changes.find((c) => c.path === path) : undefined;
+  return [
+    { label: isDir ? 'Commit Directory…' : 'Commit File…', shortcut: SHORTCUTS.commit, icon: 'commit', run: () => ws.showLeft('commit') },
+    { kind: 'sep' },
+    ...(!isDir
+      ? [
+          { label: 'Show Diff', icon: 'columns' as const, disabled: !change || change.status === 'U', run: () => ws.openDiff(path) },
+          { label: 'Annotate with Git Blame', checked: ws.annotated.has(path), disabled: change?.status === 'U' || change?.status === 'A', run: () => (ws.openFile(path), ws.toggleAnnotate(path)) },
+        ]
+      : []),
+    { label: 'Show History', icon: 'history', run: () => ws.showHistory(path) },
+    { kind: 'sep' },
+    { label: 'Rollback…', icon: 'rollback', disabled: !changes.length, run: () => ws.rollbackFiles(changes) },
+    { label: 'Refresh Status', icon: 'refresh', run: ws.refreshGit },
   ];
 }
 

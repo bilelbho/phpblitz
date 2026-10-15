@@ -1,3 +1,4 @@
+mod db;
 mod fs;
 mod lsp;
 mod mago;
@@ -5,6 +6,7 @@ mod process;
 mod pty;
 mod search;
 mod watcher;
+mod xdebug;
 
 use tauri::Manager;
 
@@ -16,6 +18,8 @@ pub fn run() {
         .manage(mago::MagoState::default())
         .manage(watcher::WatchState::default())
         .manage(pty::PtyState::default())
+        .manage(db::DbState::default())
+        .manage(xdebug::XdebugState::default())
         .invoke_handler(tauri::generate_handler![
             fs::list_dir,
             fs::list_files,
@@ -49,6 +53,16 @@ pub fn run() {
             pty::pty_write,
             pty::pty_resize,
             pty::pty_kill,
+            db::db_connect,
+            db::db_test,
+            db::db_disconnect,
+            db::db_query,
+            db::db_set_password,
+            db::db_has_password,
+            xdebug::xdebug_listen,
+            xdebug::xdebug_stop_listening,
+            xdebug::xdebug_send,
+            xdebug::xdebug_close,
             search::search_in_files,
             search::replace_in_files,
             search::replace_in_text,
@@ -60,6 +74,7 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 app.state::<lsp::LspState>().stop_all();
                 app.state::<pty::PtyState>().kill_all();
+                app.state::<xdebug::XdebugState>().shutdown();
             }
         });
 }

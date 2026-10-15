@@ -4,6 +4,8 @@ import { Icon, Play } from './Icon';
 import { MenuButton, type MenuEntry } from './Menu';
 import { WindowControls, projectColor } from './WindowControls';
 import type { SearchTab } from './SearchEverywhere';
+import { useState } from 'react';
+import { BranchesPopup } from './BranchesPopup';
 
 interface Props {
   ws: Workspace;
@@ -44,6 +46,11 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
     { kind: 'sep' },
     { label: 'Run Tests', run: ws.runTests },
     { label: 'Commit…', shortcut: 'Ctrl+K', run: () => ws.showLeft('commit') },
+    { kind: 'sep' },
+    { kind: 'head', label: 'Git' },
+    { label: 'Update Project…', shortcut: 'Ctrl+T', disabled: !ws.git, run: () => ws.runGit('Update project', () => ws.gitRepo.pull()) },
+    { label: 'Push…', shortcut: 'Ctrl+Shift+K', disabled: !ws.git, run: () => ws.setGitDialog({ kind: 'push' }) },
+    { label: 'Show Git Log', disabled: !ws.git, run: () => ws.showHistory('') },
   ];
 
   const projectMenu = (): MenuEntry[] => [
@@ -57,11 +64,7 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
     { label: 'Close Project', run: onClose },
   ];
 
-  const gitMenu: MenuEntry[] = [
-    { kind: 'head', label: `Current branch: ${ws.git?.branch ?? '—'}` },
-    { label: 'Commit…', shortcut: 'Ctrl+K', run: () => ws.showLeft('commit') },
-    { label: 'Refresh Status', run: ws.refreshGit },
-  ];
+  const [branches, setBranches] = useState<DOMRect | null>(null);
 
   const runMenu: MenuEntry[] = [
     { label: 'Run Tests', run: ws.runTests },
@@ -84,14 +87,22 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
         </span>
       </MenuButton>
       {ws.git && (
-        <MenuButton className="widget" label={`Git branch ${ws.git.branch}`} entries={gitMenu}>
+        <button
+          type="button"
+          className={'widget' + (branches ? ' open' : '')}
+          aria-label={`Git branch ${ws.git.branch}`}
+          aria-haspopup="dialog"
+          title="Git branches"
+          onClick={(e) => setBranches(branches ? null : (e.currentTarget as HTMLElement).getBoundingClientRect())}
+        >
           <Icon name="branch" size={15} />
           {ws.git.branch}
           <span className="chevron">
             <Icon name="chevronDown" size={12} strokeWidth={2.2} />
           </span>
-        </MenuButton>
+        </button>
       )}
+      {branches && <BranchesPopup ws={ws} anchor={branches} onClose={() => setBranches(null)} />}
 
       <div className="drag" data-tauri-drag-region />
 

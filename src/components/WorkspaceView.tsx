@@ -19,6 +19,7 @@ import { StatusBar } from './StatusBar';
 import { SearchEverywhere, type SearchTab } from './SearchEverywhere';
 import { FindInFiles } from './FindInFiles';
 import { SettingsDialog } from './SettingsDialog';
+import { GitDialogs } from './GitDialogs';
 import { getSettings } from '../settings';
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
@@ -89,6 +90,12 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
       } else if (ctrl && e.shiftKey && key === 'a') {
         e.preventDefault();
         latest.current.openSearch('actions');
+      } else if (ctrl && e.shiftKey && key === 'k') {
+        e.preventDefault();
+        if (latest.current.ws.git) latest.current.ws.setGitDialog({ kind: 'push' });
+      } else if (ctrl && key === 't' && !e.shiftKey) {
+        e.preventDefault();
+        if (latest.current.ws.git) latest.current.ws.runGit('Update project', () => latest.current.ws.gitRepo.pull());
       } else if (ctrl && key === 'k') {
         e.preventDefault();
         latest.current.ws.showLeft('commit');
@@ -128,6 +135,7 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
     { id: 'terminal', label: 'Terminal', icon: 'terminal', active: bottomActive('terminal') },
     { id: 'problems', label: 'Problems', icon: 'error', active: bottomActive('problems'), dot: problemCount > 0 },
     { id: 'composer', label: 'Composer Log', icon: 'box', active: bottomActive('composer') },
+    { id: 'git', label: 'Git', icon: 'git', active: bottomActive('git') },
   ];
   const rightItems: StripItem[] = [
     { id: 'notifications', label: 'Notifications', icon: 'bell', active: ws.rightTool === 'notifications', count: ws.notices.length },
@@ -220,6 +228,7 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
       </div>
       <StatusBar ws={ws} />
       {ws.findInFiles && <FindInFiles ws={ws} />}
+      <GitDialogs ws={ws} />
       {ws.settingsPage && <SettingsDialog ws={ws} page={ws.settingsPage} onClose={ws.closeSettings} />}
       {ws.searchOpen && (
         <SearchEverywhere

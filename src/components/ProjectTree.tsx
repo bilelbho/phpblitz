@@ -1,6 +1,7 @@
 // The Project tool window, modeled on PhpStorm's: header with view switcher, New,
 // Expand/Collapse and ⋮ options; a tree with selection, keyboard navigation and speed search.
 
+import { gitSubmenu } from '../editorMenu';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Workspace } from '../useWorkspace';
 import type { Entry } from '../backend/types';
@@ -370,7 +371,7 @@ export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void 
         ],
       },
       { label: 'Reload from Disk', icon: 'refresh', run: () => ws.reloadItem(row.path, row.isDir) },
-      ...(ws.git ? [{ kind: 'sep' as const }, { label: 'Git', icon: 'git' as const, submenu: [{ label: 'Commit…', shortcut: 'Ctrl+K', run: () => ws.showLeft('commit') }, { label: 'Refresh Status', icon: 'refresh' as const, run: ws.refreshGit }] }] : []),
+      ...(ws.git ? [{ kind: 'sep' as const }, { label: 'Git', icon: 'git' as const, submenu: gitSubmenu(ws, row.path, row.isDir) }] : []),
     ];
   };
 

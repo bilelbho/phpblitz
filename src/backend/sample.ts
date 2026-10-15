@@ -210,6 +210,16 @@ const EMPTY_DIRS = ['config', 'database', 'vendor'];
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** History of the sample repository (newest first). */
+const SAMPLE_COMMITS = [
+  { hash: 'e5c1d20a9f6b4c3d2e1f0a9b8c7d6e5f4a3b2c1d', parents: ['c4d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1'], author: 'Lina Moreau', email: 'lina@example.com', date: '2026-10-12T16:20:00+02:00', subject: 'Add invoices endpoint', refs: 'HEAD -> main, origin/main', files: ['M app/Http/Controllers/UserController.php', 'A app/Services/InvoiceService.php', 'M routes/web.php'] },
+  { hash: 'c4d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1', parents: ['a3b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0', 'b7a01f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a'], author: 'Omar Haddad', email: 'omar@example.com', date: '2026-10-10T11:05:00+02:00', subject: "Merge branch 'feature/composer'", refs: '', files: ['M composer.json'] },
+  { hash: 'b7a01f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a', parents: ['9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e'], author: 'Omar Haddad', email: 'omar@example.com', date: '2026-10-09T18:40:00+02:00', subject: 'Add Composer setup', refs: 'feature/composer', files: ['A composer.json'] },
+  { hash: 'a3b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0', parents: ['9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e'], author: 'Jane Cooper', email: 'jane@example.com', date: '2026-10-08T09:12:00+02:00', subject: 'Users controller and model', refs: '', files: ['A app/Http/Controllers/UserController.php', 'A app/Models/User.php'] },
+  { hash: '9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e', parents: ['1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b'], author: 'Jane Cooper', email: 'jane@example.com', date: '2026-10-07T15:30:00+02:00', subject: 'Laravel skeleton', refs: 'tag: v0.1', files: ['A app/Http/Controllers/Controller.php', 'A routes/web.php'] },
+  { hash: '1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b', parents: [], author: 'Jane Cooper', email: 'jane@example.com', date: '2026-10-07T14:00:00+02:00', subject: 'Initial commit', refs: '', files: ['A README.md'] },
+];
+
 /** The built-in "acme-shop" demo project. Nothing here touches the disk. */
 export class SampleBackend implements Backend {
   readonly kind = 'sample' as const;
@@ -217,11 +227,12 @@ export class SampleBackend implements Backend {
   readonly name = 'acme-shop';
 
   private files = new Map(Object.entries(FILES).map(([rel, src]) => [`${ROOT}/${rel}`, src]));
-  private changes = new Map<string, 'M' | 'A'>([
+  private changes = new Map<string, 'M' | 'A' | 'U'>([
     [`${ROOT}/app/Http/Controllers/UserController.php`, 'M'],
     [`${ROOT}/app/Models/User.php`, 'M'],
     [`${ROOT}/tests/Feature/InvoiceTest.php`, 'A'],
     [`${ROOT}/routes/web.php`, 'M'],
+    [`${ROOT}/README.md`, 'U'],
   ]);
   private pkgs: (Package & { latest: string })[] = [
     { name: 'laravel/framework', version: 'v11.31.0', latest: 'v11.34.2', kind: 'require' },
@@ -342,12 +353,79 @@ export class SampleBackend implements Backend {
     return this.lastMessage;
   }
 
-  async gitCommit(paths: string[], message: string, push: boolean, amend = false) {
+  /** A small made-up repository, so the Git tool window, diff and annotations can be tried. */
+  async git(argv: string[]): Promise<RunResult> {
+    const args = [...argv];
+    while (args[0] === '-c') args.splice(0, 2);
+    const ok = (stdout: string): RunResult => ({ code: 0, stdout, stderr: '' });
+    const [cmd] = args;
+    const us = '\x1f';
+    if (cmd === 'log' && args.some((a) => a.startsWith('--format=%B'))) return ok(SAMPLE_COMMITS.find((c) => c.hash.startsWith(args[args.length - 1]))?.subject ?? this.lastMessage);
+    if (cmd === 'log') {
+      if (args.includes('--not') || args.some((a) => a.includes('..HEAD'))) return ok('');
+      return ok(SAMPLE_COMMITS.map((c) => [c.hash, c.hash.slice(0, 7), c.parents.join(' '), c.author, c.email, c.date, c.subject, c.refs].join(us) + '\x1e').join('\n'));
+    }
+    if (cmd === 'diff-tree') {
+      const c = SAMPLE_COMMITS.find((x) => x.hash.startsWith(args[args.length - 1]));
+      return ok((c?.files ?? []).map((f) => `${f[0]}\t${f.slice(2)}`).join('\n'));
+    }
+    if (cmd === 'show') {
+      const [rev, rel] = args[1].split(':');
+      const text = this.files.get(`${ROOT}/${rel}`);
+      if (text === undefined) return { code: 128, stdout: '', stderr: `fatal: path '${rel}' does not exist in '${rev}'` };
+      // HEAD and parents (`abc^`) show the older version, so diffs have something to show.
+      return ok(rev === 'HEAD' || rev.endsWith('^') ? this.headVersion(`${ROOT}/${rel}`, text) ?? '' : text);
+    }
+    if (cmd === 'for-each-ref') {
+      return ok(
+        [
+          ['refs/heads/main', 'e5c1d20', 'origin/main', '', '*'],
+          ['refs/heads/feature/composer', 'b7a01f3', '', '', ''],
+          ['refs/remotes/origin/main', 'e5c1d20', '', '', ''],
+        ]
+          .map((r) => r.join(us))
+          .join('\n'),
+      );
+    }
+    if (cmd === 'branch' && args[1] === '--show-current') return ok('main\n');
+    if (cmd === 'rev-parse') return ok('origin/main\n');
+    if (cmd === 'remote') return ok('origin\n');
+    if (cmd === 'stash' && args[1] === 'list') return ok('');
+    if (cmd === 'rebase') return ok('Successfully rebased and updated refs/heads/main.');
+    if (cmd === 'status' && args.some((a) => a.startsWith('--ignored'))) return ok(['!! vendor/', '!! .env', '!! storage/logs/'].join('\n'));
+    if (cmd === 'blame') {
+      const text = this.files.get(`${ROOT}/${args[args.length - 1]}`) ?? '';
+      const out: string[] = [];
+      text.split('\n').forEach((line, i) => {
+        const c = SAMPLE_COMMITS[i % 3 === 0 ? 0 : i % 3 === 1 ? 3 : 5];
+        out.push(`${c.hash} ${i + 1} ${i + 1} 1`, `author ${c.author}`, `author-time ${Math.floor(Date.parse(c.date) / 1000)}`, `summary ${c.subject}`, `\t${line}`);
+      });
+      return ok(out.join('\n'));
+    }
+    return { code: 1, stdout: '', stderr: 'This is the sample project: Git commands that change the repository do not run here. Open a project folder to use Git.' };
+  }
+
+  /** What a changed sample file looked like in HEAD: a few lines differ, so change markers show. */
+  private headVersion(path: string, text: string): string | null {
+    const status = this.changes.get(path);
+    if (status === 'A') return null;
+    if (status !== 'M') return text;
+    const lines = text.split('\n');
+    const at = Math.floor(lines.length * 0.6);
+    lines.splice(at, 2);
+    const mod = Math.floor(lines.length * 0.3);
+    lines[mod] = lines[mod] + ' // before';
+    lines.splice(Math.floor(lines.length * 0.15), 0, '    // removed in the working copy');
+    return lines.join('\n');
+  }
+
+  async gitCommit(paths: string[], message: string, push: boolean, options: { amend?: boolean; fixup?: string } = {}) {
     await delay(300);
     paths.forEach((p) => this.changes.delete(p));
-    this.lastMessage = message;
+    const subject = options.fixup ? `fixup! ${SAMPLE_COMMITS.find((c) => c.hash.startsWith(options.fixup!))?.subject ?? options.fixup}` : message;
+    this.lastMessage = subject;
     const n = paths.length;
-    return `[main 4f2c9a1] ${message} (${amend ? 'amended, ' : ''}${n} ${n === 1 ? 'file' : 'files'} changed${push ? ', pushed to origin' : ''})`;
+    return `[main 4f2c9a1] ${subject} (${options.amend ? 'amended, ' : ''}${n} ${n === 1 ? 'file' : 'files'} changed${push ? ', pushed to origin' : ''})`;
   }
 
   async packages(): Promise<Package[]> {

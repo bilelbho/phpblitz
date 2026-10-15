@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import * as monaco from 'monaco-editor';
-import type { Backend, Entry, GitInfo, Package, Problem, RunResult, TestResult } from './backend/types';
+import type { Backend, CommitOptions, Entry, GitInfo, Package, Problem, RunResult, TestResult } from './backend/types';
 import { baseName } from './backend/types';
 import { phpIndex, routesOf, structureOf, type Route } from './php';
 import { aiReply, type AiMessage } from './mock';
@@ -23,17 +23,36 @@ import { invoke } from '@tauri-apps/api/core';
 import { LspClient, pathToUri, uriToPath, type ServerSpec } from './lsp/client';
 import { listen } from '@tauri-apps/api/event';
 import { terminals } from './terminal/manager';
+import { db } from './db/store';
+import { Git } from './git/git';
 import type { SearchOptions, SearchResult } from './search';
 import { applyEditNow, findUsages as lspFindUsages, renameSymbol, setActiveLsp, type Usage } from './lsp/monacoBridge';
 import type { Diagnostic, WorkspaceEdit } from './lsp/protocol';
 
 /** `preview`: PhpStorm's preview tab (italic), replaced by the next previewed file. */
-export type Tab = { id: string; kind: 'file'; path: string; preview?: boolean } | { id: string; kind: 'table'; table: string };
+export type Tab =
+  | { id: string; kind: 'file'; path: string; preview?: boolean }
+  /** A database table's data (Database tool window). */
+  | { id: string; kind: 'table'; source: string; schema: string; table: string }
+  /** A data source's query console. */
+  | { id: string; kind: 'console'; source: string }
+  /** Side-by-side diff: HEAD vs the working copy, or a commit vs its parent. */
+  | { id: string; kind: 'diff'; path: string; commit?: string };
 /** Left tool windows. Structure docks in the bottom half, the others in the top half. */
 export type LeftTool = 'project' | 'commit' | 'structure' | 'database';
 type LeftTopTool = Exclude<LeftTool, 'structure'>;
 export type RightTool = 'notifications' | 'ai' | 'endpoints' | 'composer';
-export type BottomTab = 'problems' | 'terminal' | 'tests' | 'composer' | 'usages' | 'find';
+export type GitDialogRequest =
+  | { kind: 'push' }
+  | { kind: 'newBranch'; from?: string }
+  | { kind: 'renameBranch'; branch: string }
+  | { kind: 'checkoutRevision' }
+  | { kind: 'stash' }
+  | { kind: 'unstash' }
+  | { kind: 'reset'; hash: string; subject: string }
+  | { kind: 'tag'; hash: string };
+
+export type BottomTab = 'problems' | 'terminal' | 'tests' | 'composer' | 'usages' | 'find' | 'git';
 
 export interface LspStatus {
   state: 'off' | 'starting' | 'ready' | 'missing' | 'stopped' | 'error';
@@ -321,9 +340,14 @@ export function useWorkspace(backend: Backend) {
     setTabs((tabs) => (tabs.some((t) => t.id === id && t.kind === 'file' && t.preview) ? tabs.map((t) => (t.id === id ? { ...t, preview: false } : t)) : tabs));
   }, []);
 
-  const openTable = useCallback((table: string) => {
-    const id = `table:${table}`;
-    setTabs((t) => (t.some((x) => x.id === id) ? t : [...t, { id, kind: 'table', table }]));
+  const openTable = useCallback((source: string, schema: string, table: string) => {
+    const id = `table:${source}:${schema}.${table}`;
+    setTabs((t) => (t.some((x) => x.id === id) ? t : [...t, { id, kind: 'table', source, schema, table }]));
+    setActiveId(id);
+  }, []);
+  const openConsole = useCallback((source: string) => {
+    const id = `console:${source}`;
+    setTabs((t) => (t.some((x) => x.id === id) ? t : [...t, { id, kind: 'console', source }]));
     setActiveId(id);
   }, []);
 
@@ -402,14 +426,76 @@ export function useWorkspace(backend: Backend) {
   // ── Git ───────────────────────────────────────────────────────
   const [git, setGit] = useState<GitInfo | null>(null);
   const [gitLoaded, setGitLoaded] = useState(false);
+  /** Git commands for the Git tool window, branches popup, diffs and annotations. */
+  const gitRepo = useMemo(() => new Git(backend), [backend]);
   const refreshGit = useCallback(async () => {
+    gitRepo.clearHeads();
     setGit(await backend.gitInfo().catch(() => null));
     setGitLoaded(true);
-  }, [backend]);
+  }, [backend, gitRepo]);
+
+  /** Runs a Git action from the UI: refreshes the status after it, and reports failures. */
+  const runGit = useCallback(
+    async (label: string, action: () => Promise<unknown>): Promise<boolean> => {
+      setStatus(`${label}…`);
+      try {
+        await action();
+        setStatus(`${label}: done`);
+        return true;
+      } catch (e) {
+        notify({ title: `${label} failed`, body: String(e instanceof Error ? e.message : e), tone: 'error', action: { label: 'Show Git console', run: () => setGitLogRequest({ console: true, nonce: Date.now() }) } });
+        setStatus('');
+        return false;
+      } finally {
+        await refreshGit();
+        setGitLogRequest((r) => ({ ...r, reload: Date.now() }));
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [refreshGit, notify],
+  );
+
+  const runGitRef = useRef(runGit);
+  runGitRef.current = runGit;
+  const gitRepoRef = useRef(gitRepo);
+  gitRepoRef.current = gitRepo;
+
+  /** What the Git tool window should show: a file's history, a commit, the console; `reload` after actions. */
+  const [gitLogRequest, setGitLogRequest] = useState<{ path?: string; hash?: string; console?: boolean; nonce?: number; reload?: number }>({});
+  const showHistory = useCallback((path: string) => {
+    setGitLogRequest({ path, nonce: Date.now() });
+    setBottomTab('git');
+    setBottomOpen(true);
+  }, []);
+  const showCommit = useCallback((hash: string) => {
+    setGitLogRequest({ hash, nonce: Date.now() });
+    setBottomTab('git');
+    setBottomOpen(true);
+  }, []);
+
+  /** Git dialogs (Push, New Branch, Stash…), opened from the branches popup, the Log and shortcuts. */
+  const [gitDialog, setGitDialog] = useState<GitDialogRequest | null>(null);
+
+  /** Files showing Git blame annotations in the gutter. */
+  const [annotated, setAnnotated] = useState<Set<string>>(new Set());
+  const toggleAnnotate = useCallback((path: string) => {
+    setAnnotated((s) => {
+      const next = new Set(s);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
+
+  const openDiff = useCallback((path: string, commit?: string) => {
+    const id = `diff:${commit ?? 'working'}:${path}`;
+    setTabs((t) => (t.some((x) => x.id === id) ? t : [...t, { id, kind: 'diff', path, commit }]));
+    setActiveId(id);
+  }, []);
 
   const commit = useCallback(
-    async (paths: string[], message: string, push: boolean, amend = false) => {
-      const summary = await backend.gitCommit(paths, message, push, amend);
+    async (paths: string[], message: string, push: boolean, options: CommitOptions = {}) => {
+      const summary = await backend.gitCommit(paths, message, push, options);
       notify({ title: push ? 'Committed and pushed' : 'Committed', body: summary, tone: 'success' });
       await refreshGit();
       return summary;
@@ -676,6 +762,31 @@ export function useWorkspace(backend: Backend) {
     }
   }, []);
 
+  /** Rollback: local changes go back to HEAD after a confirmation; open files are reloaded (unsaved edits too). */
+  const rollbackFiles = useCallback(
+    async (changes: { path: string; status: string }[]) => {
+      if (!changes.length) return;
+      const names = changes.length === 1 ? baseName(changes[0].path) : `${changes.length} files`;
+      if (!(await confirmDialog(`Rollback ${names}? Local changes are lost.${changes.some((c) => c.status === 'A') ? ' Added files are unversioned again (kept on disk).' : ''}`))) return;
+      const ok = await runGitRef.current('Rollback', () => gitRepoRef.current.rollback(changes));
+      if (!ok) return;
+      for (const c of changes) {
+        if (!(c.path in liveText.current)) continue;
+        const text = await backend.readFile(c.path).catch(() => null);
+        if (text !== null) {
+          reloadFromDisk(c.path, text);
+          setDirty((d) => {
+            const next = new Set(d);
+            next.delete(c.path);
+            return next;
+          });
+        }
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [backend, reloadFromDisk],
+  );
+
   const handleFsChanges = useCallback(
     async (changes: { kind: 'file' | 'git' | 'vendor'; path: string; exists: boolean; isDir: boolean }[]) => {
       const files = changes.filter((c) => c.kind === 'file');
@@ -759,6 +870,12 @@ export function useWorkspace(backend: Backend) {
     },
     [backend, loadDir, notify, reloadFromDisk, reindexRoutes, refreshGit, refreshProjectProblems],
   );
+
+  // The project's data sources (Database tool window); connections close with the project.
+  useEffect(() => {
+    db.open(backend.root, backend.kind !== 'disk');
+    return () => db.closeAll();
+  }, [backend]);
 
   const fsHandler = useRef(handleFsChanges);
   fsHandler.current = handleFsChanges;
@@ -1190,7 +1307,7 @@ export function useWorkspace(backend: Backend) {
     // files and index
     files, indexStats, indexVersion, routes,
     // tabs and editor
-    tabs, activeId, setActiveId, activeTab, activePath, loaded, dirty, openFile, openTable, closeTab,
+    tabs, activeId, setActiveId, activeTab, activePath, loaded, dirty, openFile, openTable, openConsole, closeTab,
     onEdit, save, saveActive, cursor, setCursor, goto, setGoto, breakpoints, toggleBreakpoint, structure, problems,
     // tool windows
     leftTop, leftBottom, toggleLeft, showLeft, rightTool, setRightTool, toggleRight, bottomTab, bottomOpen, setBottomOpen, showBottom,
@@ -1199,7 +1316,7 @@ export function useWorkspace(backend: Backend) {
     findInFiles, openFindInFiles, closeFindInFiles: () => setFindInFiles(null), findResults, setFindResults,
     savedTextOf: (path: string) => savedText.current[path], liveTextOf: (path: string) => liveText.current[path],
     // git
-    git, gitLoaded, refreshGit, commit,
+    git, gitLoaded, refreshGit, commit, gitRepo, runGit, rollbackFiles, gitLogRequest, showHistory, showCommit, annotated, toggleAnnotate, openDiff, gitDialog, setGitDialog,
     // composer
     packages, outdated, composerBusy, checkOutdated, updatePackage,
     // run
