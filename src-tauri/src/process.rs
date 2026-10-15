@@ -92,6 +92,29 @@ pub fn reveal_in_explorer(path: String) -> Result<(), String> {
     result.map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// Opens an http(s) link in the default browser (links clicked in the terminal).
+#[tauri::command]
+pub fn open_external(url: String) -> Result<(), String> {
+    let lower = url.to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) || url.chars().any(|c| c.is_control() || c == '"') {
+        return Err("Only http and https links can be opened".into());
+    }
+    #[cfg(windows)]
+    let result = {
+        use std::os::windows::process::CommandExt;
+        let mut c = Command::new("cmd");
+        // `start "" "url"`: the empty title keeps `start` from treating the URL as a window title.
+        c.raw_arg(format!("/C start \"\" \"{url}\""));
+        hide_console(&mut c);
+        c.spawn()
+    };
+    #[cfg(target_os = "macos")]
+    let result = Command::new("open").arg(&url).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let result = Command::new("xdg-open").arg(&url).spawn();
+    result.map(|_| ()).map_err(|e| e.to_string())
+}
+
 /// Finds the first of `names` on PATH or in ~/.cargo/bin (where `cargo install`
 /// puts language servers; GUI apps often start without it on PATH).
 #[tauri::command]

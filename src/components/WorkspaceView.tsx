@@ -18,6 +18,8 @@ import { ComposerPanel } from './ComposerPanel';
 import { StatusBar } from './StatusBar';
 import { SearchEverywhere, type SearchTab } from './SearchEverywhere';
 import { FindInFiles } from './FindInFiles';
+import { SettingsDialog } from './SettingsDialog';
+import { getSettings } from '../settings';
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
@@ -59,10 +61,18 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
   const latest = useRef({ ws, openSearch });
   latest.current = { ws, openSearch };
   useEffect(() => {
+    /** Keys typed in a terminal go to the shell (Settings ▸ Tools ▸ Terminal ▸ Override IDE shortcuts). */
+    const forShell = (e: KeyboardEvent) => getSettings().terminal.overrideIdeShortcuts && !!(e.target as HTMLElement | null)?.closest?.('.xterm');
     const down = (e: KeyboardEvent) => {
       if (e.key !== 'Shift') otherKey.current = true;
       const ctrl = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
+      if (ctrl && e.altKey && key === 's') {
+        e.preventDefault();
+        latest.current.ws.openSettings('terminal');
+        return;
+      }
+      if (forShell(e)) return;
       const inEditor = (e.target as HTMLElement | null)?.closest?.('.monaco-editor');
       // Browser defaults that don't belong in an IDE: reload (Ctrl+R, F5) and the web view's own find (Ctrl+F).
       if ((ctrl && (key === 'r' || key === 'f')) || e.key === 'F5') e.preventDefault();
@@ -85,7 +95,7 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
       }
     };
     const up = (e: KeyboardEvent) => {
-      if (e.key !== 'Shift') return;
+      if (e.key !== 'Shift' || forShell(e)) return;
       const now = Date.now();
       if (!otherKey.current && now - lastShift.current < 350) {
         latest.current.openSearch('all');
@@ -210,6 +220,7 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
       </div>
       <StatusBar ws={ws} />
       {ws.findInFiles && <FindInFiles ws={ws} />}
+      {ws.settingsPage && <SettingsDialog ws={ws} page={ws.settingsPage} onClose={ws.closeSettings} />}
       {ws.searchOpen && (
         <SearchEverywhere
           ws={ws}

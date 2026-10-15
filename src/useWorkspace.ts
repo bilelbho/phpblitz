@@ -22,6 +22,7 @@ import { confirmDialog, isTauri } from './platform';
 import { invoke } from '@tauri-apps/api/core';
 import { LspClient, pathToUri, uriToPath, type ServerSpec } from './lsp/client';
 import { listen } from '@tauri-apps/api/event';
+import { terminals } from './terminal/manager';
 import type { SearchOptions, SearchResult } from './search';
 import { applyEditNow, findUsages as lspFindUsages, renameSymbol, setActiveLsp, type Usage } from './lsp/monacoBridge';
 import type { Diagnostic, WorkspaceEdit } from './lsp/protocol';
@@ -148,6 +149,8 @@ export function useWorkspace(backend: Backend) {
   const [bottomTab, setBottomTab] = useState<BottomTab>('problems');
   const [bottomOpen, setBottomOpen] = useState(true);
   const [searchOpen, setSearchOpen] = useState(false);
+  /** Settings window (Ctrl+Alt+S), open on a page. */
+  const [settingsPage, setSettingsPage] = useState<string | null>(null);
   /** Find in Files (Ctrl+Shift+F) / Replace in Files (Ctrl+Shift+R) popup. */
   /** `dir`: search only that folder (Project tree ▸ Find in Files…). */
   const [findInFiles, setFindInFiles] = useState<{ mode: 'find' | 'replace'; seed: string; dir?: string; nonce: number } | null>(null);
@@ -774,6 +777,8 @@ export function useWorkspace(backend: Backend) {
       stopped = true;
       unlisten?.();
       invoke('watch_stop').catch(() => {});
+      // Shells started for this project end with it.
+      terminals.closeAll();
     };
     // Once per opened project.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1190,6 +1195,7 @@ export function useWorkspace(backend: Backend) {
     // tool windows
     leftTop, leftBottom, toggleLeft, showLeft, rightTool, setRightTool, toggleRight, bottomTab, bottomOpen, setBottomOpen, showBottom,
     searchOpen, setSearchOpen, searchTab, openSearch,
+    settingsPage, openSettings: (page = 'terminal') => setSettingsPage(page), closeSettings: () => setSettingsPage(null),
     findInFiles, openFindInFiles, closeFindInFiles: () => setFindInFiles(null), findResults, setFindResults,
     savedTextOf: (path: string) => savedText.current[path], liveTextOf: (path: string) => liveText.current[path],
     // git
@@ -1200,6 +1206,8 @@ export function useWorkspace(backend: Backend) {
     tests, runTests, terminal, runCommand, clearTerminal: () => setTerminal([]), terminalCwd,
     openTerminalAt: (dir: string) => {
       setTerminalCwd(dir);
+      // Desktop: a new shell tab in that folder (Project tree ▸ Open In ▸ Terminal).
+      if (isTauri && backend.kind === 'disk') terminals.create({ cwd: dir });
       setBottomTab('terminal');
       setBottomOpen(true);
     },

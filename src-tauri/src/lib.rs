@@ -2,6 +2,7 @@ mod fs;
 mod lsp;
 mod mago;
 mod process;
+mod pty;
 mod search;
 mod watcher;
 
@@ -14,6 +15,7 @@ pub fn run() {
         .manage(lsp::LspState::default())
         .manage(mago::MagoState::default())
         .manage(watcher::WatchState::default())
+        .manage(pty::PtyState::default())
         .invoke_handler(tauri::generate_handler![
             fs::list_dir,
             fs::list_files,
@@ -28,6 +30,7 @@ pub fn run() {
             process::run_shell,
             process::find_executable,
             process::reveal_in_explorer,
+            process::open_external,
             lsp::lsp_start,
             lsp::lsp_send,
             lsp::lsp_stop,
@@ -41,6 +44,11 @@ pub fn run() {
             mago::mago_remove_file,
             watcher::watch_start,
             watcher::watch_stop,
+            pty::terminal_shells,
+            pty::pty_spawn,
+            pty::pty_write,
+            pty::pty_resize,
+            pty::pty_kill,
             search::search_in_files,
             search::replace_in_files,
             search::replace_in_text,
@@ -48,9 +56,10 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building PHPBlitz")
         .run(|app, event| {
-            // Language servers are child processes: stop them with the app.
+            // Language servers and terminal shells are child processes: stop them with the app.
             if let tauri::RunEvent::Exit = event {
                 app.state::<lsp::LspState>().stop_all();
+                app.state::<pty::PtyState>().kill_all();
             }
         });
 }

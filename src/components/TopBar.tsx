@@ -26,6 +26,7 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
     { kind: 'head', label: 'File' },
     { label: 'Open…', run: onOpenFolder, disabled: !isTauri },
     { label: 'Save', shortcut: 'Ctrl+S', run: ws.saveActive, disabled: !ws.activePath },
+    { label: 'Settings…', shortcut: 'Ctrl+Alt+S', run: () => ws.openSettings() },
     { label: 'Close Project', run: onClose },
     { kind: 'sep' },
     { kind: 'head', label: 'Navigate' },
@@ -127,7 +128,7 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
       <button type="button" className="top-icon" aria-label="Search everywhere" title="Search Everywhere (Double Shift)" onClick={() => onSearch('all')}>
         <Icon name="search" />
       </button>
-      <button type="button" className="top-icon" aria-label="Settings" title="Settings (coming soon)" disabled>
+      <button type="button" className="top-icon" aria-label="Settings" title="Settings (Ctrl+Alt+S)" onClick={() => ws.openSettings()}>
         <Icon name="gear" />
       </button>
       <div className="drag" data-tauri-drag-region style={{ flex: '0 0 8px' }} />

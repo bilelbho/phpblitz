@@ -32,6 +32,9 @@ ignore = "0.4"
 regex = "1"
 # Delete moves files to the Recycle Bin / Trash instead of erasing them.
 trash = "5"
+# Interactive terminal: pseudo-terminals (ConPTY on Windows) and binary-safe output events.
+portable-pty = "0.9"
+base64 = "0.22"
 mago-analyzer = "=1.57.0"
 mago-database = "=1.57.0"
 mago-reporting = "=1.57.0"

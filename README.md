@@ -58,8 +58,11 @@ Without a server, a built-in regex index gives basic completion and structure.
 | `src-tauri/src/fs.rs`, `process.rs` | Files; running git/php/composer and shell commands |
 | `src-tauri/src/lsp.rs` | Starts language servers and relays LSP messages to the UI |
 | `src-tauri/src/watcher.rs` | Watches the project for outside changes (git, composer, other editors) |
+| `src-tauri/src/pty.rs` | Terminal shells in a pseudo-terminal (ConPTY on Windows); detects PowerShell, cmd, Git Bash, WSL |
 | `src-tauri/src/search.rs` | Find in Files / Replace in Files (ripgrep's walker + regex) |
 | `src-tauri/src/mago.rs` | Mago lint, incremental analysis and formatting (`build.rs` embeds PHP's built-in definitions) |
+| `src/terminal/manager.ts` | Terminal tabs: xterm.js views and their shells, kept alive while the panel is hidden |
+| `src/settings.ts` | Settings (Ctrl+Alt+S) saved per machine; the Terminal page lives in `components/SettingsDialog.tsx` |
 | `src/mago.ts` | UI side of Mago: checks, project issues, formatter |
 | `src/lsp/` | LSP client (`client.ts`) and Monaco integration (`monacoBridge.ts`) |
 | `src/backend/` | `Backend` interface; `DiskBackend` (real folder via Rust) and `SampleBackend` (in-memory demo) |
@@ -73,6 +76,6 @@ Without a server, a built-in regex index gives basic completion and structure.
 
 Real: open folder, file tree, editing and saving, PHP class index and `->` / `::` completion,
 structure, Laravel routes, `php -l` errors, Git status and commit/push, Composer packages
-(`composer outdated` / `update`), PHPUnit, terminal commands, breakpoints in the gutter.
+(`composer outdated` / `update`), PHPUnit, an interactive terminal (tabs you can drag to reorder, any installed shell), breakpoints in the gutter.
 
 Mocked for now: database connections, AI assistant, Xdebug debugging.

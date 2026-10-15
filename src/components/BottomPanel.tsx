@@ -3,6 +3,8 @@ import type { BottomTab, Workspace } from '../useWorkspace';
 import { baseName, relativePath, type Problem } from '../backend/types';
 import { Badge, Icon, Play, fileBadge } from './Icon';
 import { FindResults } from './FindInFiles';
+import { TerminalView } from './TerminalView';
+import { isTauri } from '../platform';
 
 const SEVERITY_COLOR = { error: 'var(--red)', warning: 'var(--orange)', info: 'var(--muted)' } as const;
 
@@ -11,12 +13,35 @@ export function BottomPanel({ ws, height }: { ws: Workspace; height: number }) {
   const outdatedCount = ws.outdated ? Object.keys(ws.outdated).length : 0;
   const tabs: { id: BottomTab; label: string; count?: string }[] = [
     { id: 'problems', label: 'Problems', count: problems.length ? String(problems.length) : undefined },
-    { id: 'terminal', label: 'Terminal' },
     { id: 'tests', label: 'Tests', count: ws.tests.running ? 'running' : undefined },
     { id: 'composer', label: 'Composer', count: outdatedCount ? `${outdatedCount} updates` : undefined },
     ...(ws.findResults ? [{ id: 'find' as const, label: 'Find', count: String(ws.findResults.result.total) }] : []),
     ...(ws.usages ? [{ id: 'usages' as const, label: `Usages of ${ws.usages.name}`, count: ws.usages.loading ? '…' : String(ws.usages.items.length) }] : []),
   ];
+
+  // Terminal is a tool window of its own, like in PhpStorm (not a tab next to Problems).
+  if (ws.bottomTab === 'terminal') {
+    return (
+      <section className="island bottom" style={{ height }} aria-label="Terminal">
+        {isTauri && ws.backend.kind === 'disk' ? (
+          <TerminalView ws={ws} />
+        ) : (
+          <>
+            <div className="tw-head">
+              <span className="tw-title">Terminal</span>
+              <span className="grow" />
+              <button type="button" className="icon-btn small" aria-label="Hide tool window" title="Hide" onClick={() => ws.setBottomOpen(false)}>
+                <Icon name="minus" size={14} />
+              </button>
+            </div>
+            <div className="panel-body">
+              <Terminal ws={ws} />
+            </div>
+          </>
+        )}
+      </section>
+    );
+  }
 
   return (
     <section className="island bottom" style={{ height }} aria-label="Tool window">
@@ -43,7 +68,6 @@ export function BottomPanel({ ws, height }: { ws: Workspace; height: number }) {
         {ws.bottomTab === 'problems' && <Problems ws={ws} />}
         {ws.bottomTab === 'usages' && <Usages ws={ws} />}
         {ws.bottomTab === 'find' && <FindResults ws={ws} />}
-        {ws.bottomTab === 'terminal' && <Terminal ws={ws} />}
         {ws.bottomTab === 'tests' && <Tests ws={ws} />}
         {ws.bottomTab === 'composer' && (
           <>
