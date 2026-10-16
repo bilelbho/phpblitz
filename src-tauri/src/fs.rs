@@ -25,9 +25,13 @@ pub fn norm(p: &Path) -> String {
 }
 
 #[tauri::command]
-pub fn list_dir(path: String) -> Result<Vec<Entry>, String> {
+pub async fn list_dir(path: String) -> Result<Vec<Entry>, String> {
+    tauri::async_runtime::spawn_blocking(move || list_dir_blocking(&path)).await.map_err(|e| e.to_string())?
+}
+
+fn list_dir_blocking(path: &str) -> Result<Vec<Entry>, String> {
     let mut out = Vec::new();
-    for entry in fs::read_dir(&path).map_err(|e| e.to_string())?.flatten() {
+    for entry in fs::read_dir(path).map_err(|e| e.to_string())?.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
         if name == ".git" {
             continue;
@@ -79,12 +83,18 @@ pub async fn list_files(root: String) -> Result<Vec<String>, String> {
 
 #[tauri::command]
 pub async fn read_file(path: String) -> Result<String, String> {
-    let meta = fs::metadata(&path).map_err(|e| e.to_string())?;
-    if meta.len() > MAX_FILE_BYTES {
-        return Err("File is larger than 5 MB".into());
-    }
-    let bytes = fs::read(&path).map_err(|e| e.to_string())?;
-    String::from_utf8(bytes).map_err(|_| "File is not UTF-8 text".into())
+    // Disk reads on a blocking thread: a slow disk (or a busy one, during indexing) never holds up
+    // the async workers that answer the UI.
+    tauri::async_runtime::spawn_blocking(move || {
+        let meta = fs::metadata(&path).map_err(|e| e.to_string())?;
+        if meta.len() > MAX_FILE_BYTES {
+            return Err("File is larger than 5 MB".into());
+        }
+        let bytes = fs::read(&path).map_err(|e| e.to_string())?;
+        String::from_utf8(bytes).map_err(|_| "File is not UTF-8 text".into())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

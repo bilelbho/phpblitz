@@ -1,6 +1,6 @@
 [package]
 name = "phpblitz"
-version = "0.1.0"
+version = "0.1.1"
 description = "A fast PHP IDE"
 edition = "2021"
 
@@ -32,6 +32,8 @@ ignore = "0.4"
 regex = "1"
 # Delete moves files to the Recycle Bin / Trash instead of erasing them.
 trash = "5"
+# Mago analyses in its own, smaller thread pool (see mago.rs), so the UI keeps CPU.
+rayon = "1"
 # Interactive terminal: pseudo-terminals (ConPTY on Windows) and binary-safe output events.
 portable-pty = "0.9"
 base64 = "0.22"
@@ -40,12 +42,24 @@ mago-database = "=1.57.0"
 mago-reporting = "=1.57.0"
 mago-php-version = "=1.57.0"
 mago-prelude = { version = "=1.57.0", features = ["serde"] }
+# The symbol index (index.rs): parser, name resolution and scanner.
+mago-syntax = "=1.57.0"
+mago-names = "=1.57.0"
+mago-codex = "=1.57.0"
+mago-allocator = "=1.57.0"
+mago-word = "=1.57.0"
+mago-span = "=1.57.0"
 postgres = "0.19"
 postgres-native-tls = "0.5"
 native-tls = "0.2"
 mysql = { version = "25", default-features = false, features = ["minimal-rust", "native-tls"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 keyring = { version = "3", features = ["windows-native", "apple-native"] }
+
+# Linux: the Secret Service (GNOME Keyring, KWallet) over D-Bus; without it keyring keeps
+# passwords in memory only.
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["linux-native-sync-persistent", "crypto-rust"] }
 
 # Dependencies (Mago, Tauri) stay optimized in debug builds, so `tauri dev` analysis is fast.
 [profile.dev.package."*"]

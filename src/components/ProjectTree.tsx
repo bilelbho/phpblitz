@@ -11,6 +11,7 @@ import type { Entry } from '../backend/types';
 import { baseName, relativePath } from '../backend/types';
 import { useTreePrefs, type TreePrefs } from '../treePrefs';
 import { Icon } from './Icon';
+import { scrollRowIntoView, useVirtualRows } from './useVirtualRows';
 import { ContextMenu, type ContextItem } from './ContextMenu';
 import { NewItemDialog, type NewKind } from './NewItemDialog';
 import { RenameDialog } from './RenameDialog';
@@ -91,14 +92,20 @@ export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void 
     };
     if (ws.expanded.has(backend.root)) walk(backend.root, 1);
     return out;
-  }, [prefs, ws.tabs, ws.git, ws.children, ws.expanded, backend, ws]);
+    // Not `ws`: it changes on every render, and re-sorting a big tree each time is slow.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefs, ws.tabs, ws.git, ws.children, ws.expanded, backend]);
+
+  // Only the rows in view are rendered (folders like languages/ or node_modules can hold thousands).
+  const list = useRef<HTMLDivElement>(null);
+  const rowHeight = useSettings().ui.compact ? 22 : 24;
+  const range = useVirtualRows(body, list, rows.length, rowHeight);
 
   // Keep the selection visible.
   useEffect(() => {
     if (!selected) return;
-    const el = body.current?.querySelector(`[data-path="${CSS.escape(selected)}"]`);
-    el?.scrollIntoView({ block: 'nearest' });
-  }, [selected, rows]);
+    scrollRowIntoView(body.current, list.current, rows.findIndex((r) => r.path === selected), rowHeight);
+  }, [selected, rows, rowHeight]);
 
   const index = rows.findIndex((r) => r.path === selected);
 
@@ -430,7 +437,7 @@ export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void 
     };
   };
 
-  const items: ReactNode[] = rows.map((row) => {
+  const items: ReactNode[] = rows.slice(range.start, range.end).map((row) => {
     const isSelected = row.path === selected;
     const mark = row.isDir ? marks.markOf(row.path) : null;
     const color = marks.colorOf(row.path);
@@ -515,7 +522,9 @@ export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void 
         </button>
       </div>
       <div ref={body} className="panel-body tree project-tree" role="tree" aria-label={VIEW_LABELS[prefs.view]} tabIndex={0} onKeyDown={onKeyDown}>
-        {items}
+        <div ref={list} style={{ paddingTop: range.before, paddingBottom: range.after }}>
+          {items}
+        </div>
         {prefs.view === 'open' && !rows.length && <div className="empty">No files are open.</div>}
         {prefs.view === 'changed' && !rows.length && <div className="empty">No changed files.</div>}
       </div>

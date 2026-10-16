@@ -2,6 +2,8 @@ import type { Workspace } from '../useWorkspace';
 import { relativePath } from '../backend/types';
 import { db } from '../db/store';
 import { useEffect, useState } from 'react';
+import { debug } from '../debug/manager';
+import { useSymbols } from '../symbols';
 import { cachedInspect, composerPhpLevel, interpretersFor, kindLabel, projectPhp, useInterpreters } from '../interpreters';
 import { Icon, Sym } from './Icon';
 import { FileIcon } from './FileIcon';
@@ -93,6 +95,7 @@ function MagoStatus({ ws }: { ws: Workspace }) {
 }
 
 export function StatusBar({ ws }: { ws: Workspace }) {
+  const idx = useSymbols();
   const tab = ws.activeTab;
   const all = Object.values(ws.problems).flat();
   const errors = all.filter((p) => p.severity === 'error').length;
@@ -123,7 +126,7 @@ export function StatusBar({ ws }: { ws: Workspace }) {
   } else if (tab?.kind === 'table') {
     crumbs.push({ label: db.get(tab.source)?.name ?? tab.source }, { label: tab.schema }, { label: tab.table });
   } else if (tab?.kind === 'console') {
-    crumbs.push({ label: db.get(tab.source)?.name ?? tab.source }, { label: 'console' });
+    crumbs.push({ label: db.get(tab.source)?.name ?? tab.source }, { label: tab.name ?? 'console' });
   }
 
   const loaded = tab?.kind === 'file' ? ws.loaded[tab.path] : undefined;
@@ -155,11 +158,15 @@ export function StatusBar({ ws }: { ws: Workspace }) {
       </nav>
       {nav && <NavBarPopup ws={ws} request={nav} onClose={() => setNav(null)} />}
       <span className="grow" />
-      {!ws.indexStats && <span className="item muted">Indexing…</span>}
+      {!ws.indexStats && (
+        <span className="item muted" title="Indexing PHP files (project and vendor). Editing works meanwhile.">
+          {idx.progress && idx.progress.total ? `Indexing… ${idx.progress.done.toLocaleString()} / ${idx.progress.total.toLocaleString()}` : 'Indexing…'}
+        </span>
+      )}
       {ws.status && <span className="item muted">{ws.status}</span>}
       {ws.listening && (
         <span className="item" style={{ color: '#5fb865' }}>
-          <Icon name="bug" size={13} /> Listening on :9003
+          <Icon name="listen" size={13} /> Listening on :{debug.port}
         </span>
       )}
       <button type="button" className="item" onClick={() => ws.showBottom('problems')} title="Problems" style={{ color: errors ? '#f0787f' : undefined }}>

@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
+#[cfg(windows)]
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -59,20 +60,26 @@ pub struct Shell {
 
 /// Shells available on this machine, the default first.
 #[tauri::command]
-pub fn terminal_shells() -> Vec<Shell> {
+pub async fn terminal_shells() -> Vec<Shell> {
+    tauri::async_runtime::spawn_blocking(shells).await.unwrap_or_default()
+}
+
+fn shells() -> Vec<Shell> {
+    fn add(out: &mut Vec<Shell>, name: &str, path: String, args: &[&str]) {
+        out.push(Shell { name: name.into(), path, args: args.iter().map(|s| s.to_string()).collect() });
+    }
     let mut out = Vec::new();
-    let mut add = |name: &str, path: String, args: &[&str]| out.push(Shell { name: name.into(), path, args: args.iter().map(|s| s.to_string()).collect() });
     #[cfg(windows)]
     {
-        let found = |names: &[&str]| crate::process::find_executable(names.iter().map(|s| s.to_string()).collect());
+        let found = |names: &[&str]| crate::process::find_executable_blocking(names.iter().map(|s| s.to_string()).collect());
         if let Some(p) = found(&["powershell"]) {
-            add("Windows PowerShell", p, &["-NoLogo"]);
+            add(&mut out, "Windows PowerShell", p, &["-NoLogo"]);
         }
         if let Some(p) = found(&["pwsh"]) {
-            add("PowerShell 7", p, &["-NoLogo"]);
+            add(&mut out, "PowerShell 7", p, &["-NoLogo"]);
         }
         if let Some(p) = found(&["cmd"]) {
-            add("Command Prompt", p, &[]);
+            add(&mut out, "Command Prompt", p, &[]);
         }
         // Git for Windows: bash.exe sits next to the git folder, not on PATH.
         let git_bash = found(&["git"])
@@ -81,20 +88,20 @@ pub fn terminal_shells() -> Vec<Shell> {
             .filter(|p| p.is_file())
             .or_else(|| Some(PathBuf::from(r"C:\Program Files\Git\bin\bash.exe")).filter(|p| p.is_file()));
         if let Some(p) = git_bash {
-            add("Git Bash", crate::fs::norm(&p), &["--login", "-i"]);
+            add(&mut out, "Git Bash", crate::fs::norm(&p), &["--login", "-i"]);
         }
         if let Some(p) = found(&["wsl"]) {
-            add("WSL", p, &[]);
+            add(&mut out, "WSL", p, &[]);
         }
     }
     #[cfg(not(windows))]
     {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into());
         let name = shell.rsplit('/').next().unwrap_or("shell").to_string();
-        add(&name, shell, &["-l"]);
+        add(&mut out, &name, shell, &["-l"]);
         for (name, path) in [("bash", "/bin/bash"), ("zsh", "/bin/zsh"), ("fish", "/usr/bin/fish")] {
             if std::path::Path::new(path).exists() && !out.iter().any(|s| s.path == path) {
-                add(name, path.into(), &["-l"]);
+                add(&mut out, name, path.into(), &["-l"]);
             }
         }
     }
@@ -226,7 +233,7 @@ mod tests {
     /// Runs a real shell in a pseudo-terminal and reads its output back.
     #[test]
     fn runs_a_shell_in_a_pty() {
-        let shells = terminal_shells();
+        let shells = shells();
         assert!(!shells.is_empty(), "at least one shell is found");
         let pair = native_pty_system().openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
         #[cfg(windows)]
@@ -319,7 +326,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn powershell_reports_exit_codes() {
-        let Some(ps) = crate::process::find_executable(vec!["powershell".into()]) else { return };
+        let Some(ps) = crate::process::find_executable_blocking(vec!["powershell".into()]) else { return };
         let out = run_integrated(&ps, &["-NoLogo", "-NoProfile"], "cmd /c exit 3\r", |o| o.contains("133;D;"));
         assert!(out.contains("\x1b]133;A"), "prompt mark: {out:?}");
         assert!(out.contains("\x1b]133;D;3\x07"), "exit code 3: {out:?}");
@@ -327,7 +334,7 @@ mod tests {
 
     #[test]
     fn bash_reports_exit_codes() {
-        let bash = terminal_shells().into_iter().find(|s| s.path.to_ascii_lowercase().ends_with("bash.exe") || s.path.ends_with("/bash"));
+        let bash = shells().into_iter().find(|s| s.path.to_ascii_lowercase().ends_with("bash.exe") || s.path.ends_with("/bash"));
         let Some(bash) = bash else { return };
         let args: Vec<&str> = bash.args.iter().map(|s| s.as_str()).collect();
         let out = run_integrated(&bash.path, &args, "false\r", |o| o.contains("133;D;"));

@@ -24,7 +24,7 @@ function tabInfo(ws: Workspace, t: Tab): { name: string; icon: ReactNode; title:
     case 'table':
       return { name: t.table, icon: <Badge text="T" color="#5fc9be" />, title: `${db.get(t.source)?.name ?? ''} · ${t.schema}.${t.table}` };
     case 'console':
-      return { name: `console [${db.get(t.source)?.name ?? t.source}]`, icon: <Badge text="Q" color="#e3a869" />, title: `Query console: ${db.get(t.source)?.name ?? ''}` };
+      return { name: `${t.name ?? 'console'} [${db.get(t.source)?.name ?? t.source}]`, icon: <Badge text="Q" color="#e3a869" />, title: `Query console ${t.name ?? 'console'}: ${db.get(t.source)?.name ?? ''}` };
     case 'diff':
       return {
         name: t.commit ? `${baseName(t.path)} (${t.commit.slice(0, 7)})` : `Diff: ${baseName(t.path)}`,

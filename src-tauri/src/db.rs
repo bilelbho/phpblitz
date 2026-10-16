@@ -285,10 +285,25 @@ fn conn_of(state: &DbState, id: &str) -> Result<Arc<Mutex<Conn>>, String> {
 /// `password`: use this one (e.g. just typed in the dialog) instead of the saved one.
 #[tauri::command]
 pub async fn db_connect(state: State<'_, DbState>, source: DataSource, password: Option<String>) -> Result<String, String> {
+    connect(&state, source, password).await
+}
+
+/// The blocking drivers (postgres, mysql) run their own small runtime: everything that talks to
+/// the server, dropping a connection included (it says goodbye), must happen on a blocking thread,
+/// never on the async runtime that runs commands ("Cannot start a runtime from within a runtime").
+async fn connect(state: &DbState, source: DataSource, password: Option<String>) -> Result<String, String> {
     let id = source.id.clone();
-    let mut conn = tauri::async_runtime::spawn_blocking(move || open(&source, password)).await.map_err(|e| e.to_string())??;
-    let version = version(&mut conn);
-    state.conns.lock().map_err(|e| e.to_string())?.insert(id, Arc::new(Mutex::new(conn)));
+    let (conn, version) = tauri::async_runtime::spawn_blocking(move || {
+        let mut conn = open(&source, password)?;
+        let version = version(&mut conn);
+        Ok::<_, String>((conn, version))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let previous = state.conns.lock().map_err(|e| e.to_string())?.insert(id, Arc::new(Mutex::new(conn)));
+    if let Some(previous) = previous {
+        tauri::async_runtime::spawn_blocking(move || drop(previous));
+    }
     Ok(version)
 }
 
@@ -304,9 +319,10 @@ pub async fn db_test(source: DataSource, password: Option<String>) -> Result<Str
 }
 
 #[tauri::command]
-pub fn db_disconnect(state: State<'_, DbState>, id: String) -> Result<(), String> {
-    state.conns.lock().map_err(|e| e.to_string())?.remove(&id);
-    Ok(())
+pub async fn db_disconnect(state: State<'_, DbState>, id: String) -> Result<(), String> {
+    // Closing a connection can wait on the network.
+    let conn = state.conns.lock().map_err(|e| e.to_string())?.remove(&id);
+    tauri::async_runtime::spawn_blocking(move || drop(conn)).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -322,26 +338,62 @@ pub async fn db_query(state: State<'_, DbState>, id: String, sql: String, limit:
 
 /// Saves (or with `None`, forgets) a data source's password in the OS credential store.
 #[tauri::command]
-pub fn db_set_password(id: String, password: Option<String>) -> Result<(), String> {
-    let entry = keyring_entry(&id)?;
-    match password {
-        Some(p) => entry.set_password(&p).map_err(|e| e.to_string()),
-        None => match entry.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(e.to_string()),
-        },
-    }
+pub async fn db_set_password(id: String, password: Option<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let entry = keyring_entry(&id)?;
+        match password {
+            Some(p) => entry.set_password(&p).map_err(|e| e.to_string()),
+            None => match entry.delete_credential() {
+                Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+                Err(e) => Err(e.to_string()),
+            },
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Whether a password is saved, so the dialog can show "saved" without reading it back.
 #[tauri::command]
-pub fn db_has_password(id: String) -> bool {
-    stored_password(&id).is_some()
+pub async fn db_has_password(id: String) -> bool {
+    tauri::async_runtime::spawn_blocking(move || stored_password(&id).is_some()).await.unwrap_or(false)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regression: connecting ran the version query (and dropped replaced connections) on the
+    /// async runtime, which panics with the blocking postgres driver and aborted the app.
+    /// Runs against a real server when PHPBLITZ_TEST_PG="host port user password database" is set.
+    #[test]
+    fn connects_postgres_from_the_async_runtime() {
+        let Ok(spec) = std::env::var("PHPBLITZ_TEST_PG") else { return };
+        let p: Vec<&str> = spec.split_whitespace().collect();
+        let source = DataSource {
+            id: "pg-runtime-test".into(),
+            driver: "postgres".into(),
+            host: p[0].into(),
+            port: p[1].parse().ok(),
+            user: p[2].into(),
+            database: p[4].into(),
+            file: String::new(),
+            ssl: false,
+        };
+        let state = DbState::default();
+        tauri::async_runtime::block_on(async {
+            let version = connect(&state, source.clone(), Some(p[3].into())).await.expect("connect");
+            assert!(version.contains("PostgreSQL"), "{version}");
+            // Reconnecting replaces (and drops) the first connection.
+            connect(&state, source, Some(p[3].into())).await.expect("reconnect");
+        });
+        let conn = conn_of(&state, "pg-runtime-test").unwrap();
+        let rows = run(&mut conn.lock().unwrap(), "select 1 + 1", 10).unwrap().rows;
+        assert_eq!(rows, vec![vec![Some("2".to_string())]]);
+        drop(conn);
+        let removed = state.conns.lock().unwrap().remove("pg-runtime-test");
+        drop(removed);
+    }
 
     fn sqlite_source(file: &std::path::Path) -> DataSource {
         DataSource {

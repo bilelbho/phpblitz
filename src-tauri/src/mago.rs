@@ -10,7 +10,7 @@
 
 use std::borrow::Cow;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use mago_database::file::{File, FileId, FileType};
@@ -51,11 +51,60 @@ struct Engine {
     analysis: IncrementalAnalysisService,
     /// Analyzer checks turned off in mago.toml (`[analyzer] ignore`).
     analyzer_ignore: Vec<String>,
+    /// Folders marked Excluded in the project tree (relative), kept for reloads.
+    excludes: Vec<String>,
 }
 
+/// The engine is shared with blocking worker threads: Mago's work never runs on the main thread
+/// (that freezes the window) or on the async runtime's few workers (that stalls file reads).
 #[derive(Default)]
 pub struct MagoState {
-    engine: Mutex<Option<Engine>>,
+    engine: Arc<Mutex<Option<Engine>>>,
+}
+
+impl MagoState {
+    /// Runs `f` with the engine on a blocking thread, its parallel work in the analysis pool.
+    async fn with<T: Send + 'static>(&self, f: impl FnOnce(&mut Option<Engine>) -> Result<T, String> + Send + 'static) -> Result<T, String> {
+        let engine = self.engine.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let mut guard = engine.lock().map_err(|e| e.to_string())?;
+            let slot: &mut Option<Engine> = &mut guard;
+            analysis_pool().install(|| f(slot))
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+}
+
+/// Mago runs its work in parallel on the current rayon pool. Like IntelliJ's indexing, it gets
+/// most cores but not all: the window, file reads and the language server stay responsive while a
+/// big project is analyzed.
+pub(crate) fn analysis_pool() -> &'static rayon::ThreadPool {
+    static POOL: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+        let threads = (cores / 2).max(cores.saturating_sub(2)).max(1);
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .thread_name(|i| format!("mago-{i}"))
+            // Mago's parser and analyzer recurse: deeply nested code needs more than the default
+            // 2 MB (Mago's own CLI uses at least 8 MB). Reserved address space, not memory used.
+            .stack_size(32 * 1024 * 1024)
+            .build()
+            .expect("analysis thread pool")
+    })
+}
+
+/// Loads and analyzes a project in the analysis pool.
+fn open_engine(root: &str, excludes: &[String]) -> Result<(Engine, ProjectSummary), String> {
+    analysis_pool().install(|| Engine::open(root, excludes))
+}
+
+/// Project Errors, capped so a huge project doesn't send a giant message to the UI.
+#[derive(Serialize)]
+pub struct ProjectIssues {
+    total: usize,
+    files: Vec<FileIssues>,
 }
 
 #[derive(Serialize)]
@@ -219,7 +268,10 @@ fn lowest_php_version(constraint: &str) -> Option<PHPVersion> {
     (major >= 7).then(|| PHPVersion::new(major, minor, 0))
 }
 
-fn configuration(root: &str, info: &ProjectInfo) -> OrchestratorConfiguration<'static> {
+fn configuration(root: &str, info: &ProjectInfo, excluded: &[String]) -> OrchestratorConfiguration<'static> {
+    // The configuration lives as long as the leaked orchestrator that borrows it.
+    let mut excludes: Vec<&'static str> = vec!["node_modules", "storage", "bootstrap/cache"];
+    excludes.extend(excluded.iter().filter(|e| !e.is_empty() && !e.contains("..")).map(|e| &*Box::leak(e.clone().into_boxed_str())));
     let mut linter_settings = mago_linter::settings::Settings::default();
     linter_settings.php_version = info.php;
     linter_settings.integrations = info.integrations;
@@ -234,7 +286,7 @@ fn configuration(root: &str, info: &ProjectInfo) -> OrchestratorConfiguration<'s
         // Dependencies give the analyzer types, but are never checked themselves.
         includes: if info.vendor { vec![format!("{root}/vendor")] } else { vec![] },
         patches: vec![],
-        excludes: vec!["node_modules", "storage", "bootstrap/cache"],
+        excludes,
         extensions: vec!["php"],
         glob: Default::default(),
         parser_settings: Default::default(),
@@ -253,7 +305,7 @@ fn configuration(root: &str, info: &ProjectInfo) -> OrchestratorConfiguration<'s
 fn standalone() -> &'static Orchestrator<'static> {
     static ORCHESTRATOR: std::sync::OnceLock<&'static Orchestrator<'static>> = std::sync::OnceLock::new();
     ORCHESTRATOR.get_or_init(|| {
-        Box::leak(Box::new(Orchestrator::new(configuration(".", &ProjectInfo::defaults()))))
+        Box::leak(Box::new(Orchestrator::new(configuration(".", &ProjectInfo::defaults(), &[]))))
     })
 }
 
@@ -349,21 +401,22 @@ fn relative<'a>(root: &str, path: &'a str) -> Option<&'a str> {
 
 /// Loads a project and analyzes it fully. Later `mago_check` calls are incremental.
 #[tauri::command]
-pub async fn mago_open(state: tauri::State<'_, MagoState>, root: String) -> Result<ProjectSummary, String> {
-    let (engine, summary) = tauri::async_runtime::spawn_blocking(move || Engine::open(&root)).await.map_err(|e| e.to_string())??;
-    *state.engine.lock().map_err(|e| e.to_string())? = Some(engine);
+pub async fn mago_open(state: tauri::State<'_, MagoState>, root: String, excludes: Option<Vec<String>>) -> Result<ProjectSummary, String> {
+    let excludes = excludes.unwrap_or_default();
+    let (engine, summary) = tauri::async_runtime::spawn_blocking(move || open_engine(&root, &excludes)).await.map_err(|e| e.to_string())??;
+    state.with(move |slot| Ok(drop(slot.replace(engine)))).await?;
     Ok(summary)
 }
 
 impl Engine {
-    fn open(root: &str) -> Result<(Engine, ProjectSummary), String> {
+    fn open(root: &str, excludes: &[String]) -> Result<(Engine, ProjectSummary), String> {
         let started = Instant::now();
         let root = root.trim_end_matches('/').to_string();
         // Mago's database borrows its configuration for its whole life: keep both for the app's life.
         let root_static: &'static str = Box::leak(root.clone().into_boxed_str());
         let workspace: &'static Path = Path::new(root_static);
         let info = project_info(workspace);
-        let orchestrator: &'static Orchestrator<'static> = Box::leak(Box::new(Orchestrator::new(configuration(root_static, &info))));
+        let orchestrator: &'static Orchestrator<'static> = Box::leak(Box::new(Orchestrator::new(configuration(root_static, &info, excludes))));
         let prelude = mago_prelude::Prelude::decode(PRELUDE).map_err(|e| format!("Mago prelude: {e}"))?;
         let database = orchestrator.load_database(workspace, true, Some(prelude.database), None).map_err(|e| e.to_string())?;
         let mut analysis = orchestrator.get_incremental_analysis_service(database.read_only(), prelude.metadata, prelude.symbol_references);
@@ -379,7 +432,7 @@ impl Engine {
             config_file: info.config_file.then(|| format!("{root}/mago.toml")),
             config_error: info.config_error.clone(),
         };
-        Ok((Engine { root, orchestrator, database, analysis, analyzer_ignore: info.analyzer_ignore }, summary))
+        Ok((Engine { root, orchestrator, database, analysis, analyzer_ignore: info.analyzer_ignore, excludes: excludes.to_vec() }, summary))
     }
 
     /// Drops analyzer findings turned off in mago.toml.
@@ -413,21 +466,50 @@ impl Engine {
         Ok(out)
     }
 
-    fn remove(&mut self, path: &str) -> Result<(), String> {
-        let Some(rel) = relative(&self.root, path) else { return Ok(()) };
-        let id = FileId::new(rel.as_bytes());
-        if !self.database.delete(id) {
+    /// Files changed or deleted on disk (git checkout, composer, another editor): updates them all,
+    /// then runs one incremental analysis instead of one per file.
+    fn sync(&mut self, changed: &[String], removed: &[String]) -> Result<(), String> {
+        let mut touched = false;
+        let mut deleted = false;
+        for path in removed {
+            let Some(rel) = relative(&self.root, path) else { continue };
+            if self.database.delete(FileId::new(rel.as_bytes())) {
+                touched = true;
+                deleted = true;
+            }
+        }
+        let mut ids = Vec::new();
+        for path in changed {
+            let Some(rel) = relative(&self.root, path) else { continue };
+            let Ok(bytes) = std::fs::read(path) else { continue };
+            let id = FileId::new(rel.as_bytes());
+            match self.database.read_only().get(&id) {
+                Ok(f) if f.contents.as_ref() == bytes.as_slice() => continue,
+                Ok(_) => {
+                    self.database.update(id, Cow::Owned(bytes));
+                }
+                Err(_) => {
+                    self.database.add(File::new(Cow::Owned(rel.as_bytes().to_vec()), FileType::Host, Some(std::path::PathBuf::from(path)), Cow::Owned(bytes)));
+                }
+            }
+            ids.push(id);
+            touched = true;
+        }
+        if !touched {
             return Ok(());
         }
         self.analysis.update_database(self.database.read_only());
-        // No hint: the deleted file can't be hashed, so let Mago compare everything.
-        self.analysis.analyze_incremental(None).map_err(|e| e.to_string())?;
+        // A deleted file can't be hashed: then let Mago compare everything.
+        let hint = if deleted { None } else { Some(ids.as_slice()) };
+        self.analysis.analyze_incremental(hint).map_err(|e| e.to_string())?;
         Ok(())
     }
 
-    fn project_issues(&self) -> Vec<FileIssues> {
+    fn project_issues(&self, limit: usize) -> ProjectIssues {
         let db = self.database.read_only();
         let mut out = Vec::new();
+        let mut total = 0;
+        let mut sent = 0;
         for file in db.files_with_type(FileType::Host) {
             let Some(issues) = self.analysis.get_file_diagnostics(&file.id) else { continue };
             let mut diagnostics = Vec::new();
@@ -436,11 +518,17 @@ impl Engine {
             if diagnostics.is_empty() {
                 continue;
             }
+            total += diagnostics.len();
+            if sent >= limit {
+                continue;
+            }
             diagnostics.sort_by_key(|d| (d.line, d.column));
+            diagnostics.truncate(limit - sent);
+            sent += diagnostics.len();
             out.push(FileIssues { path: format!("{}/{}", self.root, String::from_utf8_lossy(&file.name)), diagnostics });
         }
         out.sort_by(|a, b| a.path.cmp(&b.path));
-        out
+        ProjectIssues { total, files: out }
     }
 }
 
@@ -455,55 +543,62 @@ fn lint_standalone(path: &str, content: String) -> Vec<Diagnostic> {
 }
 
 #[tauri::command]
-pub fn mago_close(state: tauri::State<'_, MagoState>) -> Result<(), String> {
-    *state.engine.lock().map_err(|e| e.to_string())? = None;
-    Ok(())
+pub async fn mago_close(state: tauri::State<'_, MagoState>) -> Result<(), String> {
+    // Dropping a big project's database takes a moment: not on the main thread.
+    state.with(|slot| Ok(drop(slot.take()))).await
 }
 
 /// Checks one file's current text: lint always, plus incremental analysis when the
 /// file belongs to the opened project.
 #[tauri::command]
 pub async fn mago_check(state: tauri::State<'_, MagoState>, path: String, content: String) -> Result<Vec<Diagnostic>, String> {
-    let mut guard = state.engine.lock().map_err(|e| e.to_string())?;
-    match guard.as_mut().filter(|e| relative(&e.root, &path).is_some()) {
-        Some(engine) => engine.check(&path, content),
-        None => Ok(lint_standalone(&path, content)),
-    }
+    state
+        .with(move |slot| match slot.as_mut().filter(|e| relative(&e.root, &path).is_some()) {
+            Some(engine) => engine.check(&path, content),
+            None => Ok(lint_standalone(&path, content)),
+        })
+        .await
 }
 
-/// A project file was deleted on disk: drop it and re-check what depended on it.
+/// Project files changed or deleted on disk: reads the changed ones, drops the deleted ones, and
+/// re-checks what depends on them, in one analysis.
 #[tauri::command]
-pub fn mago_remove_file(state: tauri::State<'_, MagoState>, path: String) -> Result<(), String> {
-    let mut guard = state.engine.lock().map_err(|e| e.to_string())?;
-    match guard.as_mut() {
-        Some(engine) => engine.remove(&path),
-        None => Ok(()),
-    }
+pub async fn mago_sync(state: tauri::State<'_, MagoState>, changed: Vec<String>, removed: Vec<String>) -> Result<(), String> {
+    state
+        .with(move |slot| match slot.as_mut() {
+            Some(engine) => engine.sync(&changed, &removed),
+            None => Ok(()),
+        })
+        .await
 }
 
-/// Analysis results for every project file, for the Problems ▸ Project Errors view.
+/// Analysis results across the project, for the Problems ▸ Project Errors view (at most `limit`).
 #[tauri::command]
-pub fn mago_project_issues(state: tauri::State<'_, MagoState>) -> Result<Vec<FileIssues>, String> {
-    let guard = state.engine.lock().map_err(|e| e.to_string())?;
-    Ok(guard.as_ref().map(Engine::project_issues).unwrap_or_default())
+pub async fn mago_project_issues(state: tauri::State<'_, MagoState>, limit: Option<usize>) -> Result<ProjectIssues, String> {
+    let limit = limit.unwrap_or(5000);
+    state.with(move |slot| Ok(slot.as_ref().map(|e| e.project_issues(limit)).unwrap_or(ProjectIssues { total: 0, files: Vec::new() }))).await
 }
 
 /// Turns a rule off in the project's mago.toml, then reloads the project with it.
 #[tauri::command]
 pub async fn mago_disable_rule(state: tauri::State<'_, MagoState>, category: String, code: String) -> Result<ProjectSummary, String> {
-    let root = state.engine.lock().map_err(|e| e.to_string())?.as_ref().map(|e| e.root.clone()).ok_or("No project is open in Mago")?;
+    let (root, excludes) = state.with(|slot| slot.as_ref().map(|e| (e.root.clone(), e.excludes.clone())).ok_or_else(|| "No project is open in Mago".to_string())).await?;
     disable_rule(Path::new(&root), &category, &code)?;
-    let (engine, summary) = tauri::async_runtime::spawn_blocking(move || Engine::open(&root)).await.map_err(|e| e.to_string())??;
-    *state.engine.lock().map_err(|e| e.to_string())? = Some(engine);
+    let (engine, summary) = tauri::async_runtime::spawn_blocking(move || open_engine(&root, &excludes)).await.map_err(|e| e.to_string())??;
+    state.with(move |slot| Ok(drop(slot.replace(engine)))).await?;
     Ok(summary)
 }
 
 /// Returns the path of the project's mago.toml, creating one like `mago init` would when missing.
 #[tauri::command]
-pub fn mago_ensure_config(state: tauri::State<'_, MagoState>) -> Result<String, String> {
-    let root = state.engine.lock().map_err(|e| e.to_string())?.as_ref().map(|e| e.root.clone()).ok_or("No project is open in Mago")?;
-    ensure_config(Path::new(&root))?;
-    Ok(format!("{root}/mago.toml"))
+pub async fn mago_ensure_config(state: tauri::State<'_, MagoState>) -> Result<String, String> {
+    state
+        .with(|slot| {
+            let root = slot.as_ref().map(|e| e.root.clone()).ok_or("No project is open in Mago")?;
+            ensure_config(Path::new(&root))?;
+            Ok(format!("{root}/mago.toml"))
+        })
+        .await
 }
 
 /// Writes `[linter.rules] code = { enabled = false }` or adds the code to `[analyzer] ignore`,
@@ -585,7 +680,7 @@ fn ensure_config(root: &Path) -> Result<(), String> {
 /// Formats PHP source. Returns None when it is already formatted.
 #[tauri::command]
 pub async fn mago_format(state: tauri::State<'_, MagoState>, content: String) -> Result<Option<String>, String> {
-    let orchestrator = state.engine.lock().map_err(|e| e.to_string())?.as_ref().map(|e| e.orchestrator).unwrap_or_else(standalone);
+    let orchestrator = state.with(|slot| Ok(slot.as_ref().map(|e| e.orchestrator).unwrap_or_else(standalone))).await?;
     let file = File::ephemeral(Cow::Borrowed(b"format.php"), Cow::Owned(content.into_bytes()));
     match orchestrator.format_file(&file).map_err(|e| e.to_string())? {
         FileFormatStatus::Unchanged => Ok(None),
@@ -639,11 +734,11 @@ mod tests {
         std::fs::write(dir.join("app/Caller.php"), caller).unwrap();
         let root = crate::fs::norm(&dir);
 
-        let (mut engine, summary) = Engine::open(&root).expect("open project");
+        let (mut engine, summary) = Engine::open(&root, &[]).expect("open project");
         assert_eq!(summary.files, 2);
         assert_eq!(summary.php_version, "8.2.0");
         assert_eq!(summary.integrations, vec!["Laravel", "PHPUnit"]);
-        assert!(engine.project_issues().iter().all(|f| f.diagnostics.iter().all(|d| d.severity != "error")), "clean project has no errors");
+        assert!(engine.project_issues(usize::MAX).files.iter().all(|f| f.diagnostics.iter().all(|d| d.severity != "error")), "clean project has no errors");
 
         // Typing: call a method that doesn't exist, and pass an int where a string is expected.
         let path = format!("{root}/app/Caller.php");
@@ -665,9 +760,19 @@ mod tests {
         assert!(caller_now.iter().any(|d| d.source == "analysis" && d.line == 11), "caller sees the new signature");
 
         // Deleting the callee (e.g. `git checkout` removed it): the caller now references a missing class.
-        engine.remove(&greeter).expect("remove");
-        let orphan = engine.project_issues().into_iter().find(|f| f.path.ends_with("Caller.php")).expect("caller has issues");
+        engine.sync(&[], &[greeter.clone()]).expect("remove");
+        let orphan = engine.project_issues(usize::MAX).files.into_iter().find(|f| f.path.ends_with("Caller.php")).expect("caller has issues");
         assert!(orphan.diagnostics.iter().any(|d| d.message.contains("Greeter")), "{:?}", orphan.diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>());
+
+        // The cap: at most `limit` problems are sent, with the real total.
+        let capped = engine.project_issues(1);
+        assert_eq!(capped.files.iter().map(|f| f.diagnostics.len()).sum::<usize>(), 1);
+        assert!(capped.total >= 1);
+
+        // It comes back on disk (checking out the branch again): one sync reads it and the caller is fine.
+        engine.sync(&[greeter.clone()], &[]).expect("sync");
+        let back = engine.project_issues(usize::MAX).files.into_iter().find(|f| f.path.ends_with("Caller.php"));
+        assert!(back.map_or(true, |f| f.diagnostics.iter().all(|d| !d.message.contains("Greeter"))), "caller sees Greeter again");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -681,6 +786,20 @@ mod tests {
             std::fs::write(path, text).unwrap();
         }
         dir
+    }
+
+    #[test]
+    fn skips_excluded_folders() {
+        let dir = temp_project(
+            "mago-excludes",
+            &[("app/Mine.php", "<?php\n\nnamespace App;\n\nfinal class Mine {}\n"), ("plugins/big/Theirs.php", "<?php\n\nfinal class Theirs {}\n"), ("plugins/big/More.php", "<?php\n\nfinal class More {}\n")],
+        );
+        let root = crate::fs::norm(&dir);
+        let (_, all) = Engine::open(&root, &[]).unwrap();
+        let (_, mine) = Engine::open(&root, &["plugins".to_string()]).unwrap();
+        assert_eq!(all.files, 3);
+        assert_eq!(mine.files, 1, "plugins/ is excluded");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -708,7 +827,7 @@ mod tests {
         let root = crate::fs::norm(&dir);
         let caller_path = format!("{root}/app/Caller.php");
         let missing_path = format!("{root}/app/Missing.php");
-        let (mut engine, _) = Engine::open(&root).unwrap();
+        let (mut engine, _) = Engine::open(&root, &[]).unwrap();
 
         // 1. The lint warning shows, and a comment above the line hides it.
         let before = engine.check(&caller_path, caller.into()).unwrap();
@@ -738,14 +857,14 @@ mod tests {
         assert_eq!(toml_text.matches(&format!("\"{analysis_code}\"")).count(), 1, "{toml_text}");
         assert!(toml_text.contains("# rule-name = { enabled = false }"), "comments are kept: {toml_text}");
 
-        let (mut engine, summary) = Engine::open(&root).unwrap();
+        let (mut engine, summary) = Engine::open(&root, &[]).unwrap();
         assert!(summary.config_error.is_none(), "{:?}", summary.config_error);
         assert_eq!(summary.integrations, vec!["Laravel"]);
         let caller_now = engine.check(&caller_path, caller.into()).unwrap();
         assert!(caller_now.iter().all(|d| d.code != "no-multi-assignments"), "rule disabled in mago.toml");
         let missing_now = engine.check(&missing_path, std::fs::read_to_string(dir.join("app/Missing.php")).unwrap()).unwrap();
         assert!(missing_now.iter().all(|d| d.code != analysis_code), "analyzer check ignored via mago.toml");
-        assert!(engine.project_issues().iter().flat_map(|f| &f.diagnostics).all(|d| d.code != analysis_code));
+        assert!(engine.project_issues(usize::MAX).files.iter().flat_map(|f| &f.diagnostics).all(|d| d.code != analysis_code));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

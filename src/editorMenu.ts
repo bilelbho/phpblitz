@@ -1,4 +1,5 @@
 // The editor's right-click menu, modeled on PhpStorm's.
+import { debug } from './debug/manager';
 
 import * as monaco from 'monaco-editor';
 import { invoke } from '@tauri-apps/api/core';
@@ -280,6 +281,24 @@ export function buildEditorMenu(
       : []),
     SEP,
     ...(isTest ? [{ label: `Run '${className}'`, shortcut: SHORTCUTS.runTests, icon: 'run' as const, run: ws.runTests }] : []),
+    ...(isTest && ws.backend.kind === 'disk' ? [{ label: `Debug '${className}'`, icon: 'bug' as const, run: () => void debug.debugScript(`${ws.backend.root}/vendor/bin/phpunit`, [path]) }] : []),
+    ...(path.endsWith('.php') && !isTest ? [{ label: `Debug '${path.split('/').pop()}'`, icon: 'bug' as const, run: () => void debug.debugScript(path) }] : []),
+    ...(debug.active?.status === 'break'
+      ? [
+          { label: 'Run to Cursor', shortcut: 'Alt+F9', icon: 'runToCursor' as const, run: () => void debug.runToCursor(path, editor.getPosition()?.lineNumber ?? 1) },
+          {
+            label: 'Add to Watches',
+            icon: 'eye' as const,
+            run: () => {
+              const model = editor.getModel();
+              const sel = editor.getSelection();
+              const pos = editor.getPosition();
+              const text = model && sel && !sel.isEmpty() ? model.getValueInRange(sel) : model && pos ? variableAt(model.getLineContent(pos.lineNumber), pos.column) : '';
+              if (text) debug.addWatch(text);
+            },
+          },
+        ]
+      : []),
     {
       label: 'Open In',
       icon: 'folderOpen',
@@ -350,4 +369,22 @@ export async function quickFixesFor(editor: Editor, ws: Workspace, path: string,
         .map((a) => ({ title: a.title, run: () => void a.run().catch((e) => reportError(ws, e)) }))
     : [];
   return [...mago, ...lsp];
+}
+
+/**
+ * The `$variable` under a column, with `->property` / `::$static` parts up to the hovered one:
+ * in `$user->address->city`, hovering `address` gives `$user->address`.
+ */
+export function variableAt(line: string, column: number): string {
+  for (const m of line.matchAll(/\$[A-Za-z_]\w*(?:(?:->|\?->)[A-Za-z_]\w*)*/g)) {
+    const start = (m.index ?? 0) + 1;
+    if (column < start || column > start + m[0].length) continue;
+    let end = 0;
+    for (const part of m[0].matchAll(/(?:^\$|->|\?->)[A-Za-z_]\w*/g)) {
+      end = (part.index ?? 0) + part[0].length;
+      if (column <= start + end) break;
+    }
+    return m[0].slice(0, end).replace(/\?->/g, '->');
+  }
+  return '';
 }

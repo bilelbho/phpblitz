@@ -87,11 +87,26 @@ export interface TabSettings {
   activateOnClose: 'left' | 'right' | 'recent';
 }
 
+/** PHP ▸ Debug. */
+export interface DebugSettings {
+  /** Port PHPBlitz listens on for Xdebug (Xdebug 3's default is 9003). */
+  port: number;
+  /** Stop on the first line of a script even without breakpoints. */
+  breakAtFirstLine: boolean;
+  /** Break where an exception is thrown and not caught. */
+  breakOnExceptions: boolean;
+  /** Array items / object properties fetched at once (more load with "Show more"). */
+  maxChildren: number;
+  /** Show variable values at the end of lines while stopped. */
+  inlineValues: boolean;
+}
+
 export interface Settings {
   ui: UiSettings;
   tabs: TabSettings;
   editor: EditorSettings;
   terminal: TerminalSettings;
+  debug: DebugSettings;
 }
 
 /** PhpStorm's defaults where it has one. */
@@ -159,6 +174,13 @@ export const DEFAULT_SETTINGS: Settings = {
     cursorShape: 'block',
     cursorBlink: true,
   },
+  debug: {
+    port: 9003,
+    breakAtFirstLine: false,
+    breakOnExceptions: false,
+    maxChildren: 100,
+    inlineValues: true,
+  },
 };
 
 const KEY = 'phpblitz.settings';
@@ -172,6 +194,7 @@ function load(): Settings {
       tabs: { ...DEFAULT_SETTINGS.tabs, ...(saved.tabs ?? {}) },
       editor: { ...DEFAULT_SETTINGS.editor, ...(saved.editor ?? {}) },
       terminal: { ...DEFAULT_SETTINGS.terminal, ...(saved.terminal ?? {}) },
+      debug: { ...DEFAULT_SETTINGS.debug, ...(saved.debug ?? {}) },
     };
   } catch {
     return DEFAULT_SETTINGS;

@@ -33,11 +33,56 @@ export interface Column {
   nullable: boolean;
   default: string | null;
   key?: KeyKind;
+  /** Also part of a foreign key (a primary key column can be one too). */
+  foreign?: boolean;
+  comment?: string;
 }
+
+export type ObjectKind = 'table' | 'view' | 'matview' | 'foreign' | 'sequence' | 'function' | 'procedure';
 
 export interface TableInfo {
   name: string;
-  kind: 'table' | 'view';
+  kind: ObjectKind;
+}
+
+/** Objects you can SELECT from (tables, views…), for completion and the data editor. */
+export const isRelation = (kind: ObjectKind) => kind === 'table' || kind === 'view' || kind === 'matview' || kind === 'foreign';
+
+export interface Constraint {
+  name: string;
+  kind: 'pk' | 'uq' | 'fk' | 'check';
+  /** "id" or "user_id, role_id". */
+  columns: string;
+  /** Foreign keys: "public.users" and its columns. */
+  refTable?: string;
+  refColumns?: string;
+  /** Checks: the expression. */
+  definition?: string;
+  /** Foreign keys: NO ACTION, CASCADE… */
+  onDelete?: string;
+  onUpdate?: string;
+}
+
+export interface IndexInfo {
+  name: string;
+  unique: boolean;
+  primary: boolean;
+  columns: string;
+  /** CREATE INDEX … (Postgres), for the DDL. */
+  definition?: string;
+}
+
+export interface TableDetails {
+  keys: Constraint[];
+  foreignKeys: Constraint[];
+  checks: Constraint[];
+  indexes: IndexInfo[];
+}
+
+export interface RoleInfo {
+  name: string;
+  superuser: boolean;
+  login: boolean;
 }
 
 export const DRIVERS: { id: Exclude<Driver, 'sample'>; name: string; port?: number }[] = [

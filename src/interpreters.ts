@@ -32,6 +32,16 @@ export interface Interpreter {
   port?: number;
   user?: string;
   keyFile?: string;
+  /** SSH: where this project lives on the server (the path mapping for debugging). */
+  remoteRoot?: string;
+}
+
+/** Where Docker containers mount the project when PHPBlitz runs them (like PhpStorm's /opt/project). */
+export const DOCKER_PROJECT = '/opt/project';
+
+/** Running a script with step debugging: Xdebug connects back to PHPBlitz on `port`. */
+export interface DebugTarget {
+  port: number;
 }
 
 /** What `inspect` found out by running PHP through the interpreter. */
@@ -170,14 +180,35 @@ function phpOptions(i: Interpreter): string[] {
 
 const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
-/** The program and arguments that run `php <args>` with this interpreter. */
-export function commandFor(i: Interpreter, args: string[], opts: { lifecycle?: 'exec' | 'run' } = {}): { program: string; args: string[] } {
-  const php = [i.phpPath || 'php', ...phpOptions(i), ...args];
+/** The host Xdebug connects back to, as seen from where PHP runs. */
+export function debugClientHost(i: Interpreter): string {
+  if (i.kind === 'docker' || i.kind === 'compose') return 'host.docker.internal';
+  return '127.0.0.1'; // local; SSH goes through a reverse tunnel to this machine
+}
+
+function debugOptions(i: Interpreter, d: DebugTarget): string[] {
+  return ['-dxdebug.mode=debug', '-dxdebug.start_with_request=yes', `-dxdebug.client_host=${debugClientHost(i)}`, `-dxdebug.client_port=${d.port}`];
+}
+
+/**
+ * The program and arguments that run `php <args>` with this interpreter. `root` mounts the project
+ * into a Docker container; `debug` turns step debugging on for this run.
+ */
+export function commandFor(
+  i: Interpreter,
+  args: string[],
+  opts: { lifecycle?: 'exec' | 'run'; root?: string; debug?: DebugTarget } = {},
+): { program: string; args: string[] } {
+  const php = [i.phpPath || 'php', ...phpOptions(i), ...(opts.debug ? debugOptions(i, opts.debug) : []), ...args];
   switch (i.kind) {
     case 'local':
       return { program: php[0], args: php.slice(1) };
-    case 'docker':
-      return { program: 'docker', args: ['run', '--rm', '-i', i.image || '', ...php] };
+    case 'docker': {
+      const mount = opts.root ? ['-v', `${opts.root}:${DOCKER_PROJECT}`, '-w', DOCKER_PROJECT] : [];
+      // Linux has no host.docker.internal by default: map it to the host.
+      const host = opts.debug ? ['--add-host=host.docker.internal:host-gateway'] : [];
+      return { program: 'docker', args: ['run', '--rm', '-i', ...mount, ...host, i.image || '', ...php] };
+    }
     case 'compose': {
       const files = (i.composeFiles?.length ? i.composeFiles : ['./docker-compose.yml']).flatMap((f) => ['-f', f]);
       const env = (i.env ?? '')
@@ -195,6 +226,8 @@ export function commandFor(i: Interpreter, args: string[], opts: { lifecycle?: '
       const sshArgs = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10'];
       if (i.port && i.port !== 22) sshArgs.push('-p', String(i.port));
       if (i.keyFile) sshArgs.push('-i', i.keyFile);
+      // Debugging: Xdebug on the server connects to its own port, tunnelled back to PHPBlitz.
+      if (opts.debug) sshArgs.push('-R', `${opts.debug.port}:127.0.0.1:${opts.debug.port}`);
       // The remote shell joins its arguments: quote each one.
       return { program: 'ssh', args: [...sshArgs, target, php.map(shellQuote).join(' ')] };
     }
@@ -208,13 +241,13 @@ interface RunResult {
 }
 
 /** Runs `php <args>` through the interpreter, from the project folder. */
-export async function runPhp(i: Interpreter, root: string, args: string[]): Promise<RunResult> {
+export async function runPhp(i: Interpreter, root: string, args: string[], debug?: DebugTarget): Promise<RunResult> {
   if (!isTauri) throw new Error('Running PHP needs the desktop app.');
-  const first = commandFor(i, args);
+  const first = commandFor(i, args, { root, debug });
   const r = await invoke<RunResult>('run_process', { cwd: root, program: first.program, args: first.args });
   // Docker Compose with "exec" needs a running container: fall back to a new one.
   if (r.code !== 0 && i.kind === 'compose' && (i.lifecycle ?? 'exec') === 'exec' && /is not running|no container found|not running/i.test(r.stderr)) {
-    const second = commandFor(i, args, { lifecycle: 'run' });
+    const second = commandFor(i, args, { lifecycle: 'run', root, debug });
     return invoke<RunResult>('run_process', { cwd: root, program: second.program, args: second.args });
   }
   return r;
@@ -276,6 +309,31 @@ export async function pathMappings(i: Interpreter, root: string): Promise<PathMa
   const svc = services.find((s) => s.name === i.service);
   const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
   return (svc?.mounts ?? []).filter((m) => norm(m.local).startsWith(norm(root)) || norm(root).startsWith(norm(m.local)));
+}
+
+/**
+ * Local folder ↔ path where PHP sees it, for breakpoints and stepping. Empty for a local
+ * interpreter (same paths).
+ */
+export async function debugMappings(i: Interpreter | null, root: string): Promise<PathMapping[]> {
+  if (!i || i.kind === 'local') return [];
+  if (i.kind === 'docker') return [{ local: root, remote: DOCKER_PROJECT }];
+  if (i.kind === 'ssh') return i.remoteRoot ? [{ local: root, remote: i.remoteRoot.replace(/\/+$/, '') }] : [];
+  return pathMappings(i, root).catch(() => []);
+}
+
+/** Maps a local path to the server's, or back (longest mapping first). */
+export function mapPath(path: string, mappings: PathMapping[], toRemote: boolean): string {
+  const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '');
+  const p = norm(path);
+  const sorted = [...mappings].sort((a, b) => norm(toRemote ? b.local : b.remote).length - norm(toRemote ? a.local : a.remote).length);
+  for (const m of sorted) {
+    const from = norm(toRemote ? m.local : m.remote);
+    const to = norm(toRemote ? m.remote : m.local);
+    const same = toRemote && /^[A-Za-z]:/.test(from) ? p.toLowerCase().startsWith(from.toLowerCase()) : p.startsWith(from);
+    if (same && (p.length === from.length || p[from.length] === '/')) return to + p.slice(from.length);
+  }
+  return p;
 }
 
 // ── Language level ─────────────────────────────────────────────

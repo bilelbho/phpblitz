@@ -1,5 +1,6 @@
 mod db;
 mod fs;
+mod index;
 mod lsp;
 mod mago;
 mod process;
@@ -16,6 +17,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(lsp::LspState::default())
         .manage(mago::MagoState::default())
+        .manage(index::IndexState::default())
         .manage(watcher::WatchState::default())
         .manage(pty::PtyState::default())
         .manage(db::DbState::default())
@@ -38,6 +40,14 @@ pub fn run() {
             lsp::lsp_start,
             lsp::lsp_send,
             lsp::lsp_stop,
+            index::index_open,
+            index::index_update,
+            index::index_update_text,
+            index::index_save,
+            index::index_kinds,
+            index::index_class,
+            index::index_search,
+            index::index_usages,
             mago::mago_open,
             mago::mago_close,
             mago::mago_check,
@@ -45,7 +55,7 @@ pub fn run() {
             mago::mago_format,
             mago::mago_disable_rule,
             mago::mago_ensure_config,
-            mago::mago_remove_file,
+            mago::mago_sync,
             watcher::watch_start,
             watcher::watch_stop,
             pty::terminal_shells,

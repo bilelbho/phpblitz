@@ -148,15 +148,21 @@ const LABELS: Record<string, string> = {
   uses: 'Uses',
 };
 
+const FLAG_LABELS: Record<string, string> = { final: 'Final', internal: 'Internal', api: 'API', abstract: 'Abstract', static: 'Static', immutable: 'Immutable', readonly: 'Read-only', experimental: 'Experimental', pure: 'Pure' };
+
 export function renderDocBlock(b: DocBlock): string {
   let html = '';
   const deprecated = b.tags.find((t) => t.tag === 'deprecated');
   if (deprecated) html += `<div class="doc-deprecated"><b>Deprecated</b>${deprecated.text ? ` ${prose(deprecated.text)}` : ''}</div>`;
   if (b.summary) html += `<div class="doc-summary">${prose(b.summary)}</div>`;
 
+  // Tags without a value (@final, @internal, @api…) are markers: one line of labels, no colon.
+  const flags = b.tags.filter((t) => !t.type && !t.name && !t.text && t.tag !== 'deprecated' && !/^inheritdoc$/i.test(t.tag));
+  if (flags.length) html += `<div class="doc-flags">${flags.map((t) => `<span class="doc-flag">${esc(FLAG_LABELS[t.tag] ?? t.tag)}</span>`).join('')}</div>`;
+
   const groups = new Map<string, DocTag[]>();
   for (const t of b.tags) {
-    if (t.tag === 'deprecated' || t.tag === 'inheritDoc' || t.tag === 'inheritdoc') continue;
+    if (t.tag === 'deprecated' || /^inheritdoc$/i.test(t.tag) || flags.includes(t)) continue;
     const label = LABELS[t.tag] ?? `@${t.tag}`;
     groups.set(label, [...(groups.get(label) ?? []), t]);
   }

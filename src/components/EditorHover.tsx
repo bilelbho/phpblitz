@@ -4,7 +4,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import * as monaco from 'monaco-editor';
 import type { Workspace } from '../useWorkspace';
-import { markersAt, quickFixesFor, type QuickFix } from '../editorMenu';
+import { markersAt, quickFixesFor, variableAt, type QuickFix } from '../editorMenu';
+import { debug } from '../debug/manager';
+import type { Property } from '../debug/dbgp';
+import { VarNode } from './DebugPanel';
 import { hoverAt } from '../lsp/monacoBridge';
 import { renderMarkdown } from '../editor/markdown';
 import { copyText } from '../editorMenu';
@@ -43,6 +46,8 @@ interface Props {
 export function EditorHover({ editor, ws, path, request, onMoreActions, onClose, onEmpty }: Props) {
   const [problem, setProblem] = useState<Problem | null>(null);
   const [doc, setDoc] = useState<string | null>(null);
+  /** While stopped in the debugger: the value of the variable under the mouse. */
+  const [value, setValue] = useState<Property | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
   const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
   const box = useRef<HTMLDivElement>(null);
@@ -55,15 +60,19 @@ export function EditorHover({ editor, ws, path, request, onMoreActions, onClose,
     const marker = request.docOnly ? undefined : markersAt(model, pos)[0];
     setProblem(marker ? { marker, fixes: null } : null);
     setDoc(null);
+    setValue(null);
     if (marker) quickFixesFor(editor, ws, path, marker).then((fixes) => live && setProblem({ marker, fixes }));
-    hoverAt(model, pos)
+    const expression = !request.docOnly && debug.active?.status === 'break' ? variableAt(model.getLineContent(pos.lineNumber), pos.column) : '';
+    const valueLookup = expression ? debug.hoverValue(expression).then((p) => (p ? { ...p, name: expression, fullname: expression } : null)) : Promise.resolve(null);
+    const docLookup = hoverAt(model, pos)
       .then((md) => (md ? renderMarkdown(md) : null))
-      .catch(() => null)
-      .then((html) => {
-        if (!live) return;
-        setDoc(html);
-        if (!marker && !html) onEmpty();
-      });
+      .catch(() => null);
+    void Promise.all([docLookup, valueLookup]).then(([html, val]) => {
+      if (!live) return;
+      setDoc(html);
+      setValue(val);
+      if (!marker && !html && !val) onEmpty();
+    });
     return () => {
       live = false;
     };
@@ -78,7 +87,7 @@ export function EditorHover({ editor, ws, path, request, onMoreActions, onClose,
     const below = request.bottom + 4;
     const top = below + r.height > window.innerHeight - 8 && request.top - r.height - 4 > 8 ? request.top - r.height - 4 : below;
     setPlace({ left: Math.max(8, Math.min(request.x, window.innerWidth - r.width - 8)), top: Math.max(8, top) });
-  }, [request, problem, doc]);
+  }, [request, problem, doc, value]);
 
   // Keyboard popups close like PhpStorm's: Escape, typing or moving the caret.
   useEffect(() => {
@@ -104,7 +113,7 @@ export function EditorHover({ editor, ws, path, request, onMoreActions, onClose,
   }, [editor, request, onClose]);
 
   // Nothing yet (documentation still loading), or nothing at all (onEmpty closes it).
-  if (!problem && !doc) return null;
+  if (!problem && !doc && !value) return null;
 
   const m = problem?.marker;
   const [title, ...rest] = (m?.message ?? '').split(/\n\s*\n/);
@@ -141,6 +150,11 @@ export function EditorHover({ editor, ws, path, request, onMoreActions, onClose,
       style={place ? { left: place.left, top: place.top } : { left: request.x, top: request.bottom + 4, visibility: 'hidden' }}
       onMouseDown={(e) => e.stopPropagation()}
     >
+      {value && (
+        <div className="pb-hover-debug debug-tree" role="tree">
+          <VarNode p={value} context={0} depth={0} onMenu={(e) => e.preventDefault()} />
+        </div>
+      )}
       {m && (
         <div className="pb-hover-problem">
           <div className="pb-hover-head">

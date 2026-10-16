@@ -96,7 +96,8 @@ export function DataSourceDialog({ ws, source, onClose }: { ws: Workspace; sourc
   const save = async () => {
     if (!valid) return;
     const final = { ...ds, name: ds.name.trim() || defaultName(ds) };
-    await db.save(final, typedPassword());
+    const warning = await db.save(final, typedPassword());
+    if (warning) ws.notify({ title: 'Password not saved', body: warning, tone: 'warning' });
     onClose(final);
   };
 

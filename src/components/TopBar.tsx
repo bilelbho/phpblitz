@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { BranchesPopup } from './BranchesPopup';
 import { ProjectPopup } from './ProjectPopup';
 import { projectInitials, useProjectColor } from '../projectColors';
+import { debug } from '../debug/manager';
 
 interface Props {
   ws: Workspace;
@@ -56,6 +57,8 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
 
   const runMenu: MenuEntry[] = [
     { label: 'Run Tests', run: ws.runTests },
+    { label: 'Debug Tests', disabled: backend.kind !== 'disk', run: () => void debug.debugScript(`${backend.root}/vendor/bin/phpunit`) },
+    ...(ws.activePath?.endsWith('.php') ? [{ label: `Debug '${ws.activePath.split('/').pop()}'`, run: () => void debug.debugScript(ws.activePath!) }] : []),
     { label: 'Check Composer Updates', run: () => { ws.setRightTool('composer'); ws.checkOutdated(); } },
     { label: 'Open Terminal', run: () => ws.showBottom('terminal') },
   ];
@@ -115,6 +118,17 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
       </button>
       <button
         type="button"
+        className="top-icon"
+        aria-label="Debug current file"
+        title={ws.activePath?.endsWith('.php') ? `Debug '${ws.activePath.split('/').pop()}'` : 'Debug (open a PHP file)'}
+        style={{ color: '#5fb865' }}
+        disabled={!ws.activePath?.endsWith('.php')}
+        onClick={() => ws.activePath && void debug.debugScript(ws.activePath)}
+      >
+        <Icon name="bug" />
+      </button>
+      <button
+        type="button"
         className={'top-icon' + (ws.listening ? ' open' : '')}
         aria-label={ws.listening ? 'Stop listening for Xdebug' : 'Start listening for Xdebug'}
         aria-pressed={ws.listening}
@@ -122,7 +136,7 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
         style={{ color: ws.listening ? '#5fb865' : '#ced0d6' }}
         onClick={() => ws.setListening(!ws.listening)}
       >
-        <Icon name="bug" />
+        <Icon name="listen" />
       </button>
       <MenuButton className="top-icon" label="More actions" entries={runMenu}>
         <Icon name="more" strokeWidth={3} />

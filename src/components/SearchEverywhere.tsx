@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Workspace } from '../useWorkspace';
 import { baseName, relativePath } from '../backend/types';
-import { phpIndex } from '../php';
+import { symbols, useSymbols, type SearchHit } from '../symbols';
 import { editorCommands } from '../editorCommands';
 import { Badge, Icon } from './Icon';
 
@@ -55,25 +55,15 @@ export function SearchEverywhere({ ws, initialTab, onClose, actions }: Props) {
   };
 
   const items = useMemo(() => {
+    // Classes and symbols come from the index as you type (see `hits`); files and actions are here.
     const out: Item[] = [];
-    for (const c of phpIndex.all()) {
-      out.push({ key: `c:${c.path}`, kind: 'Class', name: c.name, detail: c.fqn, run: done(() => ws.openFile(c.path, { line: c.line })) });
-      for (const m of c.members) {
-        if (m.kind !== 'method' || m.visibility !== 'public') continue;
-        out.push({
-          key: `s:${c.path}:${m.line}`,
-          kind: 'Symbol',
-          name: `${c.name}::${m.name}()`,
-          detail: m.detail,
-          run: done(() => ws.openFile(c.path, { line: m.line })),
-        });
-      }
-    }
     for (const f of ws.files) {
       const rel = relativePath(ws.backend, f);
       out.push({ key: `f:${f}`, kind: 'File', name: baseName(f), detail: rel.split('/').slice(0, -1).join('/') || '/', run: done(() => ws.openFile(f)) });
     }
-    const act = (name: string, detail: string, run: () => void) => out.push({ key: `a:${name}`, kind: 'Action', name, detail, run: done(run) });
+    const act = (name: string, detail: string, run: () => void) => {
+      if (!out.some((i) => i.kind === 'Action' && i.name === name)) out.push({ key: `a:${name}`, kind: 'Action', name, detail, run: done(run) });
+    };
     act('Run PHPUnit tests', 'Run', ws.runTests);
     act('Save file', 'Ctrl+S', ws.saveActive);
     act('Check for Composer updates', 'Composer', () => {
@@ -94,11 +84,45 @@ export function SearchEverywhere({ ws, initialTab, onClose, actions }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ws.files, ws.indexVersion]);
 
+  // Classes, methods and functions: ranked by the index (project above vendor), fetched per query.
+  useSymbols();
+  const [hits, setHits] = useState<SearchHit[]>([]);
+  useEffect(() => {
+    if (tab === 'files' || tab === 'actions') return setHits([]);
+    let live = true;
+    const t = window.setTimeout(() => {
+      void symbols.search(query, LIMIT).then((h) => live && setHits(h));
+    }, 40);
+    return () => {
+      live = false;
+      window.clearTimeout(t);
+    };
+  }, [query, tab, ws.indexVersion]);
+  const hitItems = useMemo(
+    () =>
+      hits.map((h): Item => {
+        const isClass = h.kind !== 'method' && h.kind !== 'function';
+        return {
+          key: `${h.kind}:${h.path}:${h.line}:${h.name}`,
+          kind: isClass ? 'Class' : 'Symbol',
+          name: h.name,
+          detail: `${h.detail}${h.vendor ? ' · vendor' : ''}`,
+          run: done(() => ws.openFile(h.path, { line: h.line })),
+        };
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hits],
+  );
+
   const results = useMemo(() => {
     const kind = TAB_KIND[tab];
     const q = query.trim().toLowerCase();
+    const classes = hitItems.filter((i) => i.kind === 'Class');
+    const symbolsFound = hitItems.filter((i) => i.kind === 'Symbol');
+    if (kind === 'Class') return classes.slice(0, LIMIT);
+    if (kind === 'Symbol') return symbolsFound.slice(0, LIMIT);
     const pool = kind ? items.filter((i) => i.kind === kind) : items;
-    if (!q) return (tab === 'all' ? pool.filter((i) => i.kind !== 'Symbol') : pool).slice(0, LIMIT);
+    if (!q) return (tab === 'all' ? [...classes.slice(0, 20), ...pool] : pool).slice(0, LIMIT);
     const scored: [number, Item][] = [];
     for (const item of pool) {
       const name = item.name.toLowerCase();
@@ -109,11 +133,10 @@ export function SearchEverywhere({ ws, initialTab, onClose, actions }: Props) {
       else if (item.detail.toLowerCase().includes(q)) score = 3;
       if (score >= 0) scored.push([score * 1000 + name.length, item]);
     }
-    return scored
-      .sort((a, b) => a[0] - b[0])
-      .slice(0, LIMIT)
-      .map(([, i]) => i);
-  }, [items, tab, query]);
+    const local = scored.sort((a, b) => a[0] - b[0]).map(([, i]) => i);
+    // "All": the best classes, then files and actions, then methods and functions (like PhpStorm).
+    return (tab === 'all' ? [...classes.slice(0, 25), ...local.slice(0, 40), ...symbolsFound.slice(0, 25)] : local).slice(0, LIMIT);
+  }, [items, hitItems, tab, query]);
 
   useEffect(() => { setSelected(0); }, [tab, query]);
   useEffect(() => {

@@ -3,6 +3,7 @@ import * as monaco from 'monaco-editor';
 import type { Backend, CommitOptions, Entry, GitInfo, Package, Problem, RunResult, TestResult } from './backend/types';
 import { baseName } from './backend/types';
 import { phpIndex, routesOf, structureOf, type Route } from './php';
+import { symbols } from './symbols';
 import { aiReply, type AiMessage } from './mock';
 import { refreshUsageHints } from './monaco';
 import {
@@ -13,7 +14,7 @@ import {
   magoEnsureConfig,
   magoOpen,
   magoProjectIssues,
-  magoRemoveFile,
+  magoSync,
   suppressionComment,
   toProblem,
   type MagoSummary,
@@ -24,6 +25,8 @@ import { LspClient, pathToUri, uriToPath, type ServerSpec } from './lsp/client';
 import { listen } from '@tauri-apps/api/event';
 import { terminals } from './terminal/manager';
 import { db } from './db/store';
+import { consoleText } from './components/QueryConsole';
+import { ANALYSIS_DELAY, AnalysisQueue, CODE_INSIGHT_LIMIT, lowPriority, markBusy } from './daemon';
 import { dirMarks } from './dirMarks';
 import { insertTab, nextActive, overLimit } from './tabPolicy';
 import { getSettings } from './settings';
@@ -31,6 +34,8 @@ import { Git } from './git/git';
 import type { SearchOptions, SearchResult } from './search';
 import { applyEditNow, findUsages as lspFindUsages, renameSymbol, setActiveLsp, type Usage } from './lsp/monacoBridge';
 import type { Diagnostic, WorkspaceEdit } from './lsp/protocol';
+import { debug, useDebug } from './debug/manager';
+import { useInterpreters } from './interpreters';
 
 /** `preview`: PhpStorm's preview tab (italic), replaced by the next previewed file. */
 export type Tab =
@@ -38,7 +43,7 @@ export type Tab =
   /** A database table's data (Database tool window). */
   | { id: string; kind: 'table'; source: string; schema: string; table: string }
   /** A data source's query console. */
-  | { id: string; kind: 'console'; source: string }
+  | { id: string; kind: 'console'; source: string; name: string }
   /** Side-by-side diff: HEAD vs the working copy, or a commit vs its parent. */
   | { id: string; kind: 'diff'; path: string; commit?: string };
 /** Left tool windows. Structure docks in the bottom half, the others in the top half. */
@@ -55,7 +60,7 @@ export type GitDialogRequest =
   | { kind: 'reset'; hash: string; subject: string }
   | { kind: 'tag'; hash: string };
 
-export type BottomTab = 'problems' | 'terminal' | 'tests' | 'composer' | 'usages' | 'find' | 'git';
+export type BottomTab = 'problems' | 'terminal' | 'tests' | 'composer' | 'usages' | 'find' | 'git' | 'debug';
 
 export interface LspStatus {
   state: 'off' | 'starting' | 'ready' | 'missing' | 'stopped' | 'error';
@@ -281,14 +286,16 @@ export function useWorkspace(backend: Backend) {
     state: 'off',
   });
   const [projectProblems, setProjectProblems] = useState<Problem[] | null>(null);
+  /** How many problems the project really has (projectProblems is capped). */
+  const [projectProblemsTotal, setProjectProblemsTotal] = useState(0);
   const checkSeq = useRef<Record<string, number>>({});
   /** Set once openWithMago exists (it is declared further down). */
   const reanalyzeRef = useRef<(() => void) | null>(null);
 
-  /** Re-checks a file's current text. Responses for older text are dropped. */
-  const checkFile = useCallback(
+  /** Checks a file's text now. Responses for older text are dropped. Usually reached through checkFile. */
+  const analyze = useCallback(
     async (path: string, text: string) => {
-      if (!path.endsWith('.php')) return;
+      if (!path.endsWith('.php') || largeFiles.current.has(path)) return;
       if (!magoAvailable) {
         // With a language server running, its diagnostics are the source of problems.
         if (lspRef.current?.running) return;
@@ -309,15 +316,36 @@ export function useWorkspace(backend: Backend) {
     [backend],
   );
 
+  /** Files over the code insight limit: shown, not analyzed (like IntelliJ). */
+  const largeFiles = useRef(new Set<string>());
+  /** One analysis at a time, newest text per file, active file first, closed files dropped. */
+  const analysisQueue = useRef<AnalysisQueue | null>(null);
+  const analyzeRef = useRef(analyze);
+  analyzeRef.current = analyze;
+  analysisQueue.current ??= new AnalysisQueue(
+    (path, text) => analyzeRef.current(path, text),
+    () => (activeIdRef.current?.startsWith('file:') ? activeIdRef.current.slice(5) : null),
+    (path) => path in liveText.current,
+  );
+  /** Queues a re-check of a file's text (after the editor has been quiet for a moment). */
+  const checkFile = useCallback((path: string, text: string, delay?: number) => {
+    if (!path.endsWith('.php') || largeFiles.current.has(path)) return;
+    analysisQueue.current!.request(path, text, delay);
+  }, []);
+
   const refreshProjectProblems = useCallback(async () => {
     if (!magoAvailable || backend.kind !== 'disk') return;
-    const files = await magoProjectIssues().catch(() => []);
-    setProjectProblems(files.flatMap((f) => f.diagnostics.map((d) => toProblem(f.path, d))));
+    const result = await magoProjectIssues().catch(() => null);
+    if (!result) return;
+    setProjectProblems(result.files.flatMap((f) => f.diagnostics.map((d) => toProblem(f.path, d))));
+    setProjectProblemsTotal(result.total);
   }, [backend]);
   const lint = checkFile;
 
   /** Forgets an editor document: model, texts, problems, language server sync. */
   const releaseFile = useCallback((path: string) => {
+    analysisQueue.current?.drop(path);
+    largeFiles.current.delete(path);
     // Drop the editor model after the tab switch, so a reopened file is read from disk again.
     const uri = monaco.Uri.file(path);
     window.setTimeout(() => monaco.editor.getModel(uri)?.dispose(), 0);
@@ -372,14 +400,21 @@ export function useWorkspace(backend: Backend) {
       setTabs(next);
       if (old?.kind === 'file') releaseFile(old.path);
       setActiveId(id);
+      activeIdRef.current = id;
+      // Opening a file comes first: background work (indexing) waits.
+      markBusy();
       if (!(path in savedText.current)) {
         try {
           const text = await backend.readFile(path);
           savedText.current[path] = text;
           liveText.current[path] = text;
+          if (text.length > CODE_INSIGHT_LIMIT) largeFiles.current.add(path);
+          else largeFiles.current.delete(path);
           setLoaded((l) => ({ ...l, [path]: text }));
-          if (path.endsWith('.php') && lspRef.current?.running) lspRef.current.didOpen(path, 'php', text);
-          lint(path, text);
+          if (!largeFiles.current.has(path)) {
+            if (path.endsWith('.php') && lspRef.current?.running) lspRef.current.didOpen(path, 'php', text);
+            checkFile(path, text, ANALYSIS_DELAY);
+          }
         } catch (e) {
           setTabs((t) => t.filter((x) => x.id !== id));
           notify({ title: `Could not open ${baseName(path)}`, body: String(e), tone: 'error' });
@@ -413,9 +448,11 @@ export function useWorkspace(backend: Backend) {
     setTabs((t) => (t.some((x) => x.id === id) ? t : [...t, { id, kind: 'table', source, schema, table }]));
     setActiveId(id);
   }, []);
-  const openConsole = useCallback((source: string) => {
-    const id = `console:${source}`;
-    setTabs((t) => (t.some((x) => x.id === id) ? t : [...t, { id, kind: 'console', source }]));
+  /** A data source's query console: "console" (the default one), or a named one. `sql` is put in it. */
+  const openConsole = useCallback((source: string, name = 'console', sql?: string) => {
+    const id = name === 'console' ? `console:${source}` : `console:${source}:${name}`;
+    if (sql !== undefined) consoleText.set(source, name, sql);
+    setTabs((t) => (t.some((x) => x.id === id) ? t : [...t, { id, kind: 'console', source, name }]));
     setActiveId(id);
   }, []);
 
@@ -457,8 +494,9 @@ export function useWorkspace(backend: Backend) {
   const onEdit = useCallback(
     (path: string, text: string) => {
       liveText.current[path] = text;
+      markBusy(400);
       setEditedFiles((s) => (s.has(path) ? s : new Set(s).add(path)));
-      lspRef.current?.didChange(path, text);
+      if (!largeFiles.current.has(path)) lspRef.current?.didChange(path, text);
       // Editing a previewed file keeps it open (PhpStorm pins the preview tab).
       if (text !== savedText.current[path]) pinTab(`file:${path}`);
       setDirty((d) => {
@@ -472,21 +510,20 @@ export function useWorkspace(backend: Backend) {
       window.clearTimeout(typingTimer.current);
       typingTimer.current = window.setTimeout(() => {
         setActiveText(text);
-        if (path.endsWith('.php')) {
-          phpIndex.update(path, text);
-          refreshUsageHints();
+        if (path.endsWith('.php') && text.length <= CODE_INSIGHT_LIMIT) {
+          void symbols.updateText(path, text).then(refreshUsageHints);
         }
-        checkFile(path, text);
-      }, 300);
+        checkFile(path, text, 0);
+      }, ANALYSIS_DELAY);
     },
-    [backend, lint],
+    [backend, checkFile],
   );
 
   useEffect(() => {
     setActiveText(activePath ? liveText.current[activePath] ?? '' : '');
   }, [activePath, loaded]);
 
-  const structure = useMemo(() => (activePath?.endsWith('.php') ? structureOf(activeText) : []), [activePath, activeText]);
+  const structure = useMemo(() => (activePath?.endsWith('.php') && activeText.length <= CODE_INSIGHT_LIMIT ? structureOf(activeText) : []), [activePath, activeText]);
 
   const toggleBreakpoint = useCallback((path: string, line: number) => {
     setBreakpoints((b) => {
@@ -609,12 +646,13 @@ export function useWorkspace(backend: Backend) {
       });
       setStatus(`Saved ${baseName(path)}`);
       if (path.endsWith('.php')) {
-        phpIndex.update(path, text);
-        bumpIndex();
-        refreshUsageHints();
+        void symbols.updateText(path, text).then(() => {
+          bumpIndex();
+          refreshUsageHints();
+        });
         reindexRoutes(path, text);
       }
-      lint(path, text).then(refreshProjectProblems);
+      analyze(path, text).then(refreshProjectProblems);
       // Edited the Mago configuration: reload the project with it.
       if (path === `${backend.root}/mago.toml`) reanalyzeRef.current?.();
       refreshGit();
@@ -734,7 +772,10 @@ export function useWorkspace(backend: Backend) {
   );
 
   // ── Xdebug (mocked listener) ──────────────────────────────────
-  const [listening, setListening] = useState(false);
+  // ── Debugger (Xdebug) ─────────────────────────────────────────
+  const debugState = useDebug();
+  const listening = debugState.listening;
+  const setListening = useCallback((on: boolean) => void (on ? debug.startListening() : debug.stopListening()), []);
   const [phpVersion, setPhpVersion] = useState<string | null>(null);
 
   // ── Language server lifecycle ─────────────────────────────────
@@ -836,6 +877,7 @@ export function useWorkspace(backend: Backend) {
   childrenRef.current = children;
   const gitTimer = useRef<number>();
   const vendorTimer = useRef<number>();
+  const problemsTimer = useRef<number>();
 
   const reloadFromDisk = useCallback((path: string, text: string) => {
     savedText.current[path] = text;
@@ -882,12 +924,25 @@ export function useWorkspace(backend: Backend) {
       parents.forEach((dir) => dir in childrenRef.current && loadDir(dir));
       setFiles((list) => {
         const set = new Set(list);
-        files.forEach((c) => (c.exists && !c.isDir ? set.add(c.path) : set.delete(c.path)));
-        return set.size === list.length && files.every((c) => c.exists === list.includes(c.path)) ? list : [...set];
+        let changed = false;
+        for (const c of files) {
+          const want = c.exists && !c.isDir;
+          if (want !== set.has(c.path)) {
+            changed = true;
+            if (want) set.add(c.path);
+            else set.delete(c.path);
+          }
+        }
+        return changed ? [...set] : list;
       });
 
       const watched: { uri: string; type: 1 | 2 | 3 }[] = [];
+      const magoChanged: string[] = [];
+      const magoRemoved: string[] = [];
+      const indexChanged_: string[] = [];
+      const indexRemoved: string[] = [];
       let indexChanged = false;
+      let reads = 0;
       for (const c of files) {
         if (c.isDir) continue;
         const path = c.path;
@@ -895,9 +950,10 @@ export function useWorkspace(backend: Backend) {
         const open = path in liveText.current;
         if (!c.exists) {
           if (path.endsWith('.php')) {
-            phpIndex.remove(path);
+            if (symbols.rust) indexRemoved.push(path);
+            else phpIndex.remove(path);
             setRoutes((r) => r.filter((x) => x.path !== path));
-            if (magoAvailable) magoRemoveFile(path);
+            magoRemoved.push(path);
             watched.push({ uri: pathToUri(path), type: 3 });
             indexChanged = true;
           }
@@ -906,6 +962,16 @@ export function useWorkspace(backend: Backend) {
         }
         const relevant = open || path.endsWith('.php') || ['composer.json', 'composer.lock', 'mago.toml'].includes(name);
         if (!relevant) continue;
+        // The Rust index and Mago read changed PHP files themselves: no need to send their text here.
+        if (symbols.rust && path.endsWith('.php') && !open && !/\/routes\/[^/]+\.php$/.test(path)) {
+          indexChanged_.push(path);
+          if (!dirMarks.isExcluded(path)) magoChanged.push(path);
+          watched.push({ uri: pathToUri(path), type: 2 });
+          indexChanged = true;
+          continue;
+        }
+        // A checkout can change thousands of files: let the UI breathe between reads.
+        if (++reads % 24 === 0) await lowPriority();
         let text: string;
         try {
           text = await backend.readFile(path);
@@ -927,9 +993,10 @@ export function useWorkspace(backend: Backend) {
           continue; // the editor's change handler updates the index, Mago and the language server
         }
         if (path.endsWith('.php')) {
-          phpIndex.update(path, text);
+          if (symbols.rust) indexChanged_.push(path);
+          else phpIndex.update(path, text);
           reindexRoutes(path, text);
-          if (magoAvailable) magoCheck(path, text).catch(() => {});
+          if (!dirMarks.isExcluded(path)) magoChanged.push(path);
           watched.push({ uri: pathToUri(path), type: 2 });
           indexChanged = true;
         }
@@ -937,10 +1004,18 @@ export function useWorkspace(backend: Backend) {
         if (name === 'composer.json' || name === 'composer.lock') backend.packages().then(setPackages).catch(() => {});
       }
       if (watched.length) lspRef.current?.notify('workspace/didChangeWatchedFiles', { changes: watched });
+      if (magoAvailable && (magoChanged.length || magoRemoved.length)) {
+        magoSync(magoChanged, magoRemoved)
+          .then(() => {
+            window.clearTimeout(problemsTimer.current);
+            problemsTimer.current = window.setTimeout(refreshProjectProblems, 500);
+          })
+          .catch(() => {});
+      }
+      if (indexChanged_.length || indexRemoved.length) void symbols.update(indexChanged_, indexRemoved).then(() => refreshUsageHints());
       if (indexChanged) {
         bumpIndex();
         refreshUsageHints();
-        window.setTimeout(refreshProjectProblems, 300);
       }
 
       // Git status: after file changes or a checkout/commit made elsewhere.
@@ -1195,7 +1270,7 @@ export function useWorkspace(backend: Backend) {
     if (!magoAvailable || backend.kind !== 'disk') return;
     setMagoStatus({ state: 'analyzing' });
     try {
-      const summary = await magoOpen(backend.root);
+      const summary = await magoOpen(backend.root, dirMarks.excludedFolders());
       setMagoStatus({ state: 'ready', summary });
       const rules = summary.integrations.length ? ` · ${summary.integrations.join(', ')} rules` : '';
       notify({
@@ -1217,6 +1292,54 @@ export function useWorkspace(backend: Backend) {
   }, [backend, notify, checkFile, refreshProjectProblems]);
 
   reanalyzeRef.current = openWithMago;
+
+  // The debugger follows the project (interpreter → path mappings) and the editor's breakpoints.
+  const interpretersVersion = useInterpreters();
+  useEffect(() => {
+    void debug.setProject(backend.root);
+  }, [backend]);
+  useEffect(() => {
+    void debug.refreshInterpreter();
+  }, [interpretersVersion]);
+  useEffect(() => {
+    debug.setBreakpoints(breakpoints);
+  }, [breakpoints]);
+  useEffect(() => {
+    debug.onStop = (path, line) => {
+      openFile(path, { line });
+      setBottomTab('debug');
+      setBottomOpen(true);
+    };
+    debug.onMessage = (title, body, tone) => notify({ title, body, tone });
+  }, [openFile, notify]);
+  // Stop debugging (and listening) when the project closes.
+  useEffect(() => () => {
+    symbols.save();
+    for (const s of debug.sessions) debug.closeSession(s.id);
+    void debug.stopListening();
+  }, [backend]);
+
+  // Marking a folder Excluded (or un-excluding it) changes what Mago analyzes: reload it.
+  const excludedKey = useRef<string | null>(null);
+  const excludeTimer = useRef<number>();
+  const magoStatusRef = useRef(magoStatus.state);
+  magoStatusRef.current = magoStatus.state;
+  useEffect(() => {
+    const check = () => {
+      const key = dirMarks.excludedFolders().join('\n');
+      const before = excludedKey.current;
+      excludedKey.current = key;
+      if (before !== null && before !== key && magoStatusRef.current !== 'analyzing') {
+        window.clearTimeout(excludeTimer.current);
+        excludeTimer.current = window.setTimeout(() => reanalyzeRef.current?.(), 800);
+      }
+    };
+    check();
+    const unsubscribe = dirMarks.subscribe(check);
+    return () => {
+      unsubscribe();
+    };
+  }, [backend]);
 
   // ── Mago actions (right-click ▸ Mago, Alt+Enter) ─────────────
   /** Applies a Mago fix to the open file, as one undoable edit. */
@@ -1344,13 +1467,47 @@ export function useWorkspace(backend: Backend) {
 
     (async () => {
       const started = performance.now();
+      // Let the first files the user opens come first.
+      await lowPriority();
       const all = await backend.listFiles().catch(() => [] as string[]);
       if (cancelled) return;
       setFiles(all);
+      if (isTauri && backend.kind === 'disk') {
+        // Mago-parsed project + vendor, cached on disk: reopening only re-parses what changed.
+        let stats;
+        try {
+          stats = await symbols.open(backend.root, dirMarks.excludedFolders());
+        } catch (e) {
+          if (!cancelled) notify({ title: 'Indexing failed', body: String(e), tone: 'error' });
+          return;
+        }
+        if (cancelled) return;
+        // Laravel routes still come from the routes/ files (a few, small).
+        const routeFiles = all.filter((f) => /\/routes\/[^/]+\.php$/.test(f));
+        const texts = await Promise.all(routeFiles.map((p) => backend.readFile(p).catch(() => '')));
+        if (cancelled) return;
+        setRoutes(routeFiles.flatMap((p, i) => routesOf(p, texts[i])));
+        setIndexStats({ files: all.length, classes: stats.classes, ms: stats.ms });
+        bumpIndex();
+        refreshUsageHints();
+        const cached = stats.files - stats.parsed;
+        notify({
+          title: 'Indexing finished',
+          body:
+            `${stats.files.toLocaleString()} PHP files (vendor included), ${stats.classes.toLocaleString()} classes and ${stats.functions.toLocaleString()} functions indexed in ${(stats.ms / 1000).toFixed(1)} s` +
+            (cached ? ` (${cached.toLocaleString()} from the cache).` : '.'),
+          tone: 'success',
+        });
+        return;
+      }
+      symbols.useJs();
       const php = all.filter((f) => f.endsWith('.php') && !f.endsWith('.blade.php')).slice(0, MAX_INDEXED);
       const found: Route[] = [];
       for (let i = 0; i < php.length; i += INDEX_BATCH) {
         const batch = php.slice(i, i + INDEX_BATCH);
+        // Low priority: only when the UI is idle and the user isn't opening files or typing.
+        await lowPriority();
+        if (cancelled) return;
         const texts = await Promise.all(batch.map((p) => backend.readFile(p).catch(() => '')));
         if (cancelled) return;
         batch.forEach((p, j) => {
@@ -1406,6 +1563,7 @@ export function useWorkspace(backend: Backend) {
     // files and index
     files, indexStats, indexVersion, routes,
     // tabs and editor
+    isLargeFile: (path: string) => largeFiles.current.has(path),
     tabs, activeId, setActiveId, activeTab, activePath, loaded, dirty, openFile, openTable, openConsole, closeTab, closeTabs, moveTab,
     onEdit, save, saveActive, cursor, setCursor, goto, setGoto, breakpoints, toggleBreakpoint, structure, problems,
     // tool windows
@@ -1430,7 +1588,7 @@ export function useWorkspace(backend: Backend) {
     renameItem, deleteItems, fileClipboard, setFileClipboard, pasteInto, reloadItem,
     // misc
     lspStatus, restartLanguageServer: startLanguageServer, usages, findUsagesAt,
-    magoStatus, reanalyzeProject: openWithMago, projectProblems, refreshProjectProblems,
+    magoStatus, reanalyzeProject: openWithMago, projectProblems, projectProblemsTotal, refreshProjectProblems,
     applyFix, suppressProblem, disableMagoRule, openMagoConfig,
     notices, notify, dismissNotice, aiMessages, askAi, listening, setListening, phpVersion, status, setStatus,
   };

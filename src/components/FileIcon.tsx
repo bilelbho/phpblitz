@@ -2,7 +2,7 @@
 // interface, trait, enum), other files their type (Markdown, Docker, JSON, YAML, Twig, .env…).
 
 import type { ReactNode } from 'react';
-import { phpIndex } from '../php';
+import { symbols, useSymbols } from '../symbols';
 
 const BLUE = '#548af7';
 const GREEN = '#5fb865';
@@ -66,7 +66,7 @@ function glyph(path: string): ReactNode {
 
   switch (ext) {
     case 'php': {
-      const kind = phpIndex.kindOf(path);
+      const kind = symbols.kindOf(path);
       if (kind === 'class') return <Circled letter="C" color={BLUE} />;
       if (kind === 'interface') return <Circled letter="I" color={GREEN} />;
       if (kind === 'trait') return <Circled letter="T" color={ORANGE} />;
@@ -163,6 +163,8 @@ function glyph(path: string): ReactNode {
 
 /** The icon for a file, 16 px. */
 export function FileIcon({ path, size = 16 }: { path: string; size?: number }) {
+  // Re-render when the index learns what the file declares (C / I / T / E).
+  useSymbols();
   return (
     <svg className="file-icon" width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
       {glyph(path)}

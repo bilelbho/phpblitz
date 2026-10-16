@@ -232,7 +232,7 @@ pub async fn replace_in_files(options: SearchOptions, replacement: String, paths
 }
 
 #[tauri::command]
-pub fn replace_in_text(options: SearchOptions, replacement: String, text: String) -> Result<ReplaceResult, String> {
+pub async fn replace_in_text(options: SearchOptions, replacement: String, text: String) -> Result<ReplaceResult, String> {
     replace_text(&text, &options, &replacement)
 }
 

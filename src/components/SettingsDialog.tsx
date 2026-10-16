@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { Workspace } from '../useWorkspace';
-import { DEFAULT_SETTINGS, getSettings, saveSettings, type EditorSettings, type Settings, type TabSettings, type TerminalSettings, type UiSettings } from '../settings';
+import { DEFAULT_SETTINGS, getSettings, saveSettings, type DebugSettings, type EditorSettings, type Settings, type TabSettings, type TerminalSettings, type UiSettings } from '../settings';
 import { terminals, type ShellSpec } from '../terminal/manager';
 import { isTauri } from '../platform';
 import { Icon } from './Icon';
@@ -28,6 +28,13 @@ const PAGES: Page[] = [
     label: 'PHP',
     group: 'PHP',
     keywords: 'language level cli interpreter php executable docker compose ssh xdebug debugger extension configuration options include path runtime extensions composer files',
+  },
+  {
+    id: 'debug',
+    label: 'Debug',
+    group: 'PHP',
+    section: 'debug',
+    keywords: 'xdebug debug port 9003 break at first line exceptions max children inline values listen connections',
   },
   {
     id: 'appearance',
@@ -103,6 +110,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
       tabs: draft.tabs,
       editor: { ...ed, fontSize: clamp(ed.fontSize, 6, 48, 13), lineHeight: clamp(ed.lineHeight, 1, 3, 1.6) },
       terminal: { ...t, fontSize: clamp(t.fontSize, 6, 48, 13), lineHeight: clamp(t.lineHeight, 0.8, 3, 1) },
+      debug: { ...draft.debug, port: clamp(draft.debug.port, 1, 65535, 9003), maxChildren: clamp(draft.debug.maxChildren, 10, 1000, 100) },
     };
     saveSettings(next);
     saveProjectPhp(root, php);
@@ -116,6 +124,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
   const setTabs = (patch: Partial<TabSettings>) => setDraft((d) => ({ ...d, tabs: { ...d.tabs, ...patch } }));
   const setEditor = (patch: Partial<EditorSettings>) => setDraft((d) => ({ ...d, editor: { ...d.editor, ...patch } }));
   const setTerminal = (patch: Partial<TerminalSettings>) => setDraft((d) => ({ ...d, terminal: { ...d.terminal, ...patch } }));
+  const setDebug = (patch: Partial<DebugSettings>) => setDraft((d) => ({ ...d, debug: { ...d.debug, ...patch } }));
 
   return (
     <div className="modal-backdrop settings-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -174,6 +183,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
               {active.label}
             </div>
             <div className="settings-content">
+              {active.id === 'debug' && <DebugPage value={draft.debug} onChange={setDebug} highlight={query.trim().toLowerCase()} />}
               {active.id === 'php' && <PhpPage ws={ws} draft={php} onChange={(patch) => setPhp((p) => ({ ...p, ...patch }))} />}
               {active.id === 'appearance' && <AppearancePage value={draft.ui} onChange={setUi} highlight={query.trim().toLowerCase()} onEditorScheme={() => setCurrent('color-scheme')} />}
               {active.id === 'editor-tabs' && <EditorTabsPage value={draft.tabs} onChange={setTabs} highlight={query.trim().toLowerCase()} />}
@@ -441,5 +451,49 @@ function HintsPage({ value: e, onChange, highlight }: { value: EditorSettings; o
       {check('lightbulb', 'Show lightbulb for context actions', 'A bulb on the caret line when Alt+Enter has something to offer.')}
       {check('renderDocs', 'Render documentation comments', 'Show /** */ comments formatted. Click the pencil in the gutter or press Ctrl+Alt+Q to edit one.')}
     </div>
+  );
+}
+
+/** PHP ▸ Debug: Xdebug's port and when to stop. */
+function DebugPage({ value: d, onChange, highlight }: { value: DebugSettings; onChange: (patch: Partial<DebugSettings>) => void; highlight: string }) {
+  const hit = (label: string) => (highlight && label.toLowerCase().includes(highlight) ? ' hit' : '');
+  const check = (key: 'breakAtFirstLine' | 'breakOnExceptions' | 'inlineValues', label: string, help: string) => (
+    <div>
+      <label className={'settings-check' + hit(label)}>
+        <input type="checkbox" className="checkbox" checked={d[key]} onChange={(e) => onChange({ [key]: e.target.checked })} />
+        {label}
+      </label>
+      <div className="muted settings-help">{help}</div>
+    </div>
+  );
+  return (
+    <>
+      <h3 className="settings-section">Xdebug</h3>
+      <div className="settings-grid">
+        <label htmlFor="debug-port" className={hit('Debug port')}>
+          Debug port:
+        </label>
+        <div className="settings-row">
+          <div className="field" style={{ width: 90 }}>
+            <input id="debug-port" value={d.port} onChange={(e) => onChange({ port: Number(e.target.value.replace(/\D/g, '')) || 0 })} />
+          </div>
+          <span className="muted">Xdebug 3 connects to 9003 by default (xdebug.client_port).</span>
+        </div>
+        <label htmlFor="debug-children" className={hit('Max children')}>
+          Max array items shown:
+        </label>
+        <div className="field" style={{ width: 90 }}>
+          <input id="debug-children" value={d.maxChildren} onChange={(e) => onChange({ maxChildren: Number(e.target.value.replace(/\D/g, '')) || 0 })} />
+        </div>
+      </div>
+      <div className="settings-checks" style={{ gap: 14 }}>
+        {check('breakAtFirstLine', 'Break at first line in PHP scripts', 'Stop on the first line even without breakpoints.')}
+        {check('breakOnExceptions', 'Break on exceptions', 'Stop where an exception is thrown (all exception classes).')}
+        {check('inlineValues', 'Show values inline', 'While stopped, show variable values at the end of the lines that use them.')}
+      </div>
+      <div className="muted settings-help" style={{ marginTop: 12 }}>
+        For web requests, start listening (the phone icon in the toolbar) and trigger Xdebug with a browser extension, a XDEBUG_SESSION cookie, or xdebug.start_with_request=yes.
+      </div>
+    </>
   );
 }

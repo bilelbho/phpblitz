@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Workspace } from '../useWorkspace';
-import { phpIndex, type Route } from '../php';
+import type { Route } from '../php';
+import { symbols } from '../symbols';
 import { baseName } from '../backend/types';
 import { Icon } from './Icon';
 
@@ -9,9 +10,11 @@ export function EndpointsPanel({ ws }: { ws: Workspace }) {
   const q = filter.trim().toLowerCase();
   const routes = ws.routes.filter((r) => !q || `${r.method} ${r.uri} ${r.handler}`.toLowerCase().includes(q));
 
-  const open = (r: Route) => {
-    const cls = r.controller ? phpIndex.find(r.controller) : undefined;
-    if (cls && r.action) ws.openFile(cls.path, { find: String.raw`function\s+${r.action}\s*\(` });
+  const open = async (r: Route) => {
+    const cls = r.controller ? await symbols.classInfo(r.controller) : null;
+    const method = cls && r.action ? cls.members.find((m) => m.kind === 'method' && m.name === r.action) : undefined;
+    if (cls && method) ws.openFile(cls.path, { line: method.line });
+    else if (cls) ws.openFile(cls.path, { line: cls.line });
     else ws.openFile(r.path, { line: r.line });
   };
 

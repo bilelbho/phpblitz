@@ -9,6 +9,9 @@ import { IntentionPopup } from './IntentionPopup';
 import { useSettings, getSettings } from '../settings';
 import { themeId } from '../editor/themes';
 import { setupDocComments } from '../editor/docComments';
+import { whenIdle } from '../daemon';
+import { debug, useDebug } from '../debug/manager';
+import { displayValue } from '../debug/dbgp';
 import { setUsagesHandler } from '../monaco';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
@@ -45,7 +48,7 @@ export function EditorArea({ ws }: { ws: Workspace }) {
       )}
       {tab?.kind === 'file' && ws.loaded[tab.path] === undefined && <div className="editor-empty">Loading…</div>}
       {tab?.kind === 'table' && <TableEditor key={tab.id} ws={ws} source={tab.source} schema={tab.schema} table={tab.table} />}
-      {tab?.kind === 'console' && <QueryConsole key={tab.id} ws={ws} source={tab.source} />}
+      {tab?.kind === 'console' && <QueryConsole key={tab.id} ws={ws} source={tab.source} name={tab.name ?? 'console'} />}
       {tab?.kind === 'diff' && <DiffView key={tab.id} ws={ws} path={tab.path} commit={tab.commit} />}
       {!tab && (
         <div className="editor-empty">
@@ -74,7 +77,8 @@ function Inspections({ ws, path, editor }: { ws: Workspace; path: string; editor
   const weak = list.length - errors - warnings;
   const jump = (dir: 'next' | 'prev') => {
     editor?.focus();
-    editor?.trigger('phpblitz', dir === 'next' ? 'editor.action.marker.next' : 'editor.action.marker.prev', {});
+    // The same as F2 / Shift+F2: jump there and show PhpStorm's problem popup (not Monaco's peek).
+    editor?.trigger('phpblitz', dir === 'next' ? 'phpblitz.nextProblem' : 'phpblitz.prevProblem', {});
   };
   return (
     <div className="inspections" aria-label={`${errors} errors, ${warnings} warnings`}>
@@ -98,7 +102,7 @@ function Inspections({ ws, path, editor }: { ws: Workspace; path: string; editor
           <Icon name="check" size={14} strokeWidth={2.5} />
         </span>
       )}
-      <button type="button" className="icon-btn small" aria-label="Previous problem" title="Previous Highlighted Error" onClick={() => jump('prev')} disabled={!list.length}>
+      <button type="button" className="icon-btn small" aria-label="Previous problem" title="Previous Highlighted Error (Shift+F2)" onClick={() => jump('prev')} disabled={!list.length}>
         <Icon name="chevronUp" size={12} strokeWidth={2.2} />
       </button>
       <button type="button" className="icon-btn small" aria-label="Next problem" title="Next Highlighted Error (F2)" onClick={() => jump('next')} disabled={!list.length}>
@@ -169,7 +173,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     editorRef.current = editor;
     onEditor?.(editor);
     setupMarkdown(editor);
-    docComments.current = setupDocComments(editor, () => getSettings().editor.renderDocs);
+    docComments.current = setupDocComments(editor, () => getSettings().editor.renderDocs && !latest.current.ws.isLargeFile(latest.current.path));
     editor.onDidDispose(() => docComments.current?.dispose());
     decorations.current = editor.createDecorationsCollection();
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => latest.current.ws.save(latest.current.path));
@@ -279,6 +283,24 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     editor.addAction({ id: 'phpblitz.collapse', label: 'Collapse', keybindings: [KeyMod.CtrlCmd | KeyCode.NumpadSubtract], run: run('editor.fold') });
     editor.addAction({ id: 'phpblitz.expandAll', label: 'Expand All', keybindings: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.NumpadAdd], run: run('editor.unfoldAll') });
     editor.addAction({ id: 'phpblitz.collapseAll', label: 'Collapse All', keybindings: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.NumpadSubtract], run: run('editor.foldAll') });
+    editor.addAction({
+      id: 'phpblitz.toggleBreakpoint',
+      label: 'Toggle Line Breakpoint',
+      keybindings: [KeyMod.CtrlCmd | KeyCode.F8],
+      run: (ed) => {
+        const line = ed.getPosition()?.lineNumber;
+        if (line) latest.current.ws.toggleBreakpoint(latest.current.path, line);
+      },
+    });
+    editor.addAction({
+      id: 'phpblitz.runToCursor',
+      label: 'Run to Cursor',
+      keybindings: [KeyMod.Alt | KeyCode.F9],
+      run: (ed) => {
+        const line = ed.getPosition()?.lineNumber;
+        if (line) void debug.runToCursor(latest.current.path, line);
+      },
+    });
     editor.addAction({ id: 'phpblitz.runTests', label: 'Run Tests', keybindings: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.F10], run: () => latest.current.ws.runTests() });
     editor.addAction({ id: 'phpblitz.copyPath', label: 'Copy Absolute Path', keybindings: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyC], run: () => copyText(latest.current.ws, latest.current.path, 'path') });
     editor.addAction({
@@ -469,13 +491,67 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     );
   }, [ready, path, ws.breakpoints]);
 
+  // Debugger: the execution point (and the selected frame's line), and variable values inline.
+  const dbg = useDebug();
+  const debugDecorations = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
+  const position = dbg.position;
+  const session = dbg.active;
+  useEffect(() => {
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    if (!ready || !editor || !model) return;
+    const deco = (debugDecorations.current ??= editor.createDecorationsCollection());
+    if (!position || position.path !== path || position.line > model.getLineCount()) {
+      deco.clear();
+      return;
+    }
+    const top = session?.frame === 0;
+    const rules: string[] = [];
+    const items: monaco.editor.IModelDeltaDecoration[] = [
+      {
+        range: new monaco.Range(position.line, 1, position.line, 1),
+        options: { isWholeLine: true, className: top ? 'debug-line' : 'debug-frame-line', glyphMarginClassName: top ? 'debug-arrow' : 'debug-frame-arrow', stickiness: 1 },
+      },
+    ];
+    if (getSettings().debug.inlineValues && session?.variables?.length) {
+      // Values of the variables each line uses, from the start of the function to the stop line.
+      const values = new Map(session.variables.filter((v) => v.name !== '$this').map((v) => [v.name, displayValue(v)]));
+      let start = position.line;
+      for (let l = position.line; l >= Math.max(1, position.line - 200); l--) {
+        start = l;
+        if (/\bfunction\b/.test(model.getLineContent(l))) break;
+      }
+      for (let l = start; l <= position.line; l++) {
+        const seen = new Set<string>();
+        const parts: string[] = [];
+        for (const m of model.getLineContent(l).matchAll(/\$[A-Za-z_]\w*/g)) {
+          const v = values.get(m[0]);
+          if (v === undefined || seen.has(m[0])) continue;
+          seen.add(m[0]);
+          parts.push(`${m[0].slice(1)}: ${v.length > 60 ? `${v.slice(0, 57)}…` : v}`);
+        }
+        if (parts.length) {
+          // A ::after rule per line (Monaco's injected text doesn't render from a decorations collection).
+          const cls = `debug-iv-${l}`;
+          rules.push(`.monaco-editor .${cls}::after { content: ${cssString(`   ${parts.join('   ')}`)}; }`);
+          items.push({ range: new monaco.Range(l, 1, l, model.getLineMaxColumn(l)), options: { afterContentClassName: `debug-inline ${cls}` } });
+        }
+      }
+    }
+    inlineStyle().textContent = rules.join('\n');
+    deco.set(items);
+  }, [ready, path, position?.path, position?.line, session?.variables, session?.frame]);
+
+  const gitKey = ws.git ? `${ws.git.branch}|${ws.git.changes.find((c) => c.path === path)?.status ?? ''}` : '';
+  const large = ws.isLargeFile(path);
+
   // Git: change markers against HEAD, updated while typing.
   useEffect(() => {
     const editor = editorRef.current;
     const model = editor?.getModel();
     if (!ready || !editor || !model) return;
     const deco = (gitDecorations.current ??= editor.createDecorationsCollection());
-    if (!ws.git) {
+    if (!ws.git || ws.isLargeFile(path)) {
       deco.clear();
       hunks.current = [];
       return;
@@ -508,11 +584,14 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         }),
       );
     };
-    ws.gitRepo.head(path).then((text) => {
-      if (!live) return;
-      base = text;
-      update();
-    });
+    // After the file is on screen (and the UI idle), like IntelliJ's VCS markers.
+    void whenIdle(1500)
+      .then(() => (live ? ws.gitRepo.head(path) : null))
+      .then((text) => {
+        if (!live || text === null) return;
+        base = text;
+        update();
+      });
     const sub = model.onDidChangeContent(() => {
       window.clearTimeout(timer);
       timer = window.setTimeout(update, 250);
@@ -522,7 +601,10 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       window.clearTimeout(timer);
       sub.dispose();
     };
-  }, [ready, path, ws.git, ws.gitRepo]);
+    // Not ws.git itself: it is a new object on every status refresh. The base only changes with the
+    // branch or this file's own status (committed, reverted).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, path, gitKey, ws.gitRepo]);
 
   // Git blame in the line-number column (Annotate with Git Blame).
   const annotate = ws.annotated.has(path);
@@ -640,7 +722,12 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
     {ready && find && editorRef.current && <FindBar editor={editorRef.current} request={find} step={findStep} onClose={() => setFind(null)} />}
     <div style={{ flex: '1 1 auto', minHeight: 0, position: 'relative' }}>
-    {ready && path.endsWith('.php') && <Inspections ws={ws} path={path} editor={editorRef.current} />}
+    {large && (
+      <div className="large-file-banner">
+        <Icon name="warning" size={13} /> File size exceeds the code insight limit (2.5 MB). Code insight features are not available.
+      </div>
+    )}
+    {ready && path.endsWith('.php') && !large && <Inspections ws={ws} path={path} editor={editorRef.current} />}
     {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={closeMenu} />}
     {hover && editorRef.current && (
       <div
@@ -709,14 +796,14 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         fontSize: settings.fontSize,
         lineHeight: Math.round(settings.fontSize * settings.lineHeight),
         fontLigatures: settings.ligatures,
-        codeLens: settings.codeVision,
+        codeLens: settings.codeVision && !large,
         codeLensFontFamily: 'Inter, sans-serif',
         codeLensFontSize: 12,
         glyphMargin: true,
         lineNumbersMinChars: blameLines ? 31 : 4,
         lineNumbers: blameLines ? (n) => `${blameLabel(blameLines[n - 1]).padEnd(26)}${String(n).padStart(4)}` : 'on',
         lineDecorationsWidth: 14,
-        folding: true,
+        folding: !large,
         showFoldingControls: 'mouseover',
         minimap: { enabled: false },
         scrollBeyondLastLine: true,
@@ -781,4 +868,20 @@ function blameLabel(b: BlameLine | undefined): string {
   if (/^0+$/.test(b.hash)) return 'Not committed yet';
   const [first, last] = b.author.split(' ');
   return `${b.date.slice(0, 10)}  ${first}${last ? ` ${last[0]}.` : ''}`;
+}
+
+/** The <style> holding inline debugger values (one ::after rule per line). */
+function inlineStyle(): HTMLStyleElement {
+  let el = document.getElementById('debug-inline-values') as HTMLStyleElement | null;
+  if (!el) {
+    el = document.createElement('style');
+    el.id = 'debug-inline-values';
+    document.head.appendChild(el);
+  }
+  return el;
+}
+
+/** Text as a CSS string literal. */
+function cssString(text: string): string {
+  return `"${text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\n\r]+/g, ' ')}"`;
 }

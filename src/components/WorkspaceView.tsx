@@ -24,6 +24,7 @@ import { useProjectColor } from '../projectColors';
 import { zoomBy } from '../uiSettings';
 import { RecentFiles, TOOL_WINDOWS } from './RecentFiles';
 import { getSettings } from '../settings';
+import { debug, useDebug } from '../debug/manager';
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
@@ -144,6 +145,28 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
     };
   }, []);
 
+  const debugState = useDebug();
+  useEffect(() => {
+    const keys = (e: KeyboardEvent) => {
+      const s = debug.active;
+      if (!s) return;
+      const stopped = s.status === 'break';
+      const plain = !e.ctrlKey && !e.altKey && !e.metaKey;
+      let action: (() => void) | null = null;
+      if (e.key === 'F9' && plain && !e.shiftKey && stopped) action = debug.resume;
+      else if (e.key === 'F8' && plain && !e.shiftKey && stopped) action = debug.stepOver;
+      else if (e.key === 'F8' && plain && e.shiftKey && stopped) action = debug.stepOut;
+      else if (e.key === 'F7' && plain && !e.shiftKey && stopped) action = debug.stepInto;
+      else if (e.key === 'F2' && e.ctrlKey && !e.altKey && s.status !== 'stopped') action = () => void debug.stop();
+      if (!action) return;
+      e.preventDefault();
+      e.stopPropagation();
+      action();
+    };
+    window.addEventListener('keydown', keys, true);
+    return () => window.removeEventListener('keydown', keys, true);
+  }, []);
+
   const changeCount = ws.git?.changes.length ?? 0;
   const problemCount = Object.values(ws.problems).flat().length;
   const bottomActive = (t: BottomTab) => ws.bottomOpen && ws.bottomTab === t;
@@ -156,6 +179,7 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
   ];
   const leftBottomItems: StripItem[] = [
     { id: 'tests', label: 'Run', icon: 'run', active: bottomActive('tests') },
+    { id: 'debug', label: 'Debug', icon: 'bug', active: bottomActive('debug'), dot: debugState.sessions.some((s) => s.status === 'break') },
     { id: 'terminal', label: 'Terminal', icon: 'terminal', active: bottomActive('terminal') },
     { id: 'problems', label: 'Problems', icon: 'error', active: bottomActive('problems'), dot: problemCount > 0 },
     { id: 'composer', label: 'Composer Log', icon: 'box', active: bottomActive('composer') },
@@ -177,7 +201,7 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
   const leftTitles: Record<Exclude<LeftTool, 'structure'>, [string, string]> = {
     project: ['Project', ''],
     commit: ['Commit', ''],
-    database: ['Database', 'sample data'],
+    database: ['Database', ws.backend.kind === 'sample' ? 'sample data' : ''],
   };
   const rightTitles: Record<RightTool, [string, string]> = {
     notifications: ['Notifications', ''],

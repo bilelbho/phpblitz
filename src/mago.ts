@@ -39,14 +39,19 @@ export interface MagoSummary {
   configError: string | null;
 }
 
-export const magoOpen = (root: string) => invoke<MagoSummary>('mago_open', { root });
+/** `excludes`: folders (relative to the project) marked Excluded, which aren't analyzed. */
+export const magoOpen = (root: string, excludes: string[] = []) => invoke<MagoSummary>('mago_open', { root, excludes });
 export const magoClose = () => invoke('mago_close').catch(() => {});
 export const magoCheck = (path: string, content: string) => invoke<MagoDiagnostic[]>('mago_check', { path, content });
-export const magoProjectIssues = () => invoke<{ path: string; diagnostics: MagoDiagnostic[] }[]>('mago_project_issues');
+/** Project Errors: at most `limit` problems (a huge project has tens of thousands), and the real total. */
+export const magoProjectIssues = (limit = PROJECT_ISSUES_LIMIT) =>
+  invoke<{ total: number; files: { path: string; diagnostics: MagoDiagnostic[] }[] }>('mago_project_issues', { limit });
+export const PROJECT_ISSUES_LIMIT = 5000;
 export const magoFormat = (content: string) => invoke<string | null>('mago_format', { content });
 export const magoDisableRule = (category: string, code: string) => invoke<MagoSummary>('mago_disable_rule', { category, code });
 export const magoEnsureConfig = () => invoke<string>('mago_ensure_config');
-export const magoRemoveFile = (path: string) => invoke('mago_remove_file', { path }).catch(() => {});
+/** Files changed or deleted on disk: Mago reads them itself and re-checks once for the whole batch. */
+export const magoSync = (changed: string[], removed: string[]) => invoke('mago_sync', { changed, removed });
 
 /** The comment that hides one problem, e.g. `// @mago-expect lint:no-multi-assignments`. */
 export function suppressionComment(p: Problem): string | null {

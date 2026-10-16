@@ -88,6 +88,12 @@ class DirMarks {
     return null;
   }
 
+  /** Folders marked Excluded, relative to the project (the analyzer skips them). */
+  excludedFolders(): string[] {
+    const all = new Set([...Object.keys(this.defaults), ...Object.keys(this.saved)]);
+    return [...all].filter((rel) => rel && this.markOf(`${this.root}/${rel}`) === 'excluded').sort();
+  }
+
   isExcluded(path: string) {
     return this.inherited(path) === 'excluded';
   }

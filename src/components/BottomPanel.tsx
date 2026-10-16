@@ -1,11 +1,13 @@
 import { FileIcon } from './FileIcon';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useVirtualRows } from './useVirtualRows';
 import type { BottomTab, Workspace } from '../useWorkspace';
 import { baseName, relativePath, type Problem } from '../backend/types';
 import { Icon, Play } from './Icon';
 import { FindResults } from './FindInFiles';
 import { TerminalView } from './TerminalView';
 import { GitToolWindow } from './GitToolWindow';
+import { DebugPanel } from './DebugPanel';
 import { isTauri } from '../platform';
 
 const SEVERITY_COLOR = { error: 'var(--red)', warning: 'var(--orange)', info: 'var(--muted)' } as const;
@@ -20,6 +22,14 @@ export function BottomPanel({ ws, height }: { ws: Workspace; height: number }) {
     ...(ws.findResults ? [{ id: 'find' as const, label: 'Find', count: String(ws.findResults.result.total) }] : []),
     ...(ws.usages ? [{ id: 'usages' as const, label: `Usages of ${ws.usages.name}`, count: ws.usages.loading ? '…' : String(ws.usages.items.length) }] : []),
   ];
+
+  if (ws.bottomTab === 'debug') {
+    return (
+      <section className="island bottom" style={{ height }} aria-label="Debug">
+        <DebugPanel ws={ws} />
+      </section>
+    );
+  }
 
   if (ws.bottomTab === 'git') {
     return (
@@ -111,8 +121,21 @@ function Problems({ ws }: { ws: Workspace }) {
   const path = ws.activePath;
   const fileProblems = (path ? ws.problems[path] ?? [] : []).slice().sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || a.line - b.line);
   const project = ws.projectProblems ?? [];
-  const projectFiles = new Map<string, Problem[]>();
-  for (const p of project) projectFiles.set(p.path, [...(projectFiles.get(p.path) ?? []), p]);
+  // Project Errors as flat rows (a file header, then its problems), so only those in view render.
+  const projectRows = useMemo(() => {
+    const byFile = new Map<string, Problem[]>();
+    for (const p of project) {
+      const list = byFile.get(p.path);
+      if (list) list.push(p);
+      else byFile.set(p.path, [p]);
+    }
+    const rows: ({ file: string; count: number } | Problem)[] = [];
+    for (const [file, list] of byFile) rows.push({ file, count: list.length }, ...list);
+    return rows;
+  }, [project]);
+  const scroller = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const range = useVirtualRows(scroller, list, view === 'project' ? projectRows.length : 0, 24);
   const hasProject = ws.backend.kind === 'disk' && ws.magoStatus.state !== 'off';
 
   const row = (p: Problem, i: number, indent: number, showFile: boolean) => (
@@ -138,14 +161,14 @@ function Problems({ ws }: { ws: Workspace }) {
   );
 
   return (
-    <div className="tree">
+    <div ref={scroller} className="tree" style={{ height: '100%', overflow: 'auto' }}>
       <div className="row" style={{ height: 30, paddingLeft: 4, gap: 4 }}>
         <button type="button" className={'tw-tab' + (view === 'file' ? ' active' : '')} onClick={() => setView('file')}>
           File{path ? `: ${baseName(path)}` : ''} <span className="count">{fileProblems.length || ''}</span>
         </button>
         {hasProject && (
           <button type="button" className={'tw-tab' + (view === 'project' ? ' active' : '')} onClick={() => setView('project')}>
-            Project Errors <span className="count">{project.length || ''}</span>
+            Project Errors <span className="count">{(ws.projectProblemsTotal || project.length || '').toLocaleString()}</span>
           </button>
         )}
         <span className="grow" />
@@ -174,21 +197,27 @@ function Problems({ ws }: { ws: Workspace }) {
       {view === 'project' && (
         <>
           {ws.magoStatus.state === 'analyzing' && <div className="empty">Mago is analyzing the project…</div>}
-          {[...projectFiles].map(([file, list]) => {
-            return (
-              <div key={file}>
-                <button type="button" className="row" style={{ paddingLeft: 6 }} onClick={() => ws.openFile(file)} title={relativePath(ws.backend, file)}>
-                  <FileIcon path={file} />
-                  <span className="name">{baseName(file)}</span>
-                  <span className="detail">{relativePath(ws.backend, file).split('/').slice(0, -1).join('/')}</span>
+          {ws.projectProblemsTotal > project.length && (
+            <div className="row muted" style={{ height: 24, paddingLeft: 6 }}>
+              Showing the first {project.length.toLocaleString()} of {ws.projectProblemsTotal.toLocaleString()} problems. Exclude folders you don't edit (Mark Directory As ▸ Excluded) or turn rules off to see fewer.
+            </div>
+          )}
+          <div ref={list} style={{ paddingTop: range.before, paddingBottom: range.after }}>
+            {projectRows.slice(range.start, range.end).map((r, k) =>
+              'file' in r ? (
+                <button key={`f:${r.file}`} type="button" className="row" style={{ height: 24, paddingLeft: 6 }} onClick={() => ws.openFile(r.file)} title={relativePath(ws.backend, r.file)}>
+                  <FileIcon path={r.file} />
+                  <span className="name">{baseName(r.file)}</span>
+                  <span className="detail">{relativePath(ws.backend, r.file).split('/').slice(0, -1).join('/')}</span>
                   <span className="detail">
-                    {list.length} {list.length === 1 ? 'problem' : 'problems'}
+                    {r.count} {r.count === 1 ? 'problem' : 'problems'}
                   </span>
                 </button>
-                {list.map((p, i) => row(p, i, 30, false))}
-              </div>
-            );
-          })}
+              ) : (
+                row(r, range.start + k, 30, false)
+              ),
+            )}
+          </div>
           {ws.magoStatus.state === 'ready' && !project.length && <div className="empty">No problems found in the project.</div>}
         </>
       )}

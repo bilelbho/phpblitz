@@ -8,6 +8,7 @@ import type { Workspace } from '../useWorkspace';
 import type { Entry } from '../backend/types';
 import { isTauri } from '../platform';
 import {
+  DOCKER_PROJECT,
   LANGUAGE_LEVELS,
   allInterpreters,
   cachedInspect,
@@ -460,6 +461,10 @@ function InterpreterForm({ ws, value: i, onChange }: { ws: Workspace; value: Int
             <div className="field">
               <input id="cli-key" value={i.keyFile ?? ''} placeholder="~/.ssh/id_ed25519 (optional; uses your SSH agent otherwise)" spellCheck={false} onChange={(e) => onChange({ keyFile: e.target.value })} />
             </div>
+            <label htmlFor="cli-remote-root">Project on the server:</label>
+            <div className="field">
+              <input id="cli-remote-root" value={i.remoteRoot ?? ''} placeholder="/var/www/app (path mapping for debugging)" spellCheck={false} onChange={(e) => onChange({ remoteRoot: e.target.value })} />
+            </div>
           </>
         )}
         <label htmlFor="cli-php">{i.kind === 'local' ? 'PHP executable:' : 'PHP interpreter path:'}</label>
@@ -497,6 +502,24 @@ function InterpreterForm({ ws, value: i, onChange }: { ws: Workspace; value: Int
         {info.state === 'idle' && <span className="muted">{isTauri ? 'Set the PHP path, then reload.' : 'Checking interpreters needs the desktop app.'}</span>}
       </div>
 
+      {(i.kind === 'docker' || i.kind === 'ssh') && (
+        <>
+          <h3 className="settings-section">Path Mappings</h3>
+          <div className="cli-mappings">
+            {i.kind === 'docker' ? (
+              <div className="mono">
+                {nativePath(root)} <span className="muted">→</span> {DOCKER_PROJECT}
+              </div>
+            ) : i.remoteRoot ? (
+              <div className="mono">
+                {nativePath(root)} <span className="muted">→</span> {i.remoteRoot}
+              </div>
+            ) : (
+              <span className="muted">Set the project's folder on the server so breakpoints can be matched.</span>
+            )}
+          </div>
+        </>
+      )}
       {i.kind === 'compose' && (
         <>
           <h3 className="settings-section">Path Mappings</h3>

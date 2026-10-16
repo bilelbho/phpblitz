@@ -118,7 +118,12 @@ pub fn open_external(url: String) -> Result<(), String> {
 /// Finds the first of `names` on PATH or in ~/.cargo/bin (where `cargo install`
 /// puts language servers; GUI apps often start without it on PATH).
 #[tauri::command]
-pub fn find_executable(names: Vec<String>) -> Option<String> {
+pub async fn find_executable(names: Vec<String>) -> Option<String> {
+    tauri::async_runtime::spawn_blocking(move || find_executable_blocking(names)).await.ok().flatten()
+}
+
+/// [`find_executable`] for Rust callers.
+pub fn find_executable_blocking(names: Vec<String>) -> Option<String> {
     let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
         .map(|p| std::env::split_paths(&p).collect())
         .unwrap_or_default();

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import type { Workspace } from '../useWorkspace';
+import { isRelation } from '../db/types';
 import { db, useDb } from '../db/store';
 import type { QueryResult } from '../db/types';
 import { useSettings } from '../settings';
@@ -12,7 +13,28 @@ import { themeId } from '../editor/themes';
 import { DataGrid } from './DataGrid';
 import { Icon } from './Icon';
 
-const textKey = (source: string) => `phpblitz.console:${source}`;
+const textKey = (source: string, name: string) => (name === 'console' ? `phpblitz.console:${source}` : `phpblitz.console:${source}:${name}`);
+
+/** Saved console texts (also used to open a console with SQL in it, e.g. a table's DDL). */
+export const consoleText = {
+  get: (source: string, name: string) => {
+    try {
+      return localStorage.getItem(textKey(source, name)) ?? '';
+    } catch {
+      return '';
+    }
+  },
+  set: (source: string, name: string, text: string) => {
+    try {
+      localStorage.setItem(textKey(source, name), text);
+    } catch {
+      // This session only.
+    }
+    monaco.editor.getModel(monaco.Uri.parse(consoleUri(source, name)))?.setValue(text);
+  },
+};
+
+const consoleUri = (source: string, name: string) => (name === 'console' ? `inmemory://console/${source}.sql` : `inmemory://console/${source}/${name}.sql`);
 
 /** The statement around `offset`: text between semicolons outside quotes and comments. */
 export function statementAt(text: string, offset: number): { start: number; end: number; sql: string } | null {
@@ -62,7 +84,7 @@ function registerCompletion() {
       const range = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn);
       const st = db.state[source];
       const { CompletionItemKind } = monaco.languages;
-      const tables = Object.entries(st?.tables ?? {}).flatMap(([schema, list]) => (list ?? []).map((t) => ({ schema, ...t })));
+      const tables = Object.entries(st?.tables ?? {}).flatMap(([schema, list]) => (list ?? []).filter((t) => isRelation(t.kind)).map((t) => ({ schema, ...t })));
       const text = model.getValue();
       // Columns of the tables named in the console, loaded on demand.
       const used = tables.filter((t) => new RegExp(`\\b${t.name}\\b`, 'i').test(text));
@@ -88,7 +110,7 @@ interface LogLine {
   tone?: 'error' | 'ok';
 }
 
-export function QueryConsole({ ws, source }: { ws: Workspace; source: string }) {
+export function QueryConsole({ ws, source, name }: { ws: Workspace; source: string; name: string }) {
   useDb();
   const ds = db.get(source);
   const settings = useSettings().editor;
@@ -155,7 +177,7 @@ export function QueryConsole({ ws, source }: { ws: Workspace; source: string }) 
     editor.addAction({ id: 'phpblitz.sql.execute', label: 'Execute', keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter], run: () => executeRef.current() });
     editor.onDidChangeModelContent(() => {
       try {
-        localStorage.setItem(textKey(source), editor.getValue());
+        localStorage.setItem(textKey(source, name), editor.getValue());
       } catch {
         // Only a convenience.
       }
@@ -169,7 +191,7 @@ export function QueryConsole({ ws, source }: { ws: Workspace; source: string }) 
 
   const initial = (() => {
     try {
-      return localStorage.getItem(textKey(source)) ?? '';
+      return localStorage.getItem(textKey(source, name)) ?? '';
     } catch {
       return '';
     }
@@ -189,7 +211,7 @@ export function QueryConsole({ ws, source }: { ws: Workspace; source: string }) 
       </div>
       <div className="qc-editor" style={{ flexBasis: `${split * 100}%` }}>
         <Editor
-          path={`inmemory://console/${source}.sql`}
+          path={consoleUri(source, name)}
           defaultLanguage="sql"
           defaultValue={initial || (ds?.driver === 'sample' ? 'SELECT * FROM users;\n' : '')}
           theme={themeId(settings.scheme)}

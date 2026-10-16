@@ -10,6 +10,8 @@ export type ContextItem =
       icon?: IconName;
       /** Shows a check mark (toggle options). */
       checked?: boolean;
+      /** A section title ("View in Groups"), not clickable. */
+      head?: boolean;
       disabled?: boolean;
       run?: () => void;
       submenu?: ContextItem[];
@@ -132,6 +134,7 @@ function MenuList({ x, y, flipX, items, onClose, onBack, autoFocus }: ListProps)
       >
         {items.map((item, index) => {
           if (item.kind === 'sep') return <div key={index} className="menu-sep" role="separator" />;
+          if (item.head) return <div key={index} className="menu-head" role="presentation">{item.label}</div>;
           const hasSub = !!item.submenu;
           return (
             <button

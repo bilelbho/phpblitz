@@ -5,7 +5,8 @@ import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
 import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
 import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
 import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
-import { inferType, phpIndex, structureOf } from './php';
+import { inferType, structureOf } from './php';
+import { symbols } from './symbols';
 import { isLspActive, usageCount } from './lsp/monacoBridge';
 import { getSettings } from './settings';
 
@@ -69,7 +70,7 @@ const usageLenses: monaco.languages.CodeLensProvider = {
   async resolveCodeLens(model, lens) {
     const { at } = lens as UsageLens;
     // With a language server: real reference counts. Without: the name-based estimate.
-    const n = isLspActive() ? await usageCount(model, at.line, at.column) : phpIndex.usages(at.name);
+    const n = isLspActive() ? await usageCount(model, at.line, at.column) : await symbols.usages(at.name);
     const title = n === null ? ' ' : n === 0 ? 'no usages' : n === 1 ? '1 usage' : `${n} usages`;
     return { ...lens, command: { id: 'phpblitz.showUsages', title, arguments: [model.uri.toString(), at.line, at.column] } };
   },
@@ -103,7 +104,7 @@ const { CompletionItemKind, CompletionItemInsertTextRule } = monaco.languages;
 // Member completion after `->` and `::`, using the project class index.
 monaco.languages.registerCompletionItemProvider('php', {
   triggerCharacters: ['>', ':'],
-  provideCompletionItems(model, position) {
+  async provideCompletionItems(model, position) {
     if (isLspActive()) return { suggestions: [] };
     const prefix = model.getLineContent(position.lineNumber).slice(0, position.column - 1);
     const m = prefix.match(/(\$this->\w+|\$\w+|\b[A-Z]\w*)\s*(->|::)(\w*)$/);
@@ -118,8 +119,8 @@ monaco.languages.registerCompletionItemProvider('php', {
     const canSeePrivate = target === '$this' || type === ownClass;
     const range = new monaco.Range(position.lineNumber, position.column - typed.length, position.lineNumber, position.column);
 
-    const suggestions = phpIndex
-      .membersOf(type)
+    const info = await symbols.classInfo(type, src);
+    const suggestions = (info?.allMembers ?? [])
       .filter((s) => (isStatic ? s.isStatic || s.kind === 'const' || s.kind === 'method' : s.kind !== 'const'))
       .filter((s) => canSeePrivate || s.visibility === 'public')
       .filter((s) => s.name !== '__construct')
