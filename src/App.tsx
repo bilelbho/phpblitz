@@ -4,6 +4,8 @@ import type { Backend } from './backend/types';
 import { DiskBackend } from './backend/disk';
 import { SampleBackend } from './backend/sample';
 import { isTauri, pickFolder, rememberProject } from './platform';
+import { useApplyUiSettings } from './uiSettings';
+import { useSettings } from './settings';
 import { Welcome } from './components/Welcome';
 import { WorkspaceView } from './components/WorkspaceView';
 
@@ -23,11 +25,13 @@ export default function App() {
 
   const openSample = useCallback(() => setBackend(new SampleBackend()), []);
 
+  useApplyUiSettings();
+  const fullPath = useSettings().ui.fullPathInTitle;
   useEffect(() => {
-    const title = backend ? `${backend.name} – PHPBlitz` : 'PHPBlitz';
+    const title = backend ? `${fullPath && backend.kind === 'disk' ? backend.root : backend.name} – PHPBlitz` : 'PHPBlitz';
     document.title = title;
     if (isTauri) getCurrentWindow().setTitle(title).catch(() => {});
-  }, [backend]);
+  }, [backend, fullPath]);
 
   if (!backend) return <Welcome onOpenFolder={openFolder} onOpenPath={openPath} onOpenSample={openSample} />;
   return (

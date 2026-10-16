@@ -1,11 +1,13 @@
 import type { Workspace } from '../useWorkspace';
-import { isTauri, recentProjects } from '../platform';
+import { isTauri } from '../platform';
 import { Icon, Play } from './Icon';
 import { MenuButton, type MenuEntry } from './Menu';
-import { WindowControls, projectColor } from './WindowControls';
+import { WindowControls } from './WindowControls';
 import type { SearchTab } from './SearchEverywhere';
 import { useState } from 'react';
 import { BranchesPopup } from './BranchesPopup';
+import { ProjectPopup } from './ProjectPopup';
+import { projectInitials, useProjectColor } from '../projectColors';
 
 interface Props {
   ws: Workspace;
@@ -17,12 +19,6 @@ interface Props {
 
 export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Props) {
   const { backend } = ws;
-  const initials = backend.name
-    .split(/[-_\s.]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0].toUpperCase())
-    .join('');
 
   const mainMenu: MenuEntry[] = [
     { kind: 'head', label: 'File' },
@@ -53,18 +49,10 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
     { label: 'Show Git Log', disabled: !ws.git, run: () => ws.showHistory('') },
   ];
 
-  const projectMenu = (): MenuEntry[] => [
-    { kind: 'head', label: 'Recent Projects' },
-    ...recentProjects()
-      .filter((p) => p !== backend.root)
-      .slice(0, 6)
-      .map((p) => ({ label: p.split('/').pop() ?? p, run: () => onOpenPath(p) })),
-    { kind: 'sep' },
-    { label: 'Open…', run: onOpenFolder, disabled: !isTauri },
-    { label: 'Close Project', run: onClose },
-  ];
 
   const [branches, setBranches] = useState<DOMRect | null>(null);
+  const [projects, setProjects] = useState<DOMRect | null>(null);
+  const color = useProjectColor(backend.root, backend.name);
 
   const runMenu: MenuEntry[] = [
     { label: 'Run Tests', run: ws.runTests },
@@ -73,19 +61,28 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
   ];
 
   return (
-    <header className="topbar" data-tauri-drag-region style={{ ['--project-color' as string]: projectColor(backend.name) }}>
+    <header className="topbar" data-tauri-drag-region>
       <MenuButton className="top-icon" label="Main menu" title="Main Menu" entries={mainMenu}>
         <Icon name="menu" />
       </MenuButton>
-      <MenuButton className="widget" label={`Project ${backend.name}`} entries={projectMenu}>
-        <span className="project-square" style={{ background: projectColor(backend.name) }}>
-          {initials || 'P'}
+      <button
+        type="button"
+        className={'widget' + (projects ? ' open' : '')}
+        aria-label={`Project ${backend.name}`}
+        aria-haspopup="dialog"
+        onClick={(e) => setProjects(projects ? null : (e.currentTarget as HTMLElement).getBoundingClientRect())}
+      >
+        <span className="project-square" style={{ background: color }}>
+          {projectInitials(backend.name)}
         </span>
         {backend.name}
         <span className="chevron">
           <Icon name="chevronDown" size={12} strokeWidth={2.2} />
         </span>
-      </MenuButton>
+      </button>
+      {projects && (
+        <ProjectPopup ws={ws} anchor={projects} onOpenFolder={onOpenFolder} onOpenPath={onOpenPath} onCloseProject={onClose} onColorChange={() => {}} onClose={() => setProjects(null)} />
+      )}
       {ws.git && (
         <button
           type="button"

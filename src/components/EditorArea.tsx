@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ContextMenu, type ContextItem } from './ContextMenu';
 import { FileStructurePopup, FindBar, GotoLineDialog, type FindRequest } from './EditorPopups';
 import { setEditorCommands } from '../editorCommands';
@@ -8,79 +8,29 @@ import { MarkdownView, runCodeBlock, shellBlocks } from './MarkdownView';
 import { IntentionPopup } from './IntentionPopup';
 import { useSettings, getSettings } from '../settings';
 import { themeId } from '../editor/themes';
+import { setupDocComments } from '../editor/docComments';
 import { setUsagesHandler } from '../monaco';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import type { Workspace } from '../useWorkspace';
 import { baseName, relativePath } from '../backend/types';
 import { languageOf } from '../php';
-import { db } from '../db/store';
 import { TableEditor } from './TableEditor';
 import { QueryConsole } from './QueryConsole';
 import { DiffView } from './DiffView';
+import { TabBar } from './TabBar';
 import { HunkPopup } from './HunkPopup';
 import { diffLines, type Hunk } from '../git/diff';
 import type { BlameLine } from '../git/git';
 import type { Tab } from '../useWorkspace';
-import { Badge, Icon, fileBadge } from './Icon';
-
-/** Name, badge and tooltip of an editor tab. */
-function tabInfo(ws: Workspace, t: Tab): { name: string; badge: { text: string; color: string }; title: string } {
-  switch (t.kind) {
-    case 'file':
-      return { name: baseName(t.path), badge: fileBadge(t.path), title: relativePath(ws.backend, t.path) };
-    case 'table':
-      return { name: t.table, badge: { text: 'T', color: '#5fc9be' }, title: `${db.get(t.source)?.name ?? ''} · ${t.schema}.${t.table}` };
-    case 'console':
-      return { name: `console [${db.get(t.source)?.name ?? t.source}]`, badge: { text: 'Q', color: '#e3a869' }, title: `Query console: ${db.get(t.source)?.name ?? ''}` };
-    case 'diff':
-      return {
-        name: t.commit ? `${baseName(t.path)} (${t.commit.slice(0, 7)})` : `Diff: ${baseName(t.path)}`,
-        badge: { text: '±', color: '#6a9ef0' },
-        title: `${relativePath(ws.backend, t.path)}: ${t.commit ? `changes in ${t.commit.slice(0, 8)}` : 'HEAD vs your version'}`,
-      };
-  }
-}
+import { Icon } from './Icon';
 
 export function EditorArea({ ws }: { ws: Workspace }) {
   const tab = ws.activeTab;
+  const tabPlacement = useSettings().tabs.placement;
   return (
     <section className="island" style={{ flex: '1 1 auto' }} aria-label="Editor">
-      {ws.tabs.length > 0 && <div className="tabs" role="tablist" aria-label="Open files">
-        {ws.tabs.map((t) => {
-          const isFile = t.kind === 'file';
-          const { name, badge, title } = tabInfo(ws, t);
-          const active = t.id === ws.activeId;
-          const dirty = isFile && ws.dirty.has(t.path);
-          const preview = isFile && !!t.preview;
-          return (
-            <div key={t.id} className={'tab' + (active ? ' active' : '') + (dirty ? ' dirty' : '') + (preview ? ' preview' : '')}>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={active}
-                className="tab-main"
-                onClick={() => ws.setActiveId(t.id)}
-                onDoubleClick={() => ws.pinTab(t.id)}
-                onMouseDown={(e) => {
-                  if (e.button === 1) {
-                    e.preventDefault();
-                    ws.closeTab(t.id);
-                  }
-                }}
-                title={title + (preview ? '\nPreview tab: double-click to keep it open' : '')}
-              >
-                <Badge text={badge.text} color={badge.color} />
-                {name}
-                {dirty && <span className="dirty-mark" aria-label="unsaved changes">*</span>}
-              </button>
-              <button type="button" className="icon-btn small tab-close" aria-label={`Close ${name}`} title={dirty ? 'Unsaved changes. Close' : 'Close'} onClick={() => ws.closeTab(t.id)}>
-                <Icon name="close" size={10} strokeWidth={2.5} />
-              </button>
-            </div>
-          );
-        })}
-      </div>}
+      {ws.tabs.length > 0 && tabPlacement === 'top' && <TabBar ws={ws} />}
 
       {tab?.kind === 'file' && ws.loaded[tab.path] !== undefined && (
         <div className="editor-host">
@@ -111,6 +61,7 @@ export function EditorArea({ ws }: { ws: Workspace }) {
           </div>
         </div>
       )}
+      {ws.tabs.length > 0 && tabPlacement === 'bottom' && <TabBar ws={ws} />}
     </section>
   );
 }
@@ -208,10 +159,18 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
   const latest = useRef({ ws, path });
   latest.current = { ws, path };
 
+  const docComments = useRef<ReturnType<typeof setupDocComments> | null>(null);
+  // Rendered doc comments follow the setting, and the file's content once it has loaded.
+  useEffect(() => {
+    docComments.current?.refresh();
+  }, [settings.renderDocs, ready, path]);
+
   const onMount: OnMount = (editor) => {
     editorRef.current = editor;
     onEditor?.(editor);
     setupMarkdown(editor);
+    docComments.current = setupDocComments(editor, () => getSettings().editor.renderDocs);
+    editor.onDidDispose(() => docComments.current?.dispose());
     decorations.current = editor.createDecorationsCollection();
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => latest.current.ws.save(latest.current.path));
 
@@ -333,6 +292,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     });
     // Ctrl+K is a chord prefix in Monaco; take it back for Commit like PhpStorm.
     editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyK, () => latest.current.ws.showLeft('commit'));
+    editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyE, () => latest.current.ws.setRecentOpen(true));
     // Ctrl+Shift+K: Push… (Monaco's "delete line" otherwise); Ctrl+T: Update Project.
     editor.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyK, () => latest.current.ws.git && latest.current.ws.setGitDialog({ kind: 'push' }));
     editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyT, () => latest.current.ws.git && latest.current.ws.runGit('Update project', () => latest.current.ws.gitRepo.pull()));
@@ -489,7 +449,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         // Markdown: ▷ beside a shell code block runs it.
         const block = shellBlocks(editor.getModel()?.getValue() ?? '').find((b) => b.line === e.target.position!.lineNumber);
         if (block) runCodeBlock(latest.current.ws, block.code);
-      } else if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN && e.target.position) {
+      } else if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN && e.target.position && !docComments.current?.ownsGlyph(e.target.position.lineNumber)) {
         latest.current.ws.toggleBreakpoint(latest.current.path, e.target.position.lineNumber);
       }
     });
@@ -762,7 +722,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         scrollBeyondLastLine: true,
         automaticLayout: true,
         renderLineHighlight: 'line',
-        smoothScrolling: true,
+        smoothScrolling: getSettings().ui.smoothScrolling,
         cursorBlinking: 'blink',
         padding: { top: 6 },
         tabSize: 4,

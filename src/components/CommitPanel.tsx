@@ -1,10 +1,11 @@
 // Commit tool window, like PhpStorm's: Changes and Unversioned Files groups (optionally by
 // directory), Ignored Files on request, diff / rollback / shelve, message history and commit options.
 
+import { FileIcon } from './FileIcon';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Workspace } from '../useWorkspace';
 import { baseName, relativePath, type GitChange } from '../backend/types';
-import { Badge, Icon, fileBadge } from './Icon';
+import { Icon } from './Icon';
 import { ContextMenu, type ContextItem } from './ContextMenu';
 import { confirmDialog } from '../platform';
 import type { Commit } from '../git/git';
@@ -361,7 +362,6 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
   );
 
   const fileRow = (c: GitChange, depth: number, showDir: boolean): ReactNode => {
-    const badge = fileBadge(c.path);
     const dir = relativePath(ws.backend, c.path).split('/').slice(0, -1).join('/');
     return (
       <div
@@ -374,7 +374,7 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
         title={`${relativePath(ws.backend, c.path)} (${STATUS_LABEL[c.status]})`}
       >
         <input type="checkbox" className="checkbox" checked={isIn(c)} aria-label={`Include ${baseName(c.path)}`} onChange={() => setIncluded([c], !isIn(c))} />
-        <Badge text={badge.text} color={badge.color} />
+        <FileIcon path={c.path} />
         <span className={`name status-${c.status}`}>{baseName(c.path)}</span>
         {showDir && <span className="detail">{dir || ws.backend.name}</span>}
       </div>

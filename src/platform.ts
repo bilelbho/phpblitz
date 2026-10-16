@@ -24,6 +24,14 @@ export function recentProjects(): string[] {
   }
 }
 
+export function forgetProject(root: string) {
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(recentProjects().filter((r) => r !== root)));
+  } catch {
+    // Only a convenience.
+  }
+}
+
 export function rememberProject(root: string) {
   try {
     const list = [root, ...recentProjects().filter((r) => r !== root)].slice(0, 8);

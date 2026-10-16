@@ -27,7 +27,7 @@ export interface TerminalSettings {
 }
 
 export interface EditorSettings {
-  /** Color scheme id, see editor/themes.ts. */
+  /** Color scheme id, see editor/themes.ts; 'theme' follows the UI theme. */
   scheme: string;
   fontFamily: string;
   fontSize: number;
@@ -39,17 +39,99 @@ export interface EditorSettings {
   inlayHints: boolean;
   /** Lightbulb on the caret line when there are context actions. */
   lightbulb: boolean;
+  /** Show /** doc comments *\/ formatted (reader mode); Ctrl+Alt+Q toggles one. */
+  renderDocs: boolean;
+}
+
+export type UiTheme = 'islands-dark' | 'islands-light' | 'islands-darcula' | 'high-contrast';
+
+/** Appearance & Behavior ▸ Appearance. */
+export interface UiSettings {
+  theme: UiTheme;
+  /** Follow Windows' light / dark mode (Islands Light / Islands Dark). */
+  syncOs: boolean;
+  /** UI zoom in percent (Alt+Shift+= / Alt+Shift+Minus / Alt+Shift+0). */
+  zoom: number;
+  customFont: boolean;
+  fontFamily: string;
+  fontSize: number;
+  contrastScrollbars: boolean;
+  compact: boolean;
+  fullPathInTitle: boolean;
+  projectColors: boolean;
+  smoothScrolling: boolean;
+  menuIcons: boolean;
+  indentGuides: boolean;
+  smallerIndents: boolean;
+  toolWindowBars: boolean;
+  toolWindowNames: boolean;
+}
+
+/** Editor ▸ General ▸ Editor Tabs. */
+export interface TabSettings {
+  placement: 'top' | 'bottom' | 'none';
+  /** One row that scrolls or squeezes its tabs, or several rows. */
+  mode: 'scroll' | 'squeeze' | 'multiple';
+  showIcon: boolean;
+  showExtension: boolean;
+  showDirForDuplicates: boolean;
+  markModified: boolean;
+  pathOnHover: boolean;
+  closeButton: 'right' | 'left' | 'none';
+  sortAlphabetically: boolean;
+  openAtEnd: boolean;
+  previewTab: boolean;
+  limit: number;
+  /** Over the limit: close tabs without changes, or the least recently used one. */
+  overLimit: 'unchanged' | 'unused';
+  activateOnClose: 'left' | 'right' | 'recent';
 }
 
 export interface Settings {
+  ui: UiSettings;
+  tabs: TabSettings;
   editor: EditorSettings;
   terminal: TerminalSettings;
 }
 
 /** PhpStorm's defaults where it has one. */
 export const DEFAULT_SETTINGS: Settings = {
+  ui: {
+    theme: 'islands-dark',
+    syncOs: false,
+    zoom: 100,
+    customFont: false,
+    fontFamily: 'Inter',
+    fontSize: 13,
+    contrastScrollbars: false,
+    compact: false,
+    fullPathInTitle: false,
+    projectColors: true,
+    smoothScrolling: true,
+    menuIcons: true,
+    indentGuides: false,
+    smallerIndents: false,
+    toolWindowBars: true,
+    toolWindowNames: false,
+  },
+  tabs: {
+    placement: 'top',
+    mode: 'scroll',
+    showIcon: true,
+    showExtension: true,
+    showDirForDuplicates: true,
+    markModified: true,
+    pathOnHover: true,
+    closeButton: 'right',
+    sortAlphabetically: false,
+    openAtEnd: false,
+    previewTab: true,
+    limit: 30,
+    overLimit: 'unused',
+    activateOnClose: 'left',
+  },
   editor: {
-    scheme: 'islands-dark',
+    scheme: 'theme',
     fontFamily: 'JetBrains Mono',
     fontSize: 13,
     lineHeight: 1.6,
@@ -57,6 +139,7 @@ export const DEFAULT_SETTINGS: Settings = {
     codeVision: true,
     inlayHints: true,
     lightbulb: true,
+    renderDocs: true,
   },
   terminal: {
     shellPath: '',
@@ -85,6 +168,8 @@ function load(): Settings {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}');
     return {
+      ui: { ...DEFAULT_SETTINGS.ui, ...(saved.ui ?? {}) },
+      tabs: { ...DEFAULT_SETTINGS.tabs, ...(saved.tabs ?? {}) },
       editor: { ...DEFAULT_SETTINGS.editor, ...(saved.editor ?? {}) },
       terminal: { ...DEFAULT_SETTINGS.terminal, ...(saved.terminal ?? {}) },
     };
@@ -130,4 +215,19 @@ export function parseEnv(text: string): [string, string][] {
       return [s.slice(0, i).trim(), s.slice(i + 1).trim()] as [string, string];
     })
     .filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k));
+}
+
+/** The UI theme in effect (Sync with OS picks light or dark from Windows). */
+export function effectiveTheme(ui: UiSettings): UiTheme {
+  if (ui.syncOs && typeof window !== 'undefined' && window.matchMedia) {
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'islands-light' : 'islands-dark';
+  }
+  return ui.theme;
+}
+
+/** Editor color scheme for "Theme default": the scheme that goes with the UI theme. */
+export function editorSchemeOf(s: Settings): string {
+  if (s.editor.scheme !== 'theme') return s.editor.scheme;
+  const theme = effectiveTheme(s.ui);
+  return theme === 'islands-light' ? 'light' : theme === 'islands-darcula' ? 'darcula' : theme === 'high-contrast' ? 'high-contrast' : 'islands-dark';
 }

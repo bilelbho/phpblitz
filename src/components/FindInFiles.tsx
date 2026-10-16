@@ -1,12 +1,13 @@
 // PhpStorm's Find in Files (Ctrl+Shift+F) and Replace in Files (Ctrl+Shift+R).
 
+import { FileIcon } from './FileIcon';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as monaco from 'monaco-editor';
 import type { Workspace } from '../useWorkspace';
 import { baseName, relativePath } from '../backend/types';
 import { confirmDialog, isTauri } from '../platform';
 import { replaceInFiles, replaceInText, searchInFiles, type SearchMatch, type SearchOptions, type SearchResult } from '../search';
-import { Badge, Icon, fileBadge } from './Icon';
+import { Icon } from './Icon';
 
 /** Options survive closing the popup, like in PhpStorm. */
 let remembered: Omit<SearchOptions, 'query'> = { regex: false, matchCase: false, wholeWord: false, fileMask: '' };
@@ -347,11 +348,10 @@ function Preview({ ws, hit }: { ws: Workspace; hit: Hit }) {
   const lines = text.split('\n');
   const from = Math.max(1, hit.match.line - 4);
   const to = Math.min(lines.length, hit.match.line + 4);
-  const badge = fileBadge(hit.path);
   return (
     <div className="fif-code" aria-label="Preview">
       <div className="fif-code-title">
-        <Badge text={badge.text} color={badge.color} />
+        <FileIcon path={hit.path} />
         {baseName(hit.path)}
       </div>
       {lines.slice(from - 1, to).map((raw, i) => {
@@ -395,11 +395,10 @@ export function FindResults({ ws }: { ws: Workspace }) {
         </button>
       </div>
       {result.files.map((f) => {
-        const badge = fileBadge(f.path);
         return (
           <div key={f.path}>
             <div className="row" style={{ paddingLeft: 6 }} title={relativePath(ws.backend, f.path)}>
-              <Badge text={badge.text} color={badge.color} />
+              <FileIcon path={f.path} />
               <span className="name">{baseName(f.path)}</span>
               <span className="detail">{relativePath(ws.backend, f.path).split('/').slice(0, -1).join('/')}</span>
               <span className="detail">{f.matches.length}</span>

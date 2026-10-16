@@ -24,6 +24,9 @@ import { LspClient, pathToUri, uriToPath, type ServerSpec } from './lsp/client';
 import { listen } from '@tauri-apps/api/event';
 import { terminals } from './terminal/manager';
 import { db } from './db/store';
+import { dirMarks } from './dirMarks';
+import { insertTab, nextActive, overLimit } from './tabPolicy';
+import { getSettings } from './settings';
 import { Git } from './git/git';
 import type { SearchOptions, SearchResult } from './search';
 import { applyEditNow, findUsages as lspFindUsages, renameSymbol, setActiveLsp, type Usage } from './lsp/monacoBridge';
@@ -224,6 +227,50 @@ export function useWorkspace(backend: Backend) {
   dirtyRef.current = dirty;
   const activeTab = tabs.find((t) => t.id === activeId) ?? null;
   const activePath = activeTab?.kind === 'file' ? activeTab.path : null;
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
+
+  // ── Recent Files (Ctrl+E) ─────────────────────────────────────
+  /** Files opened in this project, most recent first (kept between sessions). */
+  const recentKey = `phpblitz.recentFiles:${backend.root}`;
+  const [recentFiles, setRecentFiles] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(`phpblitz.recentFiles:${backend.root}`) ?? '[]');
+    } catch {
+      return [];
+    }
+  });
+  const recentRef = useRef(recentFiles);
+  recentRef.current = recentFiles;
+  /** Files changed in this session ("Show edited only"). */
+  const [editedFiles, setEditedFiles] = useState<Set<string>>(new Set());
+  const [recentOpen, setRecentOpen] = useState(false);
+  useEffect(() => {
+    if (!activePath) return;
+    setRecentFiles((list) => {
+      if (list[0] === activePath) return list;
+      const next = [activePath, ...list.filter((p) => p !== activePath)].slice(0, 60);
+      try {
+        localStorage.setItem(recentKey, JSON.stringify(next));
+      } catch {
+        // Only a convenience.
+      }
+      return next;
+    });
+  }, [activePath, recentKey]);
+  const forgetRecent = useCallback(
+    (path: string) =>
+      setRecentFiles((list) => {
+        const next = list.filter((p) => p !== path);
+        try {
+          localStorage.setItem(recentKey, JSON.stringify(next));
+        } catch {
+          // Only a convenience.
+        }
+        return next;
+      }),
+    [recentKey],
+  );
 
   // ── Language server ───────────────────────────────────────────
   const lspRef = useRef<LspClient | null>(null);
@@ -301,16 +348,25 @@ export function useWorkspace(backend: Backend) {
     async (path: string, at?: { line?: number; column?: number; find?: string }, opts?: { preview?: boolean }) => {
       const id = `file:${path}`;
       const current = tabsRef.current;
+      const tabRules = getSettings().tabs;
+      // Settings ▸ Editor Tabs ▸ Enable preview tab: off means every file gets its own tab.
+      const preview = !!opts?.preview && tabRules.previewTab;
       const existing = current.find((x) => x.id === id);
-      const old = !existing && opts?.preview ? current.find((x) => x.kind === 'file' && x.preview && !dirtyRef.current.has(x.path)) : undefined;
+      const old = !existing && preview ? current.find((x) => x.kind === 'file' && x.preview && !dirtyRef.current.has(x.path)) : undefined;
       let next: Tab[];
       if (existing) {
         // Opening a previewed file for real pins it.
-        next = existing.kind === 'file' && existing.preview && !opts?.preview ? current.map((x) => (x.id === id ? { ...x, preview: false } : x)) : current;
+        next = existing.kind === 'file' && existing.preview && !preview ? current.map((x) => (x.id === id ? { ...x, preview: false } : x)) : current;
       } else if (old) {
         next = current.map((x) => (x.id === old.id ? { id, kind: 'file', path, preview: true } : x));
       } else {
-        next = [...current, { id, kind: 'file', path, preview: !!opts?.preview }];
+        next = insertTab(current, { id, kind: 'file', path, preview }, activeIdRef.current, tabRules);
+      }
+      // Tab limit: close tabs (never unsaved ones or the new one) beyond it.
+      const closing = overLimit(next, tabRules, id, (t) => t.kind === 'file' && dirtyRef.current.has(t.path), recentRef.current);
+      if (closing.length) {
+        for (const t of next) if (closing.includes(t.id) && t.kind === 'file') releaseFile(t.path);
+        next = next.filter((t) => !closing.includes(t.id));
       }
       tabsRef.current = next;
       setTabs(next);
@@ -334,6 +390,18 @@ export function useWorkspace(backend: Backend) {
     },
     [backend, lint, notify, releaseFile],
   );
+
+  /** Drag and drop in the tab bar: moves the tab at `from` to index `to`. */
+  const moveTab = useCallback((from: number, to: number) => {
+    setTabs((list) => {
+      if (from === to || from < 0 || from >= list.length) return list;
+      const next = [...list];
+      const [t] = next.splice(from, 1);
+      next.splice(Math.max(0, Math.min(to, next.length)), 0, t);
+      tabsRef.current = next;
+      return next;
+    });
+  }, []);
 
   /** Turns a preview tab into a normal one (double-click on the tab, or editing it). */
   const pinTab = useCallback((id: string) => {
@@ -362,7 +430,24 @@ export function useWorkspace(backend: Backend) {
       if (tab.kind === 'file') releaseFile(tab.path);
       const rest = tabs.filter((t) => t.id !== id);
       setTabs(rest);
-      if (activeId === id) setActiveId(rest[Math.max(0, tabs.findIndex((t) => t.id === id) - 1)]?.id ?? null);
+      if (activeId === id) setActiveId(nextActive(tabs, [id], activeId, getSettings().tabs, recentRef.current));
+    },
+    [tabs, dirty, activeId, releaseFile],
+  );
+
+  /** Closes several tabs at once (Close Others / All / Unmodified…), asking once about unsaved ones. */
+  const closeTabs = useCallback(
+    async (ids: string[]) => {
+      const closing = tabs.filter((t) => ids.includes(t.id));
+      const unsaved = closing.filter((t) => t.kind === 'file' && dirty.has(t.path));
+      if (unsaved.length) {
+        const names = unsaved.length === 1 ? baseName((unsaved[0] as { path: string }).path) : `${unsaved.length} files`;
+        if (!(await confirmDialog(`${names} ${unsaved.length === 1 ? 'has' : 'have'} unsaved changes. Close and discard them?`))) return;
+      }
+      for (const t of closing) if (t.kind === 'file') releaseFile(t.path);
+      const rest = tabs.filter((t) => !ids.includes(t.id));
+      setTabs(rest);
+      if (activeId && ids.includes(activeId)) setActiveId(nextActive(tabs, ids, activeId, getSettings().tabs, recentRef.current));
     },
     [tabs, dirty, activeId, releaseFile],
   );
@@ -372,6 +457,7 @@ export function useWorkspace(backend: Backend) {
   const onEdit = useCallback(
     (path: string, text: string) => {
       liveText.current[path] = text;
+      setEditedFiles((s) => (s.has(path) ? s : new Set(s).add(path)));
       lspRef.current?.didChange(path, text);
       // Editing a previewed file keeps it open (PhpStorm pins the preview tab).
       if (text !== savedText.current[path]) pinTab(`file:${path}`);
@@ -871,6 +957,19 @@ export function useWorkspace(backend: Backend) {
     [backend, loadDir, notify, reloadFromDisk, reindexRoutes, refreshGit, refreshProjectProblems],
   );
 
+  // Mark Directory As: the project's marks, with defaults from composer.json's autoload sections.
+  useEffect(() => {
+    let live = true;
+    dirMarks.open(backend.root, null);
+    backend
+      .readFile(`${backend.root}/composer.json`)
+      .then((text) => live && dirMarks.open(backend.root, text))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [backend]);
+
   // The project's data sources (Database tool window); connections close with the project.
   useEffect(() => {
     db.open(backend.root, backend.kind !== 'disk');
@@ -1307,11 +1406,11 @@ export function useWorkspace(backend: Backend) {
     // files and index
     files, indexStats, indexVersion, routes,
     // tabs and editor
-    tabs, activeId, setActiveId, activeTab, activePath, loaded, dirty, openFile, openTable, openConsole, closeTab,
+    tabs, activeId, setActiveId, activeTab, activePath, loaded, dirty, openFile, openTable, openConsole, closeTab, closeTabs, moveTab,
     onEdit, save, saveActive, cursor, setCursor, goto, setGoto, breakpoints, toggleBreakpoint, structure, problems,
     // tool windows
     leftTop, leftBottom, toggleLeft, showLeft, rightTool, setRightTool, toggleRight, bottomTab, bottomOpen, setBottomOpen, showBottom,
-    searchOpen, setSearchOpen, searchTab, openSearch,
+    searchOpen, setSearchOpen, searchTab, openSearch, recentFiles, forgetRecent, editedFiles, recentOpen, setRecentOpen,
     settingsPage, openSettings: (page = 'terminal') => setSettingsPage(page), closeSettings: () => setSettingsPage(null),
     findInFiles, openFindInFiles, closeFindInFiles: () => setFindInFiles(null), findResults, setFindResults,
     savedTextOf: (path: string) => savedText.current[path], liveTextOf: (path: string) => liveText.current[path],

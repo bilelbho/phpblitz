@@ -2,6 +2,7 @@
 // into a Monaco theme; token names come from the PHP grammar in phpGrammar.ts.
 
 import * as monaco from 'monaco-editor';
+import { editorSchemeOf, getSettings } from '../settings';
 
 interface Palette {
   name: string;
@@ -308,10 +309,17 @@ export const SCHEMES = {
 
 export type SchemeId = keyof typeof SCHEMES;
 
-export const themeId = (scheme: string) => `pb-${scheme in SCHEMES ? scheme : 'islands-dark'}`;
+/** 'theme' (Theme default) → the scheme that goes with the UI theme. */
+const resolve = (scheme: string): string => (scheme === 'theme' ? editorSchemeOf(getSettings()) : scheme);
+
+export const themeId = (scheme: string) => {
+  const id = resolve(scheme);
+  return `pb-${id in SCHEMES ? id : 'islands-dark'}`;
+};
 
 export function schemeOf(scheme: string): Palette {
-  return SCHEMES[(scheme in SCHEMES ? scheme : 'islands-dark') as SchemeId];
+  const id = resolve(scheme);
+  return SCHEMES[(id in SCHEMES ? id : 'islands-dark') as SchemeId];
 }
 
 function define(id: SchemeId, p: Palette) {

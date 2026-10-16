@@ -1,3 +1,4 @@
+import { colorOfProject } from '../projectColors';
 import { Icon, Logo } from './Icon';
 import { isTauri, recentProjects } from '../platform';
 import { WindowControls, projectColor } from './WindowControls';
@@ -46,7 +47,7 @@ export function Welcome({ onOpenFolder, onOpenPath, onOpenSample }: Props) {
                 const name = path.split('/').pop() ?? path;
                 return (
                   <button key={path} type="button" className="recent" onClick={() => onOpenPath(path)}>
-                    <span className="project-square" style={{ background: projectColor(name), width: 28, height: 28, borderRadius: 6 }}>
+                    <span className="project-square" style={{ background: colorOfProject(path, name), width: 28, height: 28, borderRadius: 6 }}>
                       {name.slice(0, 2).toUpperCase()}
                     </span>
                     <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>

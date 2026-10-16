@@ -1,7 +1,8 @@
+import { FileIcon } from './FileIcon';
 import { useEffect, useRef, useState } from 'react';
 import type { BottomTab, Workspace } from '../useWorkspace';
 import { baseName, relativePath, type Problem } from '../backend/types';
-import { Badge, Icon, Play, fileBadge } from './Icon';
+import { Icon, Play } from './Icon';
 import { FindResults } from './FindInFiles';
 import { TerminalView } from './TerminalView';
 import { GitToolWindow } from './GitToolWindow';
@@ -174,11 +175,10 @@ function Problems({ ws }: { ws: Workspace }) {
         <>
           {ws.magoStatus.state === 'analyzing' && <div className="empty">Mago is analyzing the project…</div>}
           {[...projectFiles].map(([file, list]) => {
-            const badge = fileBadge(file);
             return (
               <div key={file}>
                 <button type="button" className="row" style={{ paddingLeft: 6 }} onClick={() => ws.openFile(file)} title={relativePath(ws.backend, file)}>
-                  <Badge text={badge.text} color={badge.color} />
+                  <FileIcon path={file} />
                   <span className="name">{baseName(file)}</span>
                   <span className="detail">{relativePath(ws.backend, file).split('/').slice(0, -1).join('/')}</span>
                   <span className="detail">
@@ -212,11 +212,10 @@ function Usages({ ws }: { ws: Workspace }) {
         {u.items.length} {u.items.length === 1 ? 'usage' : 'usages'} in {files.size} {files.size === 1 ? 'file' : 'files'}
       </div>
       {[...files].map(([path, items]) => {
-        const badge = fileBadge(path);
         return (
           <div key={path}>
             <div className="row" style={{ paddingLeft: 6 }} title={relativePath(ws.backend, path)}>
-              <Badge text={badge.text} color={badge.color} />
+              <FileIcon path={path} />
               <span className="name">{baseName(path)}</span>
               <span className="detail">{relativePath(ws.backend, path).split('/').slice(0, -1).join('/')}</span>
               <span className="detail">

@@ -1,6 +1,7 @@
 // Find in Files / Replace in Files. The desktop app searches in Rust (src-tauri/src/search.rs);
 // the sample project and the browser use the small JavaScript version below.
 
+import { dirMarks } from './dirMarks';
 import { invoke } from '@tauri-apps/api/core';
 import type { Backend } from './backend/types';
 import { isTauri } from './platform';
@@ -49,7 +50,7 @@ export async function searchInFiles(
     isTauri && backend.kind === 'disk'
       ? await invoke<SearchResult>('search_in_files', { root: dir ?? backend.root, options })
       : await searchInMemory(backend, files.filter(within), options);
-  if (!unsaved.size) return result;
+  if (!unsaved.size) return withoutExcluded(result, dir);
   const mask = maskToRegExp(options.fileMask);
   const re = toRegExp(options, true);
   const merged = result.files.filter((f) => !unsaved.has(f.path));
@@ -59,7 +60,15 @@ export async function searchInFiles(
     if (matches.length) merged.push({ path, matches });
   }
   merged.sort((a, b) => a.path.localeCompare(b.path));
-  return { ...result, files: merged, total: merged.reduce((n, f) => n + f.matches.length, 0) };
+  return withoutExcluded({ ...result, files: merged, total: merged.reduce((n, f) => n + f.matches.length, 0) }, dir);
+}
+
+/** Drops matches in folders marked Excluded (Project tree ▸ Mark Directory As). */
+function withoutExcluded(result: SearchResult, dir?: string): SearchResult {
+  if (dir && dirMarks.isExcluded(dir)) return result;
+  const files = result.files.filter((f) => !dirMarks.isExcluded(f.path));
+  if (files.length === result.files.length) return result;
+  return { ...result, files, total: files.reduce((n, f) => n + f.matches.length, 0) };
 }
 
 function matchText(text: string, re: RegExp, limit: number): SearchMatch[] {

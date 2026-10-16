@@ -167,6 +167,11 @@ export class PhpIndex {
   }
 
   /** How many times a member name is used across the indexed project. */
+  /** What a PHP file declares (class, interface, trait, enum), for its icon. */
+  kindOf(path: string): ClassInfo['kind'] | undefined {
+    return this.byPath.get(path)?.kind;
+  }
+
   usages(name: string): number {
     return this.refTotals.get(name) ?? 0;
   }

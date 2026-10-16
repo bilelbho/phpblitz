@@ -1,12 +1,13 @@
 // Git tool window: Log (branches, commit graph, details with changed files) and Console
 // (the git commands PHPBlitz ran, with their output).
 
+import { FileIcon } from './FileIcon';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Workspace } from '../useWorkspace';
 import type { Branch, Commit, ConsoleEntry, FileChange } from '../git/git';
 import { baseName, relativePath } from '../backend/types';
 import { ContextMenu, type ContextItem } from './ContextMenu';
-import { Badge, Icon, fileBadge } from './Icon';
+import { Icon } from './Icon';
 import { copyText } from '../editorMenu';
 import { confirmDialog } from '../platform';
 
@@ -437,10 +438,9 @@ function GitLog({ ws }: { ws: Workspace }) {
                     {files.length} {files.length === 1 ? 'file' : 'files'} changed
                   </div>
                   {files.map((f) => {
-                    const badge = fileBadge(f.path);
                     return (
                       <button key={f.path} type="button" className="gl-file" onDoubleClick={() => ws.openDiff(f.path, sel.hash)} onContextMenu={(e) => fileMenu(e, f)} title={`${relativePath(ws.backend, f.path)}${f.from ? `\nrenamed from ${relativePath(ws.backend, f.from)}` : ''}\nDouble-click to show the diff`}>
-                        <Badge text={badge.text} color={badge.color} />
+                        <FileIcon path={f.path} />
                         <span className={`name status-${f.status === 'C' || f.status === 'T' ? 'M' : f.status}`}>{baseName(f.path)}</span>
                         <span className="detail">{relativePath(ws.backend, f.path).split('/').slice(0, -1).join('/')}</span>
                       </button>

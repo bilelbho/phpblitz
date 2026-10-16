@@ -1,12 +1,14 @@
 // The Terminal tool window: its own header with session tabs (drag to reorder, double-click to
-// rename), + and ▾, and the active xterm below.
+// rename), + and ▾, and the terminal below. Dragging a tab onto the terminal splits it, like
+// PhpStorm: the highlighted half is where that session goes.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Workspace } from '../useWorkspace';
 import { getSettings, useSettings } from '../settings';
-import { tabLabel, terminals, useTerminals, type ShellSpec } from '../terminal/manager';
+import { tabLabel, terminals, useTerminals, type Session, type ShellSpec } from '../terminal/manager';
 import { ContextMenu, type ContextItem } from './ContextMenu';
 import { Icon } from './Icon';
+import { useTabDrag } from './useTabDrag';
 
 /** Folder new tabs start in: Settings ▸ Start directory, else the project root. */
 export function terminalStartDir(ws: Workspace): string {
@@ -15,25 +17,28 @@ export function terminalStartDir(ws: Workspace): string {
   return ws.backend.kind === 'disk' ? ws.backend.root : '';
 }
 
-/** A tab being dragged: pointer-based, since the desktop web view keeps HTML5 drag and drop for files. */
-interface Drag {
-  id: number;
-  startX: number;
-  /** Pointer offset from the tab's place in the strip, for drawing it under the cursor. */
-  dx: number;
-  moved: boolean;
+type Zone = 'left' | 'right' | 'top' | 'bottom';
+
+/** A split terminal: a second session beside (or below / above) the main one. */
+interface Split {
+  second: number;
+  zone: Zone;
 }
 
 export function TerminalView({ ws }: { ws: Workspace }) {
   const { sessions, activeId } = useTerminals();
   useSettings(); // re-render tab labels when "use application title" changes
-  const host = useRef<HTMLDivElement>(null);
   const strip = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
   const [shells, setShells] = useState<ShellSpec[]>([]);
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
-  const [drag, setDrag] = useState<Drag | null>(null);
   const [renaming, setRenaming] = useState<number | null>(null);
+  const [split, setSplit] = useState<Split | null>(null);
+  /** Which pane tab clicks go to. */
+  const [focus, setFocus] = useState<'main' | 'second'>('main');
+  const [zone, setZone] = useState<Zone | null>(null);
   const active = sessions.find((s) => s.id === activeId) ?? null;
+  const second = split ? sessions.find((s) => s.id === split.second) ?? null : null;
 
   useEffect(() => {
     terminals.shells().then(setShells);
@@ -42,19 +47,74 @@ export function TerminalView({ ws }: { ws: Workspace }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Show the active session; keep it sized to the panel.
-  useLayoutEffect(() => {
-    if (!active || !host.current) return;
-    terminals.attach(active, host.current);
-    const observer = new ResizeObserver(() => terminals.fit(active));
-    observer.observe(host.current);
-    return () => {
-      observer.disconnect();
-      terminals.detach(active);
-    };
-  }, [active]);
+  // A split ends when its session closes, or when both panes would show the same one.
+  useEffect(() => {
+    if (split && (!second || second.id === activeId)) {
+      setSplit(null);
+      setFocus('main');
+    }
+  }, [split, second, activeId]);
 
   const newTab = (shell?: ShellSpec) => terminals.create({ cwd: terminalStartDir(ws), shell });
+
+  /** Clicking a tab shows it in the focused pane. */
+  const show = (id: number) => {
+    if (split && focus === 'second') {
+      if (id === activeId) setFocus('main');
+      else setSplit({ ...split, second: id });
+    } else if (split && id === split.second) {
+      setFocus('second');
+    } else {
+      terminals.setActive(id);
+    }
+  };
+
+  // ── Split by dropping a tab on the terminal ──
+  const zoneAt = (x: number, y: number): Zone | null => {
+    const r = body.current?.getBoundingClientRect();
+    if (!r || x < r.left || x > r.right || y < r.top || y > r.bottom) return null;
+    const rx = (x - r.left) / r.width;
+    const ry = (y - r.top) / r.height;
+    const edges: [Zone, number][] = [
+      ['left', rx],
+      ['right', 1 - rx],
+      ['top', ry],
+      ['bottom', 1 - ry],
+    ];
+    return edges.sort((a, b) => a[1] - b[1])[0][0];
+  };
+
+  const splitWith = async (id: number, where: Zone) => {
+    let main = activeId;
+    // The dropped session goes to that side; the other side keeps (or gets) another session.
+    if (main === id || main === null) {
+      main = sessions.find((s) => s.id !== id)?.id ?? null;
+      if (main === null) {
+        const created = await terminals.create({ cwd: terminalStartDir(ws) });
+        main = created?.id ?? null;
+      }
+      if (main !== null) terminals.setActive(main);
+    }
+    if (main === null || main === id) return;
+    setSplit({ second: id, zone: where });
+    setFocus('second');
+  };
+
+  const { drag, start: startDrag, shiftOf } = useTabDrag({
+    ids: sessions.map((s) => String(s.id)),
+    strip,
+    onMove: (from, to) => terminals.move(from, to),
+    outside: {
+      over: (x, y) => setZone(zoneAt(x, y)),
+      leave: () => setZone(null),
+      drop: (id, x, y) => {
+        const where = zoneAt(x, y);
+        if (!where) return false;
+        splitWith(Number(id), where);
+        return true;
+      },
+    },
+  });
 
   const shellMenu = (e: React.MouseEvent) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -69,6 +129,22 @@ export function TerminalView({ ws }: { ws: Workspace }) {
     });
   };
 
+  const splitItems = (id: number | null): ContextItem[] => [
+    { label: 'Split Right', disabled: id === null || sessions.length < 1, run: () => id !== null && splitInto(id, 'right') },
+    { label: 'Split Down', disabled: id === null || sessions.length < 1, run: () => id !== null && splitInto(id, 'bottom') },
+    ...(split ? [{ label: 'Unsplit', run: () => (setSplit(null), setFocus('main')) }] : []),
+  ];
+
+  /** Split Right / Down from a menu: that session beside a new one (or the other session). */
+  const splitInto = async (id: number, where: Zone) => {
+    if (id !== activeId) return splitWith(id, where);
+    const created = await terminals.create({ cwd: terminalStartDir(ws) });
+    if (!created) return;
+    terminals.setActive(id);
+    setSplit({ second: created.id, zone: where });
+    setFocus('second');
+  };
+
   const optionsMenu = (e: React.MouseEvent) => {
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     setMenu({
@@ -79,6 +155,8 @@ export function TerminalView({ ws }: { ws: Workspace }) {
         { label: 'Rename Session…', icon: 'pencil', disabled: !active, run: () => active && setRenaming(active.id) },
         { label: 'Close Session', disabled: !active, run: () => active && terminals.close(active.id) },
         { label: 'Close All Sessions', disabled: !sessions.length, run: () => terminals.closeAll() },
+        { kind: 'sep' },
+        ...splitItems(activeId),
         { kind: 'sep' },
         { label: 'Settings…', icon: 'gear', shortcut: 'Ctrl+Alt+S', run: () => ws.openSettings('terminal') },
       ],
@@ -94,57 +172,17 @@ export function TerminalView({ ws }: { ws: Workspace }) {
         { label: 'New Tab', icon: 'plus', run: () => newTab() },
         { label: 'Rename Session…', icon: 'pencil', run: () => setRenaming(id) },
         { kind: 'sep' },
+        ...splitItems(id),
+        { kind: 'sep' },
         { label: 'Close Tab', run: () => terminals.close(id) },
         { label: 'Close Other Tabs', disabled: sessions.length < 2, run: () => terminals.closeOthers(id) },
       ],
     });
   };
 
-  // ── Dragging tabs ──
-  // The tab follows the pointer and swaps places as soon as it passes a neighbour's middle.
-  const dragRef = useRef<Drag | null>(null);
-  const tabElements = () => [...(strip.current?.querySelectorAll<HTMLElement>('.term-tab') ?? [])];
-  const startDrag = (e: React.PointerEvent, id: number) => {
-    if (e.button !== 0 || renaming === id || (e.target as HTMLElement).closest('.term-tab-close')) return;
-    dragRef.current = { id, startX: e.clientX, dx: 0, moved: false };
-    const move = (ev: PointerEvent) => {
-      const cur = dragRef.current;
-      if (!cur) return;
-      if (!cur.moved && Math.abs(ev.clientX - cur.startX) < 4) return;
-      const from = terminals.sessions.findIndex((s) => s.id === cur.id);
-      const tabs = tabElements();
-      if (from < 0 || !tabs[from]) return;
-      // Its new index: how many other tabs have their middle left of the pointer.
-      const to = tabs.filter((t, i) => {
-        if (i === from) return false;
-        const r = t.getBoundingClientRect();
-        return r.left + r.width / 2 < ev.clientX;
-      }).length;
-      let startX = cur.startX;
-      if (to !== from) {
-        // The tab's place in the strip changes; move the reference point with it so it stays under the cursor.
-        const before = tabs[from].offsetLeft;
-        terminals.move(from, to);
-        const after = tabElements()[to]?.offsetLeft ?? before;
-        startX += after - before;
-      }
-      const next = { ...cur, moved: true, startX, dx: ev.clientX - startX };
-      dragRef.current = next;
-      setDrag(next);
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', up);
-      const cur = dragRef.current;
-      dragRef.current = null;
-      setDrag(null);
-      if (cur && !cur.moved) terminals.setActive(cur.id);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', up);
-  };
+  const ghost = drag ? sessions.find((s) => String(s.id) === drag.id) : undefined;
+  const horizontal = !split || split.zone === 'left' || split.zone === 'right';
+  const secondFirst = split?.zone === 'left' || split?.zone === 'top';
 
   return (
     <>
@@ -153,13 +191,15 @@ export function TerminalView({ ws }: { ws: Workspace }) {
         <div ref={strip} className="term-tabs" role="tablist" aria-label="Terminal sessions">
           {sessions.map((s) => {
             const isActive = s.id === activeId;
-            const dragging = !!drag?.moved && drag.id === s.id;
+            const isSecond = s.id === split?.second;
+            const shift = shiftOf(String(s.id));
             return (
               <div
                 key={s.id}
-                className={'term-tab' + (isActive ? ' active' : '') + (dragging ? ' dragging' : '')}
-                style={dragging ? { transform: `translateX(${drag!.dx}px)` } : undefined}
-                onPointerDown={(e) => startDrag(e, s.id)}
+                data-drag-id={String(s.id)}
+                className={'term-tab' + (isActive ? ' active' : '') + (isSecond ? ' active-second' : '') + ((isActive && focus === 'main' && split) || (isSecond && focus === 'second') ? ' focused' : '')}
+                style={drag ? { transform: `translateX(${shift.x}px)`, opacity: shift.dragged ? 0 : undefined, transition: shift.dragged ? 'none' : 'transform 120ms ease' } : undefined}
+                onPointerDown={(e) => renaming !== s.id && startDrag(e, String(s.id))}
                 onContextMenu={(e) => tabMenu(e, s.id)}
               >
                 {renaming === s.id ? (
@@ -174,11 +214,9 @@ export function TerminalView({ ws }: { ws: Workspace }) {
                   <button
                     type="button"
                     role="tab"
-                    aria-selected={isActive}
+                    aria-selected={isActive || isSecond}
                     className="term-tab-main"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') terminals.setActive(s.id);
-                    }}
+                    onClick={() => show(s.id)}
                     onDoubleClick={() => setRenaming(s.id)}
                     onMouseDown={(e) => {
                       if (e.button === 1) {
@@ -186,7 +224,7 @@ export function TerminalView({ ws }: { ws: Workspace }) {
                         terminals.close(s.id);
                       }
                     }}
-                    title={`${s.shell.name} · ${s.cwd || 'home'}${s.exited ? ' · ended' : ''}\nDrag to reorder, double-click to rename`}
+                    title={`${s.shell.name} · ${s.cwd || 'home'}${s.exited ? ' · ended' : ''}\nDrag to reorder, or onto the terminal to split`}
                   >
                     <span className={s.exited ? 'muted' : undefined}>{tabLabel(s)}</span>
                   </button>
@@ -212,8 +250,10 @@ export function TerminalView({ ws }: { ws: Workspace }) {
           <Icon name="minus" size={14} />
         </button>
       </div>
-      <div className="terminal-view">
-        <div ref={host} className="term-host" onMouseDown={() => active?.term.focus()} />
+      <div ref={body} className={'terminal-view' + (split ? (horizontal ? ' split-h' : ' split-v') : '')}>
+        {split && second && secondFirst && <Pane session={second} focused={focus === 'second'} onFocus={() => setFocus('second')} />}
+        {active && <Pane session={active} focused={!split || focus === 'main'} onFocus={() => setFocus('main')} />}
+        {split && second && !secondFirst && <Pane session={second} focused={focus === 'second'} onFocus={() => setFocus('second')} />}
         {!sessions.length && (
           <div className="empty" style={{ position: 'absolute', top: 12 }}>
             No terminal sessions.{' '}
@@ -222,9 +262,41 @@ export function TerminalView({ ws }: { ws: Workspace }) {
             </button>
           </div>
         )}
+        {zone && <div className={`term-drop-zone ${zone}`} />}
       </div>
+      {drag && ghost && (
+        <div className="term-tab term-tab-ghost" style={{ left: drag.x - drag.grabX, top: drag.y - drag.grabY, width: drag.width, height: drag.height }}>
+          <span className="term-tab-main">{tabLabel(ghost)}</span>
+          <Icon name="close" size={9} strokeWidth={2.6} />
+        </div>
+      )}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </>
+  );
+}
+
+/** One terminal on screen, kept sized to its pane. */
+function Pane({ session, focused, onFocus }: { session: Session; focused: boolean; onFocus: () => void }) {
+  const host = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!host.current) return;
+    terminals.attach(session, host.current);
+    const observer = new ResizeObserver(() => terminals.fit(session));
+    observer.observe(host.current);
+    return () => {
+      observer.disconnect();
+      terminals.detach(session);
+    };
+  }, [session]);
+  return (
+    <div
+      ref={host}
+      className={'term-host' + (focused ? ' focused' : '')}
+      onMouseDown={() => {
+        onFocus();
+        session.term.focus();
+      }}
+    />
   );
 }
 

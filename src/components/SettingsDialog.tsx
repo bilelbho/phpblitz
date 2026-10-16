@@ -3,10 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { Workspace } from '../useWorkspace';
-import { DEFAULT_SETTINGS, getSettings, saveSettings, type EditorSettings, type Settings, type TerminalSettings } from '../settings';
+import { DEFAULT_SETTINGS, getSettings, saveSettings, type EditorSettings, type Settings, type TabSettings, type TerminalSettings, type UiSettings } from '../settings';
 import { terminals, type ShellSpec } from '../terminal/manager';
 import { isTauri } from '../platform';
 import { Icon } from './Icon';
+import { AppearancePage, EditorTabsPage } from './SettingsAppearance';
+import { PhpPage } from './PhpSettings';
+import { projectPhp, saveProjectPhp, type ProjectPhp } from '../interpreters';
 import { SCHEMES, schemeOf, schemePreview, type SchemeId } from '../editor/themes';
 
 interface Page {
@@ -15,11 +18,31 @@ interface Page {
   group: string;
   /** Words the search box matches besides the label (the page's options). */
   keywords: string;
-  /** The part of the settings "Reset to defaults" resets. */
-  section: keyof Settings;
+  /** The part of the settings "Reset to defaults" resets (none: project settings). */
+  section?: keyof Settings;
 }
 
 const PAGES: Page[] = [
+  {
+    id: 'php',
+    label: 'PHP',
+    group: 'PHP',
+    keywords: 'language level cli interpreter php executable docker compose ssh xdebug debugger extension configuration options include path runtime extensions composer files',
+  },
+  {
+    id: 'appearance',
+    label: 'Appearance',
+    group: 'Appearance & Behavior',
+    section: 'ui',
+    keywords: 'theme islands dark light darcula high contrast sync os zoom font size scrollbars compact mode full path window header project colors toolbar smooth scrolling menu icons tree indent guides smaller indents tool window bars names',
+  },
+  {
+    id: 'editor-tabs',
+    label: 'Editor Tabs',
+    group: 'Editor',
+    section: 'tabs',
+    keywords: 'tabs placement top bottom none one row scroll squeeze multiple rows file icon extension directory non-unique mark modified full path hover close button sort alphabetically open new tabs end preview tab limit close unchanged unused activate left right recent',
+  },
   {
     id: 'color-scheme',
     label: 'Color Scheme',
@@ -39,7 +62,7 @@ const PAGES: Page[] = [
     label: 'Inlay Hints',
     group: 'Editor',
     section: 'editor',
-    keywords: 'code vision usages parameter names hints lightbulb intention context actions',
+    keywords: 'code vision usages parameter names hints lightbulb intention context actions render documentation comments reader mode phpdoc docblock',
   },
   {
     id: 'terminal',
@@ -54,6 +77,9 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
   const [draft, setDraft] = useState<Settings>(getSettings);
   const [saved, setSaved] = useState<Settings>(getSettings);
   const [current, setCurrent] = useState(page);
+  const root = ws.backend.root;
+  const [php, setPhp] = useState<ProjectPhp>(() => projectPhp(root));
+  const [savedPhp, setSavedPhp] = useState<ProjectPhp>(() => projectPhp(root));
   const [query, setQuery] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -67,21 +93,27 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
   }, [query]);
   const groups = [...new Set(visible.map((p) => p.group))];
   const active = PAGES.find((p) => p.id === current) ?? PAGES[0];
-  const modified = JSON.stringify(draft) !== JSON.stringify(saved);
+  const modified = JSON.stringify(draft) !== JSON.stringify(saved) || JSON.stringify(php) !== JSON.stringify(savedPhp);
 
   const apply = () => {
     const t = draft.terminal;
     const ed = draft.editor;
     const next = {
+      ui: draft.ui,
+      tabs: draft.tabs,
       editor: { ...ed, fontSize: clamp(ed.fontSize, 6, 48, 13), lineHeight: clamp(ed.lineHeight, 1, 3, 1.6) },
       terminal: { ...t, fontSize: clamp(t.fontSize, 6, 48, 13), lineHeight: clamp(t.lineHeight, 0.8, 3, 1) },
     };
     saveSettings(next);
+    saveProjectPhp(root, php);
+    setSavedPhp(php);
     terminals.applySettings();
     setDraft(next);
     setSaved(next);
   };
 
+  const setUi = (patch: Partial<UiSettings>) => setDraft((d) => ({ ...d, ui: { ...d.ui, ...patch } }));
+  const setTabs = (patch: Partial<TabSettings>) => setDraft((d) => ({ ...d, tabs: { ...d.tabs, ...patch } }));
   const setEditor = (patch: Partial<EditorSettings>) => setDraft((d) => ({ ...d, editor: { ...d.editor, ...patch } }));
   const setTerminal = (patch: Partial<TerminalSettings>) => setDraft((d) => ({ ...d, terminal: { ...d.terminal, ...patch } }));
 
@@ -134,9 +166,17 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
           </nav>
           <div className="settings-page">
             <div className="settings-crumbs">
-              {active.group} <Icon name="chevronRight" size={11} strokeWidth={2.2} /> {active.label}
+              {active.group !== active.label && (
+                <>
+                  {active.group} <Icon name="chevronRight" size={11} strokeWidth={2.2} />{' '}
+                </>
+              )}
+              {active.label}
             </div>
             <div className="settings-content">
+              {active.id === 'php' && <PhpPage ws={ws} draft={php} onChange={(patch) => setPhp((p) => ({ ...p, ...patch }))} />}
+              {active.id === 'appearance' && <AppearancePage value={draft.ui} onChange={setUi} highlight={query.trim().toLowerCase()} onEditorScheme={() => setCurrent('color-scheme')} />}
+              {active.id === 'editor-tabs' && <EditorTabsPage value={draft.tabs} onChange={setTabs} highlight={query.trim().toLowerCase()} />}
               {active.id === 'color-scheme' && <ColorSchemePage value={draft.editor} onChange={setEditor} />}
               {active.id === 'editor-font' && <EditorFontPage value={draft.editor} onChange={setEditor} highlight={query.trim().toLowerCase()} />}
               {active.id === 'inlay-hints' && <HintsPage value={draft.editor} onChange={setEditor} highlight={query.trim().toLowerCase()} />}
@@ -145,7 +185,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
           </div>
         </div>
         <div className="jb-dialog-buttons settings-buttons">
-          <button type="button" className="link-btn" style={{ marginRight: 'auto' }} onClick={() => setDraft((d) => ({ ...d, [active.section]: DEFAULT_SETTINGS[active.section] }))}>
+          <button type="button" className="link-btn" style={{ marginRight: 'auto' }} disabled={!active.section} onClick={() => active.section && setDraft((d) => ({ ...d, [active.section!]: DEFAULT_SETTINGS[active.section!] }))}>
             Reset to defaults
           </button>
           <button
@@ -314,9 +354,16 @@ function ColorSchemePage({ value, onChange }: { value: EditorSettings; onChange:
   return (
     <>
       <p className="muted" style={{ margin: '4px 0 12px' }}>
-        The editor's colors. The rest of PHPBlitz keeps its dark theme.
+        The editor's colors. <b>Theme default</b> follows the UI theme (Appearance & Behavior ▸ Appearance).
       </p>
       <div className="scheme-grid" role="radiogroup" aria-label="Color scheme">
+        <button type="button" role="radio" aria-checked={value.scheme === 'theme'} className={'scheme-card' + (value.scheme === 'theme' ? ' on' : '')} onClick={() => onChange({ scheme: 'theme' })}>
+          <pre className="scheme-preview" style={{ background: schemeOf('theme').bg, color: schemeOf('theme').fg }} dangerouslySetInnerHTML={{ __html: schemePreview('theme', SAMPLE) }} />
+          <span className="scheme-name">
+            {value.scheme === 'theme' && <Icon name="check" size={12} strokeWidth={2.6} />}
+            Theme default
+          </span>
+        </button>
         {(Object.keys(SCHEMES) as SchemeId[]).map((id) => {
           const p = SCHEMES[id];
           return (
@@ -378,7 +425,7 @@ function EditorFontPage({ value: e, onChange, highlight }: { value: EditorSettin
 
 function HintsPage({ value: e, onChange, highlight }: { value: EditorSettings; onChange: (patch: Partial<EditorSettings>) => void; highlight: string }) {
   const hit = (label: string) => (highlight && label.toLowerCase().includes(highlight) ? ' hit' : '');
-  const check = (key: 'codeVision' | 'inlayHints' | 'lightbulb', label: string, help: string) => (
+  const check = (key: 'codeVision' | 'inlayHints' | 'lightbulb' | 'renderDocs', label: string, help: string) => (
     <div>
       <label className={'settings-check' + hit(label)}>
         <input type="checkbox" className="checkbox" checked={e[key]} onChange={(ev) => onChange({ [key]: ev.target.checked })} />
@@ -392,6 +439,7 @@ function HintsPage({ value: e, onChange, highlight }: { value: EditorSettings; o
       {check('codeVision', 'Code vision: usages', '"N usages" above classes, methods and properties. Click it to find them.')}
       {check('inlayHints', 'Parameter names and types', 'Hints from the language server, such as content: and status: before arguments.')}
       {check('lightbulb', 'Show lightbulb for context actions', 'A bulb on the caret line when Alt+Enter has something to offer.')}
+      {check('renderDocs', 'Render documentation comments', 'Show /** */ comments formatted. Click the pencil in the gutter or press Ctrl+Alt+Q to edit one.')}
     </div>
   );
 }

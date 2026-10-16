@@ -1,7 +1,11 @@
 import type { Workspace } from '../useWorkspace';
 import { relativePath } from '../backend/types';
 import { db } from '../db/store';
+import { useEffect, useState } from 'react';
+import { cachedInspect, composerPhpLevel, interpretersFor, kindLabel, projectPhp, useInterpreters } from '../interpreters';
 import { Icon, Sym } from './Icon';
+import { FileIcon } from './FileIcon';
+import { NavBarPopup, type NavRequest } from './NavBarPopup';
 
 const LSP_STATE: Record<string, [string, string]> = {
   starting: ['#e5a33d', 'starting…'],
@@ -10,6 +14,44 @@ const LSP_STATE: Record<string, [string, string]> = {
   error: ['#f75464', 'failed to start. Click to retry'],
   missing: ['#868a91', 'not installed (cargo install phpantom_lsp). Click to retry'],
 };
+
+/** The project's PHP: its language level and interpreter. Opens Settings ▸ PHP. */
+function PhpLevel({ ws }: { ws: Workspace }) {
+  useInterpreters();
+  const root = ws.backend.root;
+  const php = projectPhp(root);
+  const interpreter = interpretersFor(root).find((i) => i.id === php.interpreterId);
+  const [version, setVersion] = useState<string | null>(null);
+  const [composer, setComposer] = useState<string | null>(null);
+  useEffect(() => {
+    ws.backend.readFile(`${root}/composer.json`).then(setComposer).catch(() => setComposer(null));
+  }, [ws.backend, root]);
+  useEffect(() => {
+    setVersion(null);
+    if (!interpreter) return;
+    let live = true;
+    cachedInspect(interpreter, root)
+      .then((i) => live && setVersion(i.version))
+      .catch(() => live && setVersion(null));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(interpreter), root]);
+  const fallback = ws.phpVersion?.split(' ')[0] ?? null;
+  const running = version ?? (interpreter ? null : fallback);
+  const level = php.languageLevel !== 'auto' ? php.languageLevel : (composerPhpLevel(composer) ?? running?.split('.').slice(0, 2).join('.'));
+  const title = [
+    `PHP language level: ${level ?? 'unknown'}${php.languageLevel === 'auto' ? ' (auto)' : ''}`,
+    interpreter ? `Interpreter: ${interpreter.name} (${kindLabel(interpreter)})${version ? `, PHP ${version}` : ''}` : fallback ? `PHP ${fallback} from PATH` : 'No interpreter. PHP was not found on PATH',
+    'Click to open Settings ▸ PHP',
+  ].join('\n');
+  return (
+    <button type="button" className="item" title={title} onClick={() => ws.openSettings('php')}>
+      {level ? `PHP ${level}` : 'No PHP'}
+    </button>
+  );
+}
 
 /** Which language server is running, JetBrains-style ("PHPantom ●"). */
 function LanguageServer({ ws }: { ws: Workspace }) {
@@ -55,14 +97,29 @@ export function StatusBar({ ws }: { ws: Workspace }) {
   const all = Object.values(ws.problems).flat();
   const errors = all.filter((p) => p.severity === 'error').length;
 
-  // Breadcrumbs: project › folders › file › class › member at the caret.
-  const crumbs: { label: string; sym?: [string, string] }[] = [{ label: ws.backend.name }];
+  const [nav, setNav] = useState<NavRequest | null>(null);
+  // Breadcrumbs: project › folders › file › class › member at the caret. Each one opens a popup:
+  // folders and the file list their folder, the class and member list the class's members.
+  type Crumb = { label: string; sym?: [string, string]; icon?: React.ReactNode; open?: (anchor: DOMRect) => NavRequest };
+  const root = ws.backend.root;
+  const crumbs: Crumb[] = [{ label: ws.backend.name, icon: <Icon name="folder" size={13} className="folder-icon" />, open: (anchor) => ({ kind: 'dir', path: root, anchor }) }];
   if (tab?.kind === 'file') {
-    for (const part of relativePath(ws.backend, tab.path).split('/')) crumbs.push({ label: part });
+    const parts = relativePath(ws.backend, tab.path).split('/');
+    parts.forEach((part, i) => {
+      const path = `${root}/${parts.slice(0, i + 1).join('/')}`;
+      const isFile = i === parts.length - 1;
+      const parent = i === 0 ? root : `${root}/${parts.slice(0, i).join('/')}`;
+      crumbs.push({
+        label: part,
+        icon: isFile ? <FileIcon path={path} size={14} /> : undefined,
+        // A folder lists its own contents; the file lists its folder with itself selected.
+        open: (anchor) => (isFile ? { kind: 'dir', path: parent, selected: path, anchor } : { kind: 'dir', path, anchor }),
+      });
+    });
     const cls = ws.structure.find((s) => s.depth === 0 && s.kind !== 'function');
-    if (cls) crumbs.push({ label: cls.name, sym: ['c', '#548af7'] });
     const member = [...ws.structure].reverse().find((s) => s.depth > 0 && s.kind === 'method' && s.line <= ws.cursor.line);
-    if (member) crumbs.push({ label: `${member.name}()`, sym: ['m', '#e55765'] });
+    if (cls) crumbs.push({ label: cls.name, sym: ['c', '#548af7'], open: (anchor) => ({ kind: 'members', path: tab.path, selected: member?.line, anchor }) });
+    if (member) crumbs.push({ label: `${member.name}()`, sym: ['m', '#e55765'], open: (anchor) => ({ kind: 'members', path: tab.path, selected: member.line, anchor }) });
   } else if (tab?.kind === 'table') {
     crumbs.push({ label: db.get(tab.source)?.name ?? tab.source }, { label: tab.schema }, { label: tab.table });
   } else if (tab?.kind === 'console') {
@@ -82,13 +139,21 @@ export function StatusBar({ ws }: { ws: Workspace }) {
                 <Icon name="chevronRight" size={11} strokeWidth={2.2} />
               </span>
             )}
-            <span className="item" style={{ padding: '0 3px' }}>
+            <button
+              type="button"
+              className={'item crumb' + (nav && nav.anchor && c.open ? '' : '')}
+              style={{ padding: '0 3px' }}
+              disabled={!c.open}
+              onClick={(e) => c.open && setNav(c.open((e.currentTarget as HTMLElement).getBoundingClientRect()))}
+            >
               {c.sym && <Sym letter={c.sym[0]} color={c.sym[1]} />}
+              {!c.sym && c.icon}
               {c.label}
-            </span>
+            </button>
           </span>
         ))}
       </nav>
+      {nav && <NavBarPopup ws={ws} request={nav} onClose={() => setNav(null)} />}
       <span className="grow" />
       {!ws.indexStats && <span className="item muted">Indexing…</span>}
       {ws.status && <span className="item muted">{ws.status}</span>}
@@ -119,9 +184,7 @@ export function StatusBar({ ws }: { ws: Workspace }) {
       )}
       <MagoStatus ws={ws} />
       <LanguageServer ws={ws} />
-      <span className="item" title={ws.phpVersion ? 'PHP language level' : 'PHP was not found on PATH'}>
-        {ws.phpVersion ? `PHP ${ws.phpVersion.split(' ')[0]}` : 'No PHP'}
-      </span>
+      <PhpLevel ws={ws} />
       {tab?.kind === 'file' && (
         <span className="item" title="File is writable">
           <Icon name="lockOpen" size={13} />

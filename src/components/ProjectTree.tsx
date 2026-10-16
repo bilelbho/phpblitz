@@ -1,13 +1,16 @@
 // The Project tool window, modeled on PhpStorm's: header with view switcher, New,
 // Expand/Collapse and ⋮ options; a tree with selection, keyboard navigation and speed search.
 
+import { FileIcon } from './FileIcon';
 import { gitSubmenu } from '../editorMenu';
+import { useSettings } from '../settings';
+import { MARK_LABELS, useDirMarks, type DirMark } from '../dirMarks';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Workspace } from '../useWorkspace';
 import type { Entry } from '../backend/types';
 import { baseName, relativePath } from '../backend/types';
 import { useTreePrefs, type TreePrefs } from '../treePrefs';
-import { Badge, Icon, fileBadge } from './Icon';
+import { Icon } from './Icon';
 import { ContextMenu, type ContextItem } from './ContextMenu';
 import { NewItemDialog, type NewKind } from './NewItemDialog';
 import { RenameDialog } from './RenameDialog';
@@ -39,6 +42,9 @@ function sortEntries(entries: Entry[], prefs: TreePrefs): Entry[] {
 }
 
 export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void }) {
+  const marks = useDirMarks();
+  /** Settings ▸ Appearance ▸ Use smaller indents. */
+  const indent = useSettings().ui.smallerIndents ? 12 : 18;
   const { backend } = ws;
   const [prefs, setPrefs] = useTreePrefs();
   const [selected, setSelectedState] = useState<string | null>(null);
@@ -371,6 +377,7 @@ export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void 
         ],
       },
       { label: 'Reload from Disk', icon: 'refresh', run: () => ws.reloadItem(row.path, row.isDir) },
+      ...(row.isDir && !row.root ? [markMenu(row.path)] : []),
       ...(ws.git ? [{ kind: 'sep' as const }, { label: 'Git', icon: 'git' as const, submenu: gitSubmenu(ws, row.path, row.isDir) }] : []),
     ];
   };
@@ -409,11 +416,27 @@ export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void 
     );
   };
 
+  /** Right-click ▸ Mark Directory As (and Unmark), like PhpStorm. */
+  const markMenu = (path: string): ContextItem => {
+    const current = marks.markOf(path);
+    const kinds: DirMark[] = ['source', 'test', 'resource', 'excluded'];
+    return {
+      label: 'Mark Directory As',
+      icon: 'folder',
+      submenu: [
+        ...kinds.map((k) => ({ label: MARK_LABELS[k], checked: current === k, icon: undefined, run: () => marks.set(path, current === k ? null : k) })),
+        ...(current ? [{ kind: 'sep' as const }, { label: current === 'excluded' ? 'Cancel Exclusion' : `Unmark as ${MARK_LABELS[current]}`, run: () => marks.set(path, null) }] : []),
+      ],
+    };
+  };
+
   const items: ReactNode[] = rows.map((row) => {
     const isSelected = row.path === selected;
+    const mark = row.isDir ? marks.markOf(row.path) : null;
+    const color = marks.colorOf(row.path);
+    const excluded = !row.root && marks.isExcluded(row.path);
     const status = !row.isDir ? statusOf.get(row.path) : undefined;
     const open_ = row.isDir && (row.root ? ws.expanded.has(backend.root) : ws.expanded.has(row.path));
-    const badge = row.isDir ? null : fileBadge(row.path);
     return (
       <div
         key={row.path}
@@ -422,8 +445,8 @@ export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void 
         aria-expanded={row.isDir && prefs.view === 'project' ? open_ : undefined}
         aria-level={row.depth + 1}
         data-path={row.path}
-        className={'row' + (isSelected ? ' selected' : '') + (ws.fileClipboard?.mode === 'cut' && ws.fileClipboard.paths.includes(row.path) ? ' cut' : '')}
-        style={{ paddingLeft: 4 + row.depth * 18 }}
+        className={'row' + (isSelected ? ' selected' : '') + (color ? ` file-color-${color}` : '') + (ws.fileClipboard?.mode === 'cut' && ws.fileClipboard.paths.includes(row.path) ? ' cut' : '')}
+        style={{ paddingLeft: 4 + row.depth * indent, ['--depth-px' as string]: `${row.depth * indent}px`, ['--indent' as string]: `${indent}px` }}
         onContextMenu={(e) => openRowMenu(e, row)}
         title={row.root ? backend.root : relativePath(backend, row.path)}
         onMouseDown={() => {
@@ -447,8 +470,8 @@ export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void 
         ) : (
           <span style={{ width: 12, flex: 'none' }} />
         )}
-        {row.isDir ? <Icon name="folder" size={15} className="folder-icon" /> : <Badge text={badge!.text} color={badge!.color} />}
-        <span className={'name' + (status && !isSelected ? ` status-${status}` : '')} style={row.root ? { fontWeight: 600 } : undefined}>
+        {row.isDir ? <Icon name="folder" size={15} className={'folder-icon' + (mark ? ` folder-${mark}` : '')} /> : <FileIcon path={row.path} />}
+        <span className={'name' + (status && !isSelected ? ` status-${status}` : '') + (excluded && !isSelected ? ' excluded' : '')} style={row.root ? { fontWeight: 600 } : undefined}>
           {renderName(row.name)}
         </span>
         {row.root && prefs.showPath && <span className="detail">{backend.kind === 'sample' ? 'sample project' : backend.root}</span>}

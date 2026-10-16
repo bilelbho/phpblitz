@@ -27,6 +27,15 @@ final class UserController extends Controller
         private readonly InvoiceService $invoices,
     ) {}
 
+    /**
+     * Creates an invoice for the customer from the request's amount.
+     *
+     * @param Request $request The request, with a numeric ${'`'}amount${'`'}
+     * @param User    $user    The customer to bill
+     *
+     * @return JsonResponse The new invoice (201 Created)
+     * @throws \Illuminate\Validation\ValidationException When the amount is missing or negative
+     */
     public function invoice(Request $request, User $user): JsonResponse
     {
         $validated = $request->validate([
@@ -200,6 +209,11 @@ final class InvoiceTest extends TestCase
     "autoload": {
         "psr-4": {
             "App\\": "app/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
         }
     }
 }

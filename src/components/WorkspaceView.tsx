@@ -20,6 +20,9 @@ import { SearchEverywhere, type SearchTab } from './SearchEverywhere';
 import { FindInFiles } from './FindInFiles';
 import { SettingsDialog } from './SettingsDialog';
 import { GitDialogs } from './GitDialogs';
+import { useProjectColor } from '../projectColors';
+import { zoomBy } from '../uiSettings';
+import { RecentFiles, TOOL_WINDOWS } from './RecentFiles';
 import { getSettings } from '../settings';
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
@@ -73,7 +76,28 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
         latest.current.ws.openSettings('terminal');
         return;
       }
+      if (e.altKey && e.shiftKey && !ctrl && (e.code === 'Equal' || e.code === 'Minus' || e.code === 'Digit0' || e.code === 'NumpadAdd' || e.code === 'NumpadSubtract')) {
+        e.preventDefault();
+        zoomBy(e.code === 'Digit0' ? 'reset' : e.code === 'Equal' || e.code === 'NumpadAdd' ? 10 : -10);
+        return;
+      }
       if (forShell(e)) return;
+      // Ctrl+E: Recent Files (inside the popup, Ctrl+E toggles "edited only").
+      if (ctrl && !e.shiftKey && !e.altKey && key === 'e') {
+        e.preventDefault();
+        latest.current.ws.setRecentOpen(true);
+        return;
+      }
+      // Tool window shortcuts (Alt+1 Project, Alt+0 Commit, Alt+F12 Terminal…), as listed in Recent Files.
+      if (e.altKey && !ctrl && !e.shiftKey) {
+        const combo = `Alt+${e.key.length === 1 ? e.key.toUpperCase() : e.key}`;
+        const tool = TOOL_WINDOWS.find((t) => t.shortcut === combo);
+        if (tool) {
+          e.preventDefault();
+          tool.run(latest.current.ws);
+          return;
+        }
+      }
       const inEditor = (e.target as HTMLElement | null)?.closest?.('.monaco-editor');
       // Browser defaults that don't belong in an IDE: reload (Ctrl+R, F5) and the web view's own find (Ctrl+F).
       if ((ctrl && (key === 'r' || key === 'f')) || e.key === 'F5') e.preventDefault();
@@ -163,9 +187,10 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
   };
 
   const leftOpen = !!ws.leftTop || !!ws.leftBottom;
+  const projectColor = useProjectColor(ws.backend.root, ws.backend.name);
 
   return (
-    <div className="app">
+    <div className="app" style={{ ['--project-color' as string]: projectColor }}>
       <TopBar ws={ws} onOpenFolder={onOpenFolder} onOpenPath={onOpenPath} onClose={onClose} onSearch={openSearch} />
       <div className="main">
         <ToolStrip side="left" items={leftItems} bottomItems={leftBottomItems} onPick={(id) => (leftBottomItems.some((b) => b.id === id) ? toggleBottom(id) : ws.toggleLeft(id as LeftTool))} />
@@ -229,6 +254,7 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
       <StatusBar ws={ws} />
       {ws.findInFiles && <FindInFiles ws={ws} />}
       <GitDialogs ws={ws} />
+      {ws.recentOpen && <RecentFiles ws={ws} onClose={() => ws.setRecentOpen(false)} />}
       {ws.settingsPage && <SettingsDialog ws={ws} page={ws.settingsPage} onClose={ws.closeSettings} />}
       {ws.searchOpen && (
         <SearchEverywhere
