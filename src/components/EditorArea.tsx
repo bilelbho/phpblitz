@@ -4,9 +4,18 @@ import { FileStructurePopup, FindBar, GotoLineDialog, type FindRequest } from '.
 import { setEditorCommands } from '../editorCommands';
 import { buildEditorMenu, codeActionsForSelection, contextActionsMenu, copyText, generateMenu, hasMagoActionsAtCaret, markersAt, quickFixesFor, referenceAt } from '../editorMenu';
 import { EditorHover, type HoverRequest } from './EditorHover';
-import { MarkdownView, runCodeBlock, shellBlocks } from './MarkdownView';
+import { MarkdownView } from './lazy';
+import { runCodeBlock, shellBlocks } from '../markdownBlocks';
 import { IntentionPopup } from './IntentionPopup';
-import { useSettings, getSettings } from '../settings';
+import { useSettings, getSettings, matchesFilePatterns } from '../settings';
+import { bookmarks, useBookmarks } from '../bookmarks';
+import { BookmarksPopup, MnemonicDialog } from './BookmarkPopups';
+import { gutterMenu } from '../gutterMenu';
+import { todosInText } from '../todo';
+import { planRename, type RenamePlan } from '../rename';
+import { SymbolRenameDialog } from './SymbolRenameDialog';
+import { isLspActive } from '../lsp/monacoBridge';
+import { perf } from '../perf';
 import { themeId } from '../editor/themes';
 import { setupDocComments } from '../editor/docComments';
 import { whenIdle } from '../daemon';
@@ -120,6 +129,9 @@ function caretPoint(editor: monaco.editor.IStandaloneCodeEditor) {
   return c ? { x: rect.left + c.left, y: rect.top + c.top + c.height } : { x: rect.left + 60, y: rect.top + 40 };
 }
 
+/** Soft-wrap changed with Alt+Z, per file, for this session (like PhpStorm's per-editor toggle). */
+const wrapOverrides = new Map<string, boolean>();
+
 function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEditor?: (editor: monaco.editor.IStandaloneCodeEditor) => void }) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const decorations = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
@@ -155,13 +167,40 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
   /** Git blame per line while annotating (state for the gutter labels, ref for clicks). */
   const blame = useRef<BlameLine[] | null>(null);
   const [blameLines, setBlameLines] = useState<BlameLine[] | null>(null);
+  /** Hovering an annotation: its commit, like PhpStorm's tooltip. */
+  const [blameTip, setBlameTip] = useState<{ x: number; y: number; line: number } | null>(null);
+  const blameTipLine = useRef(0);
+  const selectionBeforeClick = useRef<monaco.Selection | null>(null);
   const [find, setFind] = useState<FindRequest | null>(null);
   const [findStep, setFindStep] = useState<{ dir: 1 | -1; nonce: number } | null>(null);
-  const [popup, setPopup] = useState<'goto' | 'structure' | null>(null);
-  const closePopup = useCallback(() => setPopup(null), []);
+  const [popup, setPopup] = useState<'goto' | 'structure' | 'bookmarks' | null>(null);
+  const closePopup = useCallback(() => {
+    setPopup(null);
+    editorRef.current?.focus();
+  }, []);
+  /** Add Mnemonic Bookmark (Ctrl+F11) for this line. */
+  const [mnemonicLine, setMnemonicLine] = useState<number | null>(null);
+  const closeMnemonic = useCallback(() => {
+    setMnemonicLine(null);
+    editorRef.current?.focus();
+  }, []);
+  /** Soft-wrap: the file patterns in settings, unless Alt+Z changed it for this file. */
+  const [, rewrap] = useState(0);
+  const softWrap = wrapOverrides.get(path) ?? matchesFilePatterns(path, settings.softWrapFiles);
+  const toggleSoftWrap = useCallback(() => {
+    const p = latest.current.path;
+    wrapOverrides.set(p, !(wrapOverrides.get(p) ?? matchesFilePatterns(p, getSettings().editor.softWrapFiles)));
+    rewrap((n) => n + 1);
+  }, []);
   // Monaco callbacks are registered once; read the latest props through a ref.
   const latest = useRef({ ws, path });
   latest.current = { ws, path };
+
+  // The editor shows this file now (one editor is reused, its document swapped): record the open.
+  useEffect(() => {
+    if (ready) ws.editorReady(path);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, path]);
 
   const docComments = useRef<ReturnType<typeof setupDocComments> | null>(null);
   // Rendered doc comments follow the setting, and the file's content once it has loaded.
@@ -169,8 +208,34 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     docComments.current?.refresh();
   }, [settings.renderDocs, ready, path]);
 
+  /** Rename (Shift+F6): from the symbol index (fast, no language server needed), else the language server. */
+  const [renamePlan, setRenamePlan] = useState<RenamePlan | null>(null);
+  const startRename = async () => {
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    const pos = editor?.getPosition();
+    if (!editor || !model || !pos) return;
+    const { ws } = latest.current;
+    try {
+      const plan = await planRename(ws, model, pos);
+      if (plan?.error) {
+        ws.notify({ title: `Can't rename ${plan.oldName}`, body: plan.error, tone: 'warning' });
+        return;
+      }
+      if (plan) {
+        setRenamePlan(plan);
+        return;
+      }
+    } catch {
+      // No index here (browser sample): the language server may still know.
+    }
+    if (isLspActive()) editor.trigger('phpblitz', 'editor.action.rename', {});
+    else ws.setStatus('Nothing to rename here: put the caret on a class, method, property, constant, function or variable.');
+  };
+
   const onMount: OnMount = (editor) => {
     editorRef.current = editor;
+    perf.mark('First editor ready', baseName(path));
     onEditor?.(editor);
     setupMarkdown(editor);
     docComments.current = setupDocComments(editor, () => getSettings().editor.renderDocs && !latest.current.ws.isLargeFile(latest.current.path));
@@ -195,7 +260,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     });
     editor.addAction({ id: 'phpblitz.gotoDeclaration', label: 'Go to Declaration', keybindings: [KeyMod.CtrlCmd | KeyCode.KeyB], run: run('editor.action.revealDefinition') });
     editor.addAction({ id: 'phpblitz.gotoImplementation', label: 'Go to Implementation', keybindings: [KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.KeyB], run: run('editor.action.goToImplementation') });
-    editor.addAction({ id: 'phpblitz.rename', label: 'Rename…', keybindings: [KeyMod.Shift | KeyCode.F6], run: run('editor.action.rename') });
+    editor.addAction({ id: 'phpblitz.rename', label: 'Rename…', keybindings: [KeyMod.Shift | KeyCode.F6], run: () => void startRename() });
     editor.addAction({ id: 'phpblitz.reformat', label: 'Reformat Code', keybindings: [KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.KeyL], run: run('editor.action.formatDocument') });
     // ── Hover popup: problems with their quick fix, and documentation ──
     /** Screen box of the word at `pos`, for placing the popup under it. */
@@ -384,27 +449,96 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       popupActions('context');
     };
     // "N usages" above declarations runs Find Usages.
-    setUsagesHandler((model, position) => latest.current.ws.findUsagesAt(model, position));
+    /** Screen point of a position in this editor (where the Show Usages popup opens). */
+    const pointOf = (position: monaco.IPosition) => {
+      const r = editor.getDomNode()?.getBoundingClientRect();
+      const p = editor.getScrolledVisiblePosition(position);
+      return r && p ? { x: r.left + p.left, y: r.top + p.top } : { x: 200, y: 200 };
+    };
+    setUsagesHandler((model, position) => latest.current.ws.showUsagesAt(model, position, pointOf(position)));
+    editor.addAction({
+      id: 'phpblitz.showUsages',
+      label: 'Show Usages',
+      keybindings: [KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.F7],
+      run: (ed) => {
+        const model = ed.getModel();
+        const pos = ed.getPosition();
+        if (model && pos) latest.current.ws.showUsagesAt(model, pos, pointOf(pos));
+      },
+    });
     editor.addAction({ id: 'phpblitz.contextActions', label: 'Show Context Actions', keybindings: [KeyMod.Alt | KeyCode.Enter], run: () => popupActions('context') });
     editor.addAction({ id: 'phpblitz.generate', label: 'Generate…', keybindings: [KeyMod.Alt | KeyCode.Insert], run: () => popupActions('generate') });
+
+    // Bookmarks: F11, Ctrl+F11 (mnemonic), Shift+F11 (all of them), Ctrl+digit (jump), Ctrl+Shift+digit (toggle).
+    const caretLine = () => editor.getPosition()?.lineNumber ?? 1;
+    editor.addAction({ id: 'phpblitz.toggleBookmark', label: 'Toggle Bookmark', keybindings: [KeyCode.F11], run: () => bookmarks.toggle(latest.current.path, caretLine()) });
+    editor.addAction({ id: 'phpblitz.mnemonicBookmark', label: 'Toggle Bookmark with Mnemonic…', keybindings: [KeyMod.CtrlCmd | KeyCode.F11], run: () => setMnemonicLine(caretLine()) });
+    editor.addAction({ id: 'phpblitz.showBookmarks', label: 'Show All Bookmarks', keybindings: [KeyMod.Shift | KeyCode.F11], run: () => setPopup('bookmarks') });
+    for (let d = 0; d <= 9; d++) {
+      const key = KeyCode.Digit0 + d;
+      const m = String(d);
+      editor.addAction({
+        id: `phpblitz.gotoBookmark${m}`,
+        label: `Go to Bookmark ${m}`,
+        keybindings: [KeyMod.CtrlCmd | key],
+        run: () => {
+          const b = bookmarks.byMnemonic(m);
+          if (b) latest.current.ws.openFile(b.path, { line: b.line });
+        },
+      });
+      editor.addAction({
+        id: `phpblitz.toggleBookmark${m}`,
+        label: `Toggle Bookmark ${m}`,
+        keybindings: [KeyMod.CtrlCmd | KeyMod.Shift | key],
+        run: () => {
+          const { path } = latest.current;
+          const line = caretLine();
+          if (bookmarks.at(path, line)?.mnemonic === m) bookmarks.remove(path, line);
+          else bookmarks.set({ path, line, mnemonic: m });
+        },
+      });
+    }
+    editor.addAction({ id: 'phpblitz.softWrap', label: 'Soft-Wrap', keybindings: [KeyMod.Alt | KeyCode.KeyZ], run: toggleSoftWrap });
 
     // Our PhpStorm-style right-click menu instead of Monaco's.
     editor.onContextMenu(async (e) => {
       e.event.preventDefault();
+      // The gutter (line numbers, icons, change markers) has its own menu, like PhpStorm's.
+      // By position: below the last line Monaco reports the gutter as empty content.
+      const left = editor.getDomNode()!.getBoundingClientRect().left;
+      if (e.event.posx - left < editor.getLayoutInfo().contentLeft) {
+        const line = e.target.position?.lineNumber ?? e.target.range?.startLineNumber ?? editor.getModel()!.getLineCount();
+        const { ws, path } = latest.current;
+        setMenu({
+          x: e.event.posx,
+          y: e.event.posy,
+          items: gutterMenu(ws, path, line, {
+            softWrap: wrapOverrides.get(path) ?? matchesFilePatterns(path, getSettings().editor.softWrapFiles),
+            toggleSoftWrap,
+            mnemonic: () => setMnemonicLine(line),
+          }),
+        });
+        return;
+      }
       const pos = e.target.position;
       const sel = editor.getSelection();
       if (pos && sel && !sel.containsPosition(pos)) editor.setPosition(pos);
       const point = { x: e.event.posx, y: e.event.posy };
-      const actions = await codeActionsForSelection(editor);
       const { ws, path } = latest.current;
-      setMenu({
-        ...point,
-        items: buildEditorMenu(editor, ws, path, actions, {
+      const build = (actions: Awaited<ReturnType<typeof codeActionsForSelection>>) =>
+        buildEditorMenu(editor, ws, path, actions, {
           contextActions: () => setIntentions({ ...popupPoint(), items: contextActionsMenu(actions, ws, { editor, path: latest.current.path }) }),
           generate: () => setIntentions({ ...popupPoint(), items: generateMenu(actions, ws, editor.getModel()?.uri.toString()) }),
           gotoLine: () => setPopup('goto'),
-        }),
-      });
+          rename: () => void startRename(),
+        });
+      // The menu opens now; the language server's actions (Refactor, Generate) join when they arrive.
+      const opened = { ...point, items: build([]) };
+      setMenu(opened);
+      void codeActionsForSelection(editor).then(
+        (actions) => actions.length && setMenu((m) => (m === opened ? { ...point, items: build(actions) } : m)),
+        () => {},
+      );
     });
 
     // PhpStorm popups instead of Monaco's VS Code quick input and find widget.
@@ -440,7 +574,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       { label: 'Go to Line:Column…', shortcut: 'Ctrl+G', run: () => setPopup('goto') },
       { label: 'File Structure', shortcut: 'Ctrl+F12', run: () => setPopup('structure') },
       { label: 'Find Usages', shortcut: 'Alt+F7', run: trigger('phpblitz.findUsages') },
-      { label: 'Rename…', shortcut: 'Shift+F6', run: trigger('editor.action.rename') },
+      { label: 'Rename…', shortcut: 'Shift+F6', run: () => void startRename() },
       { label: 'Show Context Actions', shortcut: 'Alt+Enter', run: () => popupActions('context') },
       { label: 'Generate…', shortcut: 'Alt+Insert', run: () => popupActions('generate') },
       { label: 'Reformat Code', shortcut: 'Ctrl+Alt+L', run: trigger('editor.action.formatDocument') },
@@ -450,9 +584,15 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       { label: 'Expand All', shortcut: 'Ctrl+Shift+NumPad +', run: trigger('editor.unfoldAll') },
       { label: 'Comment with Line Comment', shortcut: 'Ctrl+/', run: trigger('editor.action.commentLine') },
       { label: 'Duplicate Line or Selection', shortcut: 'Ctrl+D', run: trigger('editor.action.copyLinesDownAction') },
+      { label: 'Toggle Bookmark', shortcut: 'F11', run: trigger('phpblitz.toggleBookmark') },
+      { label: 'Toggle Bookmark with Mnemonic…', shortcut: 'Ctrl+F11', run: trigger('phpblitz.mnemonicBookmark') },
+      { label: 'Show All Bookmarks', shortcut: 'Shift+F11', run: () => setPopup('bookmarks') },
+      { label: 'Soft-Wrap', shortcut: 'Alt+Z', run: toggleSoftWrap },
     ]);
     editor.onDidDispose(() => setEditorCommands(null));
     editor.onMouseDown((e) => {
+      // Right-click opens the gutter menu; it must not also toggle a breakpoint.
+      if (!e.event.leftButton) return;
       const line = e.target.position?.lineNumber;
       // Change marker: the HEAD version of those lines.
       if (e.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS && line && (e.target.element as HTMLElement | null)?.className.includes('git-mark')) {
@@ -461,13 +601,29 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         if (index >= 0) setHunkPopup({ x: e.event.posx + 12, y: e.event.posy + 4, index });
         return;
       }
-      // Annotations: clicking a line's author shows its commit in the Git log.
-      if (e.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS && line && blame.current) {
+      if (e.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS && line) {
+        // The number itself (its last few characters): toggle a breakpoint, like PhpStorm.
+        const el = e.target.element as HTMLElement | null;
+        const digits = editor.getOption(monaco.editor.EditorOption.fontInfo).typicalHalfwidthCharacterWidth * 5;
+        if (!blame.current || !el || e.event.posx > el.getBoundingClientRect().right - digits) {
+          latest.current.ws.toggleBreakpoint(latest.current.path, line);
+          // Monaco selects the line on a line-number click; PhpStorm leaves the caret where it was.
+          const before = selectionBeforeClick.current;
+          if (before) window.setTimeout(() => editor.setSelection(before), 0);
+          return;
+        }
+        // Annotations: clicking a line's author shows that file's diff in the commit.
         const b = blame.current[line - 1];
-        if (b && !/^0+$/.test(b.hash)) latest.current.ws.showCommit(b.hash);
+        if (b && !/^0+$/.test(b.hash)) {
+          const { ws, path } = latest.current;
+          setBlameTip(null);
+          ws.showCommit(b.hash, path);
+          ws.openDiff(path, b.hash);
+        }
         return;
       }
-      if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN && e.target.position && /\.(md|markdown)$/i.test(latest.current.path)) {
+      const icons = getSettings().editor;
+      if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN && e.target.position && /\.(md|markdown)$/i.test(latest.current.path) && icons.gutterIcons && icons.gutterRun) {
         // Markdown: ▷ beside a shell code block runs it.
         const block = shellBlocks(editor.getModel()?.getValue() ?? '').find((b) => b.line === e.target.position!.lineNumber);
         if (block) runCodeBlock(latest.current.ws, block.code);
@@ -475,21 +631,78 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         latest.current.ws.toggleBreakpoint(latest.current.path, e.target.position.lineNumber);
       }
     });
+    editor.onMouseMove((e) => {
+      const line = e.target.type === monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS && blame.current ? (e.target.position?.lineNumber ?? 0) : 0;
+      if (line === blameTipLine.current) return;
+      blameTipLine.current = line;
+      setBlameTip(line && blame.current?.[line - 1] && !/^0+$/.test(blame.current[line - 1].hash) ? { x: e.event.posx + 12, y: e.event.posy + 16, line } : null);
+    });
+    editor.onMouseLeave(() => {
+      blameTipLine.current = 0;
+      setBlameTip(null);
+    });
     editor.onDidChangeCursorPosition((e) => latest.current.ws.setCursor({ line: e.position.lineNumber, col: e.position.column }));
+    // The selection before a mouse press in the gutter (Monaco has already changed it when we hear of the press).
+    editor.getDomNode()?.addEventListener('mousedown', () => (selectionBeforeClick.current = editor.getSelection()), true);
     setReady(true);
   };
 
-  // Breakpoints
+  // Bookmarks: right after the line number (like PhpStorm), following the lines as the file is edited.
+  const allBookmarks = useBookmarks();
+  const bookmarkDecorations = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
+  const shownBookmarks = useRef<number[]>([]);
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!ready || !editor) return;
+    bookmarkDecorations.current ??= editor.createDecorationsCollection();
+    const mine = allBookmarks.filter((b) => b.path === path);
+    const count = editor.getModel()?.getLineCount() ?? 1;
+    shownBookmarks.current = mine.map((b) => b.line);
+    bookmarkDecorations.current.set(
+      mine.map((b) => ({
+        range: new monaco.Range(Math.min(b.line, count), 1, Math.min(b.line, count), 1),
+        options: {
+          stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+          linesDecorationsClassName: 'bookmark-glyph' + (b.mnemonic ? ` bm-m bm-m-${b.mnemonic}` : ''),
+          overviewRuler: { color: '#e8b33a', position: monaco.editor.OverviewRulerLane.Left },
+        },
+      })),
+    );
+  }, [ready, path, allBookmarks]);
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!ready || !editor) return;
+    // Lines inserted or deleted above a bookmark move it: save where Monaco moved it to.
+    let timer = 0;
+    const sub = editor.onDidChangeModelContent(() => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        const ranges = bookmarkDecorations.current?.getRanges() ?? [];
+        const moves = shownBookmarks.current.map((from, i) => ({ from, to: ranges[i]?.startLineNumber ?? from }));
+        bookmarks.moveLines(latest.current.path, moves);
+      }, 400);
+    });
+    return () => {
+      window.clearTimeout(timer);
+      sub.dispose();
+    };
+  }, [ready, path]);
+
+  // Breakpoints: a red circle over the line number, like PhpStorm (in the icon column when line
+  // numbers are hidden).
+  const numbersShown = settings.lineNumbers || !!blameLines;
   useEffect(() => {
     if (!ready) return;
     const lines = ws.breakpoints[path] ?? [];
     decorations.current?.set(
       lines.map((line) => ({
         range: new monaco.Range(line, 1, line, 1),
-        options: { isWholeLine: true, glyphMarginClassName: 'bp-glyph', className: 'bp-line', glyphMarginHoverMessage: { value: 'Breakpoint' } },
+        options: numbersShown
+          ? { isWholeLine: true, lineNumberClassName: 'bp-number', className: 'bp-line' }
+          : { isWholeLine: true, glyphMarginClassName: 'bp-glyph', className: 'bp-line', glyphMarginHoverMessage: { value: 'Breakpoint' } },
       })),
     );
-  }, [ready, path, ws.breakpoints]);
+  }, [ready, path, ws.breakpoints, numbersShown]);
 
   // Debugger: the execution point (and the selected frame's line), and variable values inline.
   const dbg = useDebug();
@@ -544,6 +757,32 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
 
   const gitKey = ws.git ? `${ws.git.branch}|${ws.git.changes.find((c) => c.path === path)?.status ?? ''}` : '';
   const large = ws.isLargeFile(path);
+
+  // TODO comments: italic, in the TODO color, like PhpStorm (they are listed in the TODO tool window).
+  useEffect(() => {
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    if (!ready || !editor || !model || large) return;
+    const deco = editor.createDecorationsCollection();
+    const update = () =>
+      deco.set(
+        todosInText(path, model.getValue()).map((t) => {
+          const column = model.getLineContent(t.line).indexOf(t.text) + 1;
+          return { range: new monaco.Range(t.line, column + t.start, t.line, column + t.end), options: { inlineClassName: 'todo-comment' } };
+        }),
+      );
+    update();
+    let timer = 0;
+    const sub = editor.onDidChangeModelContent(() => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(update, 200);
+    });
+    return () => {
+      window.clearTimeout(timer);
+      sub.dispose();
+      deco.clear();
+    };
+  }, [ready, path, large]);
 
   // Git: change markers against HEAD, updated while typing.
   useEffect(() => {
@@ -634,6 +873,25 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, path, annotate, ws.git]);
 
+  // Annotations: "10/12/2026 Martin" before each line number, in the UI font like PhpStorm's
+  // (a CSS rule per label, so the line number itself keeps the editor font).
+  const blameDecorations = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!ready || !editor) return;
+    blameDecorations.current ??= editor.createDecorationsCollection();
+    if (!blameLines) {
+      blameDecorations.current.clear();
+      return;
+    }
+    blameDecorations.current.set(
+      blameLines.map((b, i) => ({
+        range: new monaco.Range(i + 1, 1, i + 1, 1),
+        options: { lineNumberClassName: `blame-ln ${blameClass(blameLabel(b))}${/^0+$/.test(b.hash) ? ' blame-new' : ''}` },
+      })),
+    );
+  }, [ready, blameLines]);
+
   const rollbackHunk = (h: Hunk) => {
     const editor = editorRef.current;
     const model = editor?.getModel();
@@ -721,7 +979,18 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
     {ready && find && editorRef.current && <FindBar editor={editorRef.current} request={find} step={findStep} onClose={() => setFind(null)} />}
-    <div style={{ flex: '1 1 auto', minHeight: 0, position: 'relative' }}>
+    <div
+      className={[
+        !settings.gutterIcons && 'no-gutter-icons',
+        !settings.gutterBookmarks && 'no-gutter-bookmarks',
+        !settings.gutterRun && 'no-gutter-run',
+        !settings.gutterDocs && 'no-gutter-docs',
+        !settings.gutterChanges && 'no-gutter-changes',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      style={{ flex: '1 1 auto', minHeight: 0, position: 'relative' }}
+    >
     {large && (
       <div className="large-file-banner">
         <Icon name="warning" size={13} /> File size exceeds the code insight limit (2.5 MB). Code insight features are not available.
@@ -729,6 +998,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     )}
     {ready && path.endsWith('.php') && !large && <Inspections ws={ws} path={path} editor={editorRef.current} />}
     {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={closeMenu} />}
+    {blameTip && blameLines?.[blameTip.line - 1] && <BlameTooltip x={blameTip.x} y={blameTip.y} line={blameLines[blameTip.line - 1]} />}
     {hover && editorRef.current && (
       <div
         onMouseEnter={() => {
@@ -779,6 +1049,18 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     )}
     {intentions && <IntentionPopup x={intentions.x} y={intentions.y} items={intentions.items} model={editorRef.current?.getModel() ?? null} onClose={closeIntentions} />}
     {popup === 'goto' && editorRef.current && <GotoLineDialog editor={editorRef.current} onClose={closePopup} />}
+    {popup === 'bookmarks' && <BookmarksPopup ws={ws} onClose={closePopup} />}
+    {renamePlan && (
+      <SymbolRenameDialog
+        ws={ws}
+        plan={renamePlan}
+        onClose={() => {
+          setRenamePlan(null);
+          editorRef.current?.focus();
+        }}
+      />
+    )}
+    {mnemonicLine !== null && <MnemonicDialog path={path} line={mnemonicLine} onClose={closeMnemonic} />}
     {popup === 'structure' && editorRef.current && (
       <FileStructurePopup editor={editorRef.current} fileName={path.split('/').pop() ?? path} symbols={ws.structure} onClose={closePopup} />
     )}
@@ -800,11 +1082,14 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         codeLensFontFamily: 'Inter, sans-serif',
         codeLensFontSize: 12,
         glyphMargin: true,
-        lineNumbersMinChars: blameLines ? 31 : 4,
-        lineNumbers: blameLines ? (n) => `${blameLabel(blameLines[n - 1]).padEnd(26)}${String(n).padStart(4)}` : 'on',
-        lineDecorationsWidth: 14,
+        lineNumbersMinChars: blameLines ? 24 : 4,
+        lineNumbers: blameLines ? (n) => (settings.lineNumbers ? String(n) : '') : settings.lineNumbers ? 'on' : 'off',
+        // The bookmark, then the change marker (see .bookmark-glyph and .git-mark).
+        lineDecorationsWidth: 26,
         folding: !large,
-        showFoldingControls: 'mouseover',
+        showFoldingControls: settings.foldingOutline ? 'mouseover' : 'never',
+        wordWrap: softWrap ? 'on' : 'off',
+        renderWhitespace: settings.whitespaces ? 'all' : 'none',
         minimap: { enabled: false },
         scrollBeyondLastLine: true,
         automaticLayout: true,
@@ -814,7 +1099,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         padding: { top: 6 },
         tabSize: 4,
         bracketPairColorization: { enabled: false },
-        guides: { indentation: true, highlightActiveIndentation: false },
+        guides: { indentation: settings.indentGuides, highlightActiveIndentation: false },
         stickyScroll: { enabled: true, maxLineCount: 3 },
         inlayHints: { enabled: settings.inlayHints ? 'on' : 'off', fontSize: 12, fontFamily: 'Inter, sans-serif', padding: true },
         contextmenu: false,
@@ -862,12 +1147,51 @@ function setupMarkdown(editor: monaco.editor.IStandaloneCodeEditor) {
   });
 }
 
-/** "2026-10-12  Lina M." for the annotation gutter. */
+/** "10/12/2026 Martin" for the annotation gutter: the date, then the author's last name, like PhpStorm. */
 function blameLabel(b: BlameLine | undefined): string {
   if (!b) return '';
-  if (/^0+$/.test(b.hash)) return 'Not committed yet';
-  const [first, last] = b.author.split(' ');
-  return `${b.date.slice(0, 10)}  ${first}${last ? ` ${last[0]}.` : ''}`;
+  if (/^0+$/.test(b.hash)) return 'Not Committed Yet';
+  const name = b.author.trim().split(/\s+/).pop() ?? '';
+  return `${new Date(b.date).toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' })} ${name}`;
+}
+
+/** One class per annotation label (shared by every editor), its text in a ::before rule. */
+const blameClasses = new Map<string, string>();
+function blameClass(label: string): string {
+  let cls = blameClasses.get(label);
+  if (!cls) {
+    cls = `blame-l${blameClasses.size}`;
+    blameClasses.set(label, cls);
+    let el = document.getElementById('blame-labels') as HTMLStyleElement | null;
+    if (!el) {
+      el = document.createElement('style');
+      el.id = 'blame-labels';
+      document.head.appendChild(el);
+    }
+    el.sheet?.insertRule(`.monaco-editor .${cls}::before { content: ${cssString(label)}; }`, el.sheet.cssRules.length);
+  }
+  return cls;
+}
+
+/** PhpStorm's annotation tooltip: the commit, its author, date and message. */
+function BlameTooltip({ x, y, line }: { x: number; y: number; line: BlameLine }) {
+  const date = new Date(line.date);
+  return (
+    <div className="blame-tip" style={{ left: Math.min(x, window.innerWidth - 420), top: y }}>
+      <div>
+        commit <span className="blame-tip-hash">{line.hash}</span>
+      </div>
+      <div>
+        Author: {line.author}
+        {line.email && ` <${line.email}>`}
+      </div>
+      <div>
+        Date: {date.toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' })} {date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+      </div>
+      <div className="blame-tip-message">{line.summary}</div>
+      <div className="blame-tip-hint">Click to show the diff</div>
+    </div>
+  );
 }
 
 /** The <style> holding inline debugger values (one ::after rule per line). */

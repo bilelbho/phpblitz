@@ -3,6 +3,7 @@
 // PhpStorm. Defaults come from composer.json's autoload / autoload-dev; changes are kept per project.
 
 import { useSyncExternalStore } from 'react';
+import { projectStorage } from './projectStorage';
 
 export type DirMark = 'source' | 'test' | 'resource' | 'excluded';
 export type FileColor = 'test' | 'library' | null;
@@ -46,7 +47,7 @@ class DirMarks {
     this.root = root;
     this.defaults = composerJson ? composerDefaults(composerJson) : {};
     try {
-      this.saved = JSON.parse(localStorage.getItem(this.key()) ?? '{}');
+      this.saved = JSON.parse(projectStorage.getItem(this.key()) ?? '{}');
     } catch {
       this.saved = {};
     }
@@ -71,7 +72,7 @@ class DirMarks {
     else if (this.defaults[rel]) this.saved[rel] = 'none';
     else delete this.saved[rel];
     try {
-      localStorage.setItem(this.key(), JSON.stringify(this.saved));
+      projectStorage.setItem(this.key(), JSON.stringify(this.saved));
     } catch {
       // Kept for this session only.
     }

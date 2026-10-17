@@ -5,10 +5,8 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { Terminal, type IMarker, type ITheme } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
-import { WebLinksAddon } from '@xterm/addon-web-links';
-import '@xterm/xterm/css/xterm.css';
+import type { IMarker, ITheme, Terminal } from '@xterm/xterm';
+import type { FitAddon } from '@xterm/addon-fit';
 import { useSyncExternalStore } from 'react';
 import { getSettings, parseEnv, type TerminalSettings } from '../settings';
 
@@ -152,6 +150,7 @@ class TerminalManager {
     const shell = opts.shell ?? configured ?? shells[0];
     if (!shell) return null;
     const isDefault = !opts.shell || opts.shell.path === (configured ?? shells[0])?.path;
+    const { Terminal, FitAddon, WebLinksAddon } = await import('./xterm');
 
     const term = new Terminal({
       ...termOptions(settings),

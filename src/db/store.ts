@@ -27,6 +27,7 @@ import {
   type PageRequest,
 } from './dialect';
 import type { Column, DataSource, ObjectKind, QueryResult, RoleInfo, TableDetails, TableInfo } from './types';
+import { projectStorage } from '../projectStorage';
 
 export interface SourceState {
   status: 'idle' | 'connecting' | 'connected' | 'error';
@@ -104,7 +105,7 @@ class DbStore {
       this.sources = [SAMPLE_SOURCE];
     } else {
       try {
-        this.sources = JSON.parse(localStorage.getItem(this.storageKey()) ?? '[]');
+        this.sources = JSON.parse(projectStorage.getItem(this.storageKey()) ?? '[]');
       } catch {
         this.sources = [];
       }
@@ -116,7 +117,7 @@ class DbStore {
   private persist() {
     if (this.sample) return;
     try {
-      localStorage.setItem(this.storageKey(), JSON.stringify(this.sources));
+      projectStorage.setItem(this.storageKey(), JSON.stringify(this.sources));
     } catch {
       // Not saved; still usable this session.
     }

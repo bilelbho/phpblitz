@@ -1,7 +1,10 @@
 [package]
 name = "phpblitz"
-version = "0.1.1"
-description = "A fast PHP IDE"
+version = "0.1.3"
+description = "A fast, open source PHP IDE"
+authors = ["The PHPBlitz Authors"]
+license = "Apache-2.0"
+repository = "https://github.com/bilelbho/phpblitz"
 edition = "2021"
 
 [lib]
@@ -49,6 +52,10 @@ mago-codex = "=1.57.0"
 mago-allocator = "=1.57.0"
 mago-word = "=1.57.0"
 mago-span = "=1.57.0"
+# Checking open files against the project's declarations while the full analysis runs.
+mago-semantics = "=1.57.0"
+# The symbol index cache (.blitz/cache/index.bin).
+bincode = "1.3"
 postgres = "0.19"
 postgres-native-tls = "0.5"
 native-tls = "0.2"

@@ -8,10 +8,22 @@ export function ComposerPanel({ ws }: { ws: Workspace }) {
   return (
     <>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '0 10px 8px' }}>
-        <button type="button" className="btn small" onClick={() => ws.openFile(`${ws.backend.root}/composer.json`)}>
+        <button
+          type="button"
+          className="btn small"
+          onClick={() => ws.openFile(`${ws.backend.root}/composer.json`)}
+          disabled={!ws.hasComposer}
+          title={ws.hasComposer ? undefined : 'This project has no composer.json'}
+        >
           Open composer.json
         </button>
-        <button type="button" className="btn small" onClick={ws.checkOutdated} disabled={busy}>
+        <button
+          type="button"
+          className="btn small"
+          onClick={ws.checkOutdated}
+          disabled={busy || !ws.hasComposer}
+          title={ws.hasComposer ? undefined : 'This project has no composer.json'}
+        >
           Check for updates
         </button>
         {updates > 0 && (
@@ -48,7 +60,9 @@ export function ComposerPanel({ ws }: { ws: Workspace }) {
             </div>
           );
         })}
-        {!ws.packages.length && <div className="empty">No composer.json found in this project.</div>}
+        {!ws.packages.length && (
+          <div className="empty">{ws.hasComposer ? 'composer.json has no dependencies.' : 'No composer.json found in this project.'}</div>
+        )}
         {!!ws.packages.length && !ws.outdated && !busy && (
           <div className="empty" style={{ fontSize: 12 }}>
             Versions come from composer.lock. Use “Check for updates” to run composer outdated.

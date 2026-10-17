@@ -42,7 +42,7 @@ const strip = (c: string) => c.replace('#', '');
 
 export const SCHEMES = {
   'islands-dark': {
-    name: 'Islands Dark',
+    name: 'Blitz Dark',
     dark: true,
     bg: '#1E1F22',
     fg: '#BCBEC4',
@@ -75,7 +75,7 @@ export const SCHEMES = {
     warning: '#E5A33D',
   },
   darcula: {
-    name: 'Darcula',
+    name: 'Classic Dark',
     dark: true,
     bg: '#2B2B2B',
     fg: '#A9B7C6',
@@ -240,7 +240,7 @@ export const SCHEMES = {
     warning: '#B58900',
   },
   light: {
-    name: 'IntelliJ Light',
+    name: 'Classic Light',
     dark: false,
     bg: '#FFFFFF',
     fg: '#080808',
@@ -273,7 +273,7 @@ export const SCHEMES = {
     warning: '#C29E4A',
   },
   'github-light': {
-    name: 'GitHub Light',
+    name: 'Daylight',
     dark: false,
     bg: '#FFFFFF',
     fg: '#24292F',

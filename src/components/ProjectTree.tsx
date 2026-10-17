@@ -30,6 +30,8 @@ interface Row {
   root?: boolean;
   /** Folder shown next to the name in the flat views. */
   detail?: string;
+  /** "Loading…" under a folder whose contents haven't arrived yet. */
+  loading?: boolean;
 }
 
 function sortEntries(entries: Entry[], prefs: TreePrefs): Entry[] {
@@ -85,7 +87,10 @@ export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void 
     }
     const out: Row[] = [{ path: backend.root, name: backend.name, isDir: true, depth: 0, root: true }];
     const walk = (dir: string, depth: number) => {
-      for (const e of sortEntries(ws.children[dir] ?? [], prefs)) {
+      const entries = ws.children[dir];
+      // Open, but not listed yet: say so (instead of an open arrow over nothing).
+      if (!entries) out.push({ path: `${dir}/\u0000loading`, name: 'Loading…', isDir: false, depth, loading: true });
+      for (const e of sortEntries(entries ?? [], prefs)) {
         out.push({ path: e.path, name: e.name, isDir: e.isDir, depth });
         if (e.isDir && ws.expanded.has(e.path)) walk(e.path, depth + 1);
       }
@@ -438,6 +443,13 @@ export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void 
   };
 
   const items: ReactNode[] = rows.slice(range.start, range.end).map((row) => {
+    if (row.loading) {
+      return (
+        <div key={row.path} role="treeitem" aria-busy="true" className="row muted" style={{ paddingLeft: 4 + row.depth * indent + 12 }}>
+          Loading…
+        </div>
+      );
+    }
     const isSelected = row.path === selected;
     const mark = row.isDir ? marks.markOf(row.path) : null;
     const color = marks.colorOf(row.path);
@@ -459,6 +471,8 @@ export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void 
         onMouseDown={() => {
           setSelected(row.path);
           setSpeed(null);
+          // Opening comes with the click (or double-click): read the file now.
+          if (!row.isDir) ws.prefetchFile(row.path);
         }}
         onClick={() => open(row, 'single')}
         onDoubleClick={() => open(row, 'double')}

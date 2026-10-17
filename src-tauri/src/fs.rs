@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Directories that are never walked when building the project file list.
-const SKIPPED_DIRS: [&str; 5] = [".git", ".idea", "node_modules", "vendor", "storage"];
+const SKIPPED_DIRS: [&str; 6] = [".git", ".idea", ".blitz", "node_modules", "vendor", "storage"];
 const MAX_FILES: usize = 50_000;
 const MAX_FILE_BYTES: u64 = 5 * 1024 * 1024;
 

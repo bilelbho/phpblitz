@@ -5,9 +5,7 @@ import type { BottomTab, Workspace } from '../useWorkspace';
 import { baseName, relativePath, type Problem } from '../backend/types';
 import { Icon, Play } from './Icon';
 import { FindResults } from './FindInFiles';
-import { TerminalView } from './TerminalView';
-import { GitToolWindow } from './GitToolWindow';
-import { DebugPanel } from './DebugPanel';
+import { DebugPanel, GitToolWindow, TerminalView, TodoToolWindow } from './lazy';
 import { isTauri } from '../platform';
 
 const SEVERITY_COLOR = { error: 'var(--red)', warning: 'var(--orange)', info: 'var(--muted)' } as const;
@@ -27,6 +25,14 @@ export function BottomPanel({ ws, height }: { ws: Workspace; height: number }) {
     return (
       <section className="island bottom" style={{ height }} aria-label="Debug">
         <DebugPanel ws={ws} />
+      </section>
+    );
+  }
+
+  if (ws.bottomTab === 'todo') {
+    return (
+      <section className="island bottom" style={{ height }} aria-label="TODO">
+        <TodoToolWindow ws={ws} />
       </section>
     );
   }
@@ -104,7 +110,9 @@ export function BottomPanel({ ws, height }: { ws: Workspace; height: number }) {
                 </div>
               );
             })}
-            {!ws.packages.length && <div className="empty">No composer.json found in this project.</div>}
+            {!ws.packages.length && (
+              <div className="empty">{ws.hasComposer ? 'composer.json has no dependencies.' : 'No composer.json found in this project.'}</div>
+            )}
           </>
         )}
       </div>
@@ -137,6 +145,7 @@ function Problems({ ws }: { ws: Workspace }) {
   const list = useRef<HTMLDivElement>(null);
   const range = useVirtualRows(scroller, list, view === 'project' ? projectRows.length : 0, 24);
   const hasProject = ws.backend.kind === 'disk' && ws.magoStatus.state !== 'off';
+  const needsInstall = !!ws.magoStatus.summary?.needsInstall;
 
   const row = (p: Problem, i: number, indent: number, showFile: boolean) => (
     <button
@@ -196,7 +205,19 @@ function Problems({ ws }: { ws: Workspace }) {
 
       {view === 'project' && (
         <>
-          {ws.magoStatus.state === 'analyzing' && <div className="empty">Mago is analyzing the project…</div>}
+          {needsInstall && (
+            <div className="problems-banner">
+              <Icon name="warning" size={14} />
+              <span className="grow">
+                Type checking is off until dependencies are installed: composer.json lists packages, but vendor/ is missing.
+                {ws.projectProblemsHidden > 0 && ` ${ws.projectProblemsHidden.toLocaleString()} problems about unknown classes are not shown.`}
+              </span>
+              <button type="button" className="btn small primary" onClick={ws.composerInstall}>
+                Run composer install
+              </button>
+            </div>
+          )}
+          {ws.magoStatus.state === 'analyzing' && <div className="empty">Analyzing the project in the background… Open files are already checked.</div>}
           {ws.projectProblemsTotal > project.length && (
             <div className="row muted" style={{ height: 24, paddingLeft: 6 }}>
               Showing the first {project.length.toLocaleString()} of {ws.projectProblemsTotal.toLocaleString()} problems. Exclude folders you don't edit (Mark Directory As ▸ Excluded) or turn rules off to see fewer.
@@ -218,7 +239,7 @@ function Problems({ ws }: { ws: Workspace }) {
               ),
             )}
           </div>
-          {ws.magoStatus.state === 'ready' && !project.length && <div className="empty">No problems found in the project.</div>}
+          {ws.magoStatus.state === 'ready' && !project.length && !needsInstall && <div className="empty">No errors or warnings found in the project.</div>}
         </>
       )}
     </div>
@@ -232,38 +253,61 @@ function Usages({ ws }: { ws: Workspace }) {
   if (u.error) return <div className="empty">Could not find usages: {u.error}</div>;
   if (!u.items.length) return <div className="empty">No usages of {u.name} found in the project.</div>;
 
-  const files = new Map<string, typeof u.items>();
-  for (const item of u.items) files.set(item.path, [...(files.get(item.path) ?? []), item]);
+  const exact = u.items.filter((i) => !i.dynamic);
+  const dynamic = u.items.filter((i) => i.dynamic);
+  const byFile = (items: typeof u.items) => {
+    const m = new Map<string, typeof u.items>();
+    for (const item of items) {
+      const list = m.get(item.path);
+      if (list) list.push(item);
+      else m.set(item.path, [item]);
+    }
+    return m;
+  };
+  const files = byFile(exact);
+  const dynamicFiles = byFile(dynamic);
+
+  // "Model::save" → "save", "App\\Models\\User" → "User": the part a usage's line contains.
+  const key = u.name.split('::').pop()!.replace(/[()$]/g, '').split('\\').pop()!;
+  const renderFiles = (groups: Map<string, typeof u.items>, muted = false) =>
+    [...groups].map(([path, items]) => (
+      <div key={`${muted ? 'd' : 'e'}:${path}`} className={muted ? 'usages-dynamic' : undefined}>
+        <div className="row" style={{ paddingLeft: 6 }} title={relativePath(ws.backend, path)}>
+          <FileIcon path={path} />
+          <span className="name">{baseName(path)}</span>
+          <span className="detail">{relativePath(ws.backend, path).split('/').slice(0, -1).join('/')}</span>
+          <span className="detail">
+            {items.length} {items.length === 1 ? 'usage' : 'usages'}
+          </span>
+        </div>
+        {items.map((it) => (
+          <button key={`${it.line}:${it.column}`} type="button" className="row" style={{ paddingLeft: 30, gap: 10 }} onClick={() => ws.openFile(it.path, { line: it.line, column: it.column })}>
+            <span className="mono" style={{ color: 'var(--faint)', minWidth: 34, textAlign: 'right' }}>
+              {it.line}
+            </span>
+            <span className="mono name" style={{ fontSize: 12.5 }}>
+              {highlight(it.preview, key)}
+            </span>
+          </button>
+        ))}
+      </div>
+    ));
 
   return (
     <div className="tree">
       <div className="row" style={{ paddingLeft: 6, color: 'var(--muted)' }}>
-        {u.items.length} {u.items.length === 1 ? 'usage' : 'usages'} in {files.size} {files.size === 1 ? 'file' : 'files'}
+        {exact.length} {exact.length === 1 ? 'usage' : 'usages'} in {files.size} {files.size === 1 ? 'file' : 'files'}
+        {dynamic.length > 0 && ` · ${dynamic.length} dynamic`}
       </div>
-      {[...files].map(([path, items]) => {
-        return (
-          <div key={path}>
-            <div className="row" style={{ paddingLeft: 6 }} title={relativePath(ws.backend, path)}>
-              <FileIcon path={path} />
-              <span className="name">{baseName(path)}</span>
-              <span className="detail">{relativePath(ws.backend, path).split('/').slice(0, -1).join('/')}</span>
-              <span className="detail">
-                {items.length} {items.length === 1 ? 'usage' : 'usages'}
-              </span>
-            </div>
-            {items.map((it) => (
-              <button key={`${it.line}:${it.column}`} type="button" className="row" style={{ paddingLeft: 30, gap: 10 }} onClick={() => ws.openFile(it.path, { line: it.line, column: it.column })}>
-                <span className="mono" style={{ color: 'var(--faint)', minWidth: 34, textAlign: 'right' }}>
-                  {it.line}
-                </span>
-                <span className="mono name" style={{ fontSize: 12.5 }}>
-                  {highlight(it.preview, u.name)}
-                </span>
-              </button>
-            ))}
+      {renderFiles(files)}
+      {dynamic.length > 0 && (
+        <>
+          <div className="row usages-group" style={{ paddingLeft: 6 }} title="Called on something whose type isn't known: maybe this member, maybe another class's member of the same name">
+            Dynamic usages · {dynamic.length} (receiver type unknown)
           </div>
-        );
-      })}
+          {renderFiles(dynamicFiles, true)}
+        </>
+      )}
     </div>
   );
 }

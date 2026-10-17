@@ -174,6 +174,8 @@ function GitLog({ ws }: { ws: Workspace }) {
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
   const list = useRef<HTMLDivElement>(null);
   const pendingHash = useRef<string | null>(null);
+  /** The file to highlight among the selected commit's changes (clicked annotation). */
+  const [focusFile, setFocusFile] = useState<string | null>(null);
 
   // Requests from elsewhere: Show History (path), a commit from annotations, reload after actions.
   const req = ws.gitLogRequest;
@@ -187,6 +189,7 @@ function GitLog({ ws }: { ws: Workspace }) {
     }
     if (req.hash) {
       pendingHash.current = req.hash;
+      setFocusFile(req.file ?? null);
       setPath(null);
       setSearch('');
       setSearchInput('');
@@ -439,7 +442,13 @@ function GitLog({ ws }: { ws: Workspace }) {
                   </div>
                   {files.map((f) => {
                     return (
-                      <button key={f.path} type="button" className="gl-file" onDoubleClick={() => ws.openDiff(f.path, sel.hash)} onContextMenu={(e) => fileMenu(e, f)} title={`${relativePath(ws.backend, f.path)}${f.from ? `\nrenamed from ${relativePath(ws.backend, f.from)}` : ''}\nDouble-click to show the diff`}>
+                      <button
+                        key={f.path}
+                        ref={f.path === focusFile ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}
+                        type="button"
+                        className={'gl-file' + (f.path === focusFile ? ' selected' : '')}
+                        onClick={() => setFocusFile(f.path)}
+                        onDoubleClick={() => ws.openDiff(f.path, sel.hash)} onContextMenu={(e) => fileMenu(e, f)} title={`${relativePath(ws.backend, f.path)}${f.from ? `\nrenamed from ${relativePath(ws.backend, f.from)}` : ''}\nDouble-click to show the diff`}>
                         <FileIcon path={f.path} />
                         <span className={`name status-${f.status === 'C' || f.status === 'T' ? 'M' : f.status}`}>{baseName(f.path)}</span>
                         <span className="detail">{relativePath(ws.backend, f.path).split('/').slice(0, -1).join('/')}</span>

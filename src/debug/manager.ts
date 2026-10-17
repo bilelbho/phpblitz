@@ -9,6 +9,7 @@ import { isTauri } from '../platform';
 import { getSettings } from '../settings';
 import { debugMappings, interpretersFor, mapPath, projectPhp, runPhp, type Interpreter, type PathMapping } from '../interpreters';
 import { DbgpConnection, pathToUri, uriToPath, type Continuation, type Property, type StackFrame, type Status } from './dbgp';
+import { projectStorage } from '../projectStorage';
 
 export type SessionStatus = Status | 'connecting';
 
@@ -97,7 +98,7 @@ class DebugManager {
   async setProject(root: string) {
     this.root = root;
     try {
-      this.watches = JSON.parse(localStorage.getItem(`phpblitz.watches:${root}`) ?? '[]').map((expression: string) => ({ expression }));
+      this.watches = JSON.parse(projectStorage.getItem(`phpblitz.watches:${root}`) ?? '[]').map((expression: string) => ({ expression }));
     } catch {
       this.watches = [];
     }
@@ -424,7 +425,7 @@ class DebugManager {
 
   private saveWatches() {
     try {
-      localStorage.setItem(`phpblitz.watches:${this.root}`, JSON.stringify(this.watches.map((w) => w.expression)));
+      projectStorage.setItem(`phpblitz.watches:${this.root}`, JSON.stringify(this.watches.map((w) => w.expression)));
     } catch {
       // Kept for this session only.
     }

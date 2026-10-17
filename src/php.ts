@@ -291,8 +291,8 @@ export function languageOf(path: string): string {
   if (path.endsWith('.blade.php')) return 'html';
   const map: Record<string, string> = {
     php: 'php', json: 'json', js: 'javascript', mjs: 'javascript', ts: 'typescript', css: 'css', scss: 'scss',
-    html: 'html', xml: 'xml', md: 'markdown', markdown: 'markdown', yml: 'yaml', yaml: 'yaml', sql: 'sql', sh: 'shell', env: 'ini', ini: 'ini',
+    html: 'html', xml: 'xml', md: 'markdown', markdown: 'markdown', yml: 'yaml', yaml: 'yaml', sql: 'sql', sh: 'shell', env: 'dotenv', ini: 'ini',
   };
-  if (path.split('/').pop()?.startsWith('.env')) return 'ini';
+  if (path.split('/').pop()?.startsWith('.env')) return 'dotenv';
   return map[ext] ?? 'plaintext';
 }

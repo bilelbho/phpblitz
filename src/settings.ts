@@ -41,6 +41,19 @@ export interface EditorSettings {
   lightbulb: boolean;
   /** Show /** doc comments *\/ formatted (reader mode); Ctrl+Alt+Q toggles one. */
   renderDocs: boolean;
+  /** Editor ▸ General ▸ Soft Wraps: files soft-wrapped when opened ("*.md; *.txt"). Alt+Z toggles one editor. */
+  softWrapFiles: string;
+  /** Editor ▸ General ▸ Appearance (also in the gutter's right-click ▸ Appearance). */
+  lineNumbers: boolean;
+  foldingOutline: boolean;
+  indentGuides: boolean;
+  whitespaces: boolean;
+  /** Editor ▸ General ▸ Gutter Icons: all of them, then one by one. Breakpoints always show. */
+  gutterIcons: boolean;
+  gutterBookmarks: boolean;
+  gutterRun: boolean;
+  gutterDocs: boolean;
+  gutterChanges: boolean;
 }
 
 export type UiTheme = 'islands-dark' | 'islands-light' | 'islands-darcula' | 'high-contrast';
@@ -48,7 +61,7 @@ export type UiTheme = 'islands-dark' | 'islands-light' | 'islands-darcula' | 'hi
 /** Appearance & Behavior ▸ Appearance. */
 export interface UiSettings {
   theme: UiTheme;
-  /** Follow Windows' light / dark mode (Islands Light / Islands Dark). */
+  /** Follow Windows' light / dark mode (Blitz Light / Blitz Dark). */
   syncOs: boolean;
   /** UI zoom in percent (Alt+Shift+= / Alt+Shift+Minus / Alt+Shift+0). */
   zoom: number;
@@ -122,7 +135,8 @@ export const DEFAULT_SETTINGS: Settings = {
     compact: false,
     fullPathInTitle: false,
     projectColors: true,
-    smoothScrolling: true,
+    // Off like VS Code: animating each wheel tick makes fast wheels and touchpads trail behind.
+    smoothScrolling: false,
     menuIcons: true,
     indentGuides: false,
     smallerIndents: false,
@@ -155,6 +169,16 @@ export const DEFAULT_SETTINGS: Settings = {
     inlayHints: true,
     lightbulb: true,
     renderDocs: true,
+    softWrapFiles: '*.md; *.txt; *.rst; *.adoc',
+    lineNumbers: true,
+    foldingOutline: true,
+    indentGuides: true,
+    whitespaces: false,
+    gutterIcons: true,
+    gutterBookmarks: true,
+    gutterRun: true,
+    gutterDocs: true,
+    gutterChanges: true,
   },
   terminal: {
     shellPath: '',
@@ -189,6 +213,12 @@ const listeners = new Set<() => void>();
 function load(): Settings {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}');
+    // Settings saved before 0.1.3 had smooth scrolling on by default (it made scrolling lag): off once.
+    if (saved.ui && !saved.version) {
+      saved.ui.smoothScrolling = false;
+      saved.version = 2;
+      localStorage.setItem(KEY, JSON.stringify(saved));
+    }
     return {
       ui: { ...DEFAULT_SETTINGS.ui, ...(saved.ui ?? {}) },
       tabs: { ...DEFAULT_SETTINGS.tabs, ...(saved.tabs ?? {}) },
@@ -210,7 +240,7 @@ export function getSettings(): Settings {
 export function saveSettings(next: Settings) {
   current = next;
   try {
-    localStorage.setItem(KEY, JSON.stringify(next));
+    localStorage.setItem(KEY, JSON.stringify({ ...next, version: 2 }));
   } catch {
     // Not persisted when storage is unavailable; still applies for this session.
   }
@@ -253,4 +283,20 @@ export function editorSchemeOf(s: Settings): string {
   if (s.editor.scheme !== 'theme') return s.editor.scheme;
   const theme = effectiveTheme(s.ui);
   return theme === 'islands-light' ? 'light' : theme === 'islands-darcula' ? 'darcula' : theme === 'high-contrast' ? 'high-contrast' : 'islands-dark';
+}
+
+/** Changes some editor settings right away (the gutter's right-click ▸ Appearance). */
+export function updateEditorSettings(patch: Partial<EditorSettings>) {
+  const s = getSettings();
+  saveSettings({ ...s, editor: { ...s.editor, ...patch } });
+}
+
+/** Whether a file matches "*.md; *.txt"-style patterns (by file name). */
+export function matchesFilePatterns(path: string, patterns: string): boolean {
+  const name = path.split('/').pop() ?? path;
+  return patterns
+    .split(/[;,]/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .some((p) => new RegExp('^' + p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$', 'i').test(name));
 }

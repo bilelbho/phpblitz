@@ -9,6 +9,8 @@ import { BranchesPopup } from './BranchesPopup';
 import { ProjectPopup } from './ProjectPopup';
 import { projectInitials, useProjectColor } from '../projectColors';
 import { debug } from '../debug/manager';
+import { perf } from '../perf';
+import { openAppDialog } from '../appDialogs';
 
 interface Props {
   ws: Workspace;
@@ -48,6 +50,11 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
     { label: 'Update Project…', shortcut: 'Ctrl+T', disabled: !ws.git, run: () => ws.runGit('Update project', () => ws.gitRepo.pull()) },
     { label: 'Push…', shortcut: 'Ctrl+Shift+K', disabled: !ws.git, run: () => ws.setGitDialog({ kind: 'push' }) },
     { label: 'Show Git Log', disabled: !ws.git, run: () => ws.showHistory('') },
+    { kind: 'sep' },
+    { kind: 'head', label: 'Help' },
+    { label: 'Startup Performance…', run: () => perf.show(true) },
+    { label: 'Open Source Licenses…', run: () => openAppDialog('licenses') },
+    { label: 'About PHPBlitz', run: () => openAppDialog('about') },
   ];
 
 

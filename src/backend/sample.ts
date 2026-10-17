@@ -412,7 +412,7 @@ export class SampleBackend implements Backend {
       const out: string[] = [];
       text.split('\n').forEach((line, i) => {
         const c = SAMPLE_COMMITS[i % 3 === 0 ? 0 : i % 3 === 1 ? 3 : 5];
-        out.push(`${c.hash} ${i + 1} ${i + 1} 1`, `author ${c.author}`, `author-time ${Math.floor(Date.parse(c.date) / 1000)}`, `summary ${c.subject}`, `\t${line}`);
+        out.push(`${c.hash} ${i + 1} ${i + 1} 1`, `author ${c.author}`, `author-mail <${c.email}>`, `author-time ${Math.floor(Date.parse(c.date) / 1000)}`, `summary ${c.subject}`, `\t${line}`);
       });
       return ok(out.join('\n'));
     }

@@ -37,6 +37,8 @@ const PATHS = {
   chevronRight: 'M9 6l6 6-6 6',
   chevronDown: 'M6 9l6 6 6-6',
   close: 'M6 6l12 12M18 6 6 18',
+  bookmark: 'M7 4h10v16l-5-4-5 4z',
+  todo: 'M10 6h10M10 12h10M10 18h10M4 6l1.5 1.5L8 5M4 12l1.5 1.5L8 11M4.5 17.5h3',
   minus: 'M5 12h14',
   plus: 'M12 5v14M5 12h14',
   refresh: 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7',

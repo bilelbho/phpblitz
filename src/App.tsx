@@ -7,14 +7,19 @@ import { isTauri, pickFolder, rememberProject } from './platform';
 import { useApplyUiSettings } from './uiSettings';
 import { useSettings } from './settings';
 import { Welcome } from './components/Welcome';
-import { WorkspaceView } from './components/WorkspaceView';
+import { WorkspaceView } from './components/lazy';
+import { projectStorage } from './projectStorage';
+import { perf } from './perf';
 
 export default function App() {
   const [backend, setBackend] = useState<Backend | null>(null);
 
-  const openPath = useCallback((path: string) => {
+  const openPath = useCallback(async (path: string) => {
     const b = new DiskBackend(path);
     rememberProject(b.root);
+    perf.begin(b.root);
+    // Its .blitz settings first: the workspace reads them as it opens.
+    await perf.time('Project settings (.blitz)', projectStorage.open(b.root));
     setBackend(b);
   }, []);
 
@@ -23,7 +28,11 @@ export default function App() {
     if (path) openPath(path);
   }, [openPath]);
 
-  const openSample = useCallback(() => setBackend(new SampleBackend()), []);
+  const openSample = useCallback(() => {
+    void projectStorage.close();
+    perf.begin('sample project');
+    setBackend(new SampleBackend());
+  }, []);
 
   useApplyUiSettings();
   const fullPath = useSettings().ui.fullPathInTitle;
@@ -40,7 +49,10 @@ export default function App() {
       backend={backend}
       onOpenFolder={openFolder}
       onOpenPath={openPath}
-      onClose={() => setBackend(null)}
+      onClose={() => {
+        void projectStorage.close();
+        setBackend(null);
+      }}
     />
   );
 }

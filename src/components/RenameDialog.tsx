@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Workspace } from '../useWorkspace';
 import { baseName, relativePath } from '../backend/types';
 import { structureOf } from '../php';
+import { symbols } from '../symbols';
 
 export function RenameDialog({ ws, path, isDir, onClose, onRenamed }: { ws: Workspace; path: string; isDir: boolean; onClose: () => void; onRenamed: (to: string) => void }) {
   const old = baseName(path);
@@ -14,7 +15,8 @@ export function RenameDialog({ ws, path, isDir, onClose, onRenamed }: { ws: Work
   const [className, setClassName] = useState<string | null>(null);
   const [renameClass, setRenameClass] = useState(true);
   const input = useRef<HTMLInputElement>(null);
-  const lspReady = ws.lspStatus.state === 'ready';
+  // The class's usages come from the symbol index (desktop) or a running language server.
+  const lspReady = ws.lspStatus.state === 'ready' || symbols.rust;
 
   useEffect(() => {
     // Select the name without the extension, like PhpStorm.
@@ -93,7 +95,7 @@ export function RenameDialog({ ws, path, isDir, onClose, onRenamed }: { ws: Work
               Rename class '{className}' and update its usages
             </label>
           )}
-          {className && !lspReady && <span className="muted" style={{ fontSize: 12 }}>Needs a running language server.</span>}
+          {className && !lspReady && <span className="muted" style={{ fontSize: 12 }}>Needs the desktop app or a running language server.</span>}
           {error && <div className="error-text">{error}</div>}
         </div>
         <div className="jb-dialog-buttons">

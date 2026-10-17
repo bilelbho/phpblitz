@@ -25,6 +25,7 @@ loader.config({ monaco });
 // Color schemes and the PHP grammar they color.
 import './editor/themes';
 import './editor/phpGrammar';
+import './editor/dotenv';
 
 // "N usages" on their own line above declarations, like JetBrains' code vision.
 const hintsChanged = new monaco.Emitter<monaco.languages.CodeLensProvider>();

@@ -4,10 +4,11 @@ import type { ReactNode } from 'react';
 import type { TabSettings, UiSettings, UiTheme } from '../settings';
 import { MAX_ZOOM, MIN_ZOOM } from '../uiSettings';
 
+// Our own names (the ids are kept so saved settings still match).
 const THEMES: { id: UiTheme; label: string }[] = [
-  { id: 'islands-dark', label: 'Islands Dark' },
-  { id: 'islands-light', label: 'Islands Light' },
-  { id: 'islands-darcula', label: 'Islands Darcula' },
+  { id: 'islands-dark', label: 'Blitz Dark' },
+  { id: 'islands-light', label: 'Blitz Light' },
+  { id: 'islands-darcula', label: 'Blitz Classic' },
   { id: 'high-contrast', label: 'High Contrast' },
 ];
 

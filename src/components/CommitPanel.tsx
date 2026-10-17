@@ -9,6 +9,7 @@ import { Icon } from './Icon';
 import { ContextMenu, type ContextItem } from './ContextMenu';
 import { confirmDialog } from '../platform';
 import type { Commit } from '../git/git';
+import { projectStorage } from '../projectStorage';
 
 const STATUS_LABEL = { M: 'modified', A: 'added', D: 'deleted', R: 'renamed', U: 'unversioned' } as const;
 
@@ -34,14 +35,14 @@ function loadPrefs(): ViewPrefs {
 const historyKey = (root: string) => `phpblitz.commitMessages:${root}`;
 function messageHistory(root: string): string[] {
   try {
-    return JSON.parse(localStorage.getItem(historyKey(root)) ?? '[]');
+    return JSON.parse(projectStorage.getItem(historyKey(root)) ?? '[]');
   } catch {
     return [];
   }
 }
 function rememberMessage(root: string, message: string) {
   try {
-    localStorage.setItem(historyKey(root), JSON.stringify([message, ...messageHistory(root).filter((m) => m !== message)].slice(0, 20)));
+    projectStorage.setItem(historyKey(root), JSON.stringify([message, ...messageHistory(root).filter((m) => m !== message)].slice(0, 20)));
   } catch {
     // Only a convenience.
   }

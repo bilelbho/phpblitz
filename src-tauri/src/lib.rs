@@ -1,3 +1,4 @@
+mod blitz;
 mod db;
 mod fs;
 mod index;
@@ -48,7 +49,13 @@ pub fn run() {
             index::index_class,
             index::index_search,
             index::index_usages,
+            index::index_locate,
+            index::index_declarations,
+            index::index_find_usages,
+            blitz::blitz_read,
+            blitz::blitz_write,
             mago::mago_open,
+            mago::mago_analyze,
             mago::mago_close,
             mago::mago_check,
             mago::mago_project_issues,

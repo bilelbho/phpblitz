@@ -7,7 +7,7 @@ import type { Workspace } from '../useWorkspace';
 import { markersAt, quickFixesFor, variableAt, type QuickFix } from '../editorMenu';
 import { debug } from '../debug/manager';
 import type { Property } from '../debug/dbgp';
-import { VarNode } from './DebugPanel';
+import { VarNode } from './VarNode';
 import { hoverAt } from '../lsp/monacoBridge';
 import { renderMarkdown } from '../editor/markdown';
 import { copyText } from '../editorMenu';

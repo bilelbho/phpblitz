@@ -43,6 +43,8 @@ export interface Stash {
 export interface BlameLine {
   hash: string;
   author: string;
+  /** Without the angle brackets. */
+  email: string;
   date: string;
   summary: string;
 }
@@ -179,12 +181,13 @@ export class Git {
       const head = line.match(/^([0-9a-f]{40}) \d+ \d+/);
       if (head) {
         current = head[1];
-        if (!info.has(current)) info.set(current, { author: '', date: '', summary: '' });
+        if (!info.has(current)) info.set(current, { author: '', email: '', date: '', summary: '' });
         continue;
       }
       const meta = info.get(current);
       if (!meta) continue;
       if (line.startsWith('author ')) meta.author = line.slice(7);
+      else if (line.startsWith('author-mail ')) meta.email = line.slice(12).replace(/^<|>$/g, '');
       else if (line.startsWith('author-time ')) meta.date = new Date(Number(line.slice(12)) * 1000).toISOString();
       else if (line.startsWith('summary ')) meta.summary = line.slice(8);
       else if (line.startsWith('\t')) lines.push({ hash: current, ...meta });

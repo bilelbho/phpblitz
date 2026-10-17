@@ -14,7 +14,7 @@ const LSP_STATE: Record<string, [string, string]> = {
   ready: ['#5fb865', 'ready'],
   stopped: ['#f75464', 'stopped. Click to restart'],
   error: ['#f75464', 'failed to start. Click to retry'],
-  missing: ['#868a91', 'not installed (cargo install phpantom_lsp). Click to retry'],
+  missing: ['#868a91', 'none (optional: navigation and usages already work from the index; install one with cargo install phpantom_lsp for rename and richer completion). Click to retry'],
 };
 
 /** The project's PHP: its language level and interpreter. Opens Settings ▸ PHP. */
@@ -82,9 +82,10 @@ function MagoStatus({ ws }: { ws: Workspace }) {
   const title =
     s.state === 'ready' && s.summary
       ? `Mago: ${s.summary.files} files analyzed in ${(s.summary.millis / 1000).toFixed(1)} s · PHP ${s.summary.phpVersion}` +
-        (s.summary.integrations.length ? ` · ${s.summary.integrations.join(', ')} rules` : '')
+        (s.summary.integrations.length ? ` · ${s.summary.integrations.join(', ')} rules` : '') +
+        (s.summary.needsInstall ? ' · type checking is off until you run composer install' : '')
       : s.state === 'analyzing'
-        ? 'Mago is analyzing the project…'
+        ? 'Mago is analyzing the project in the background. Open files are already checked.'
         : `Mago failed: ${s.message ?? ''}. Click to retry`;
   return (
     <button type="button" className="item" title={title} onClick={() => (s.state === 'error' ? ws.reanalyzeProject() : ws.showBottom('problems'))}>

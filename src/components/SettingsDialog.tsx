@@ -41,7 +41,21 @@ const PAGES: Page[] = [
     label: 'Appearance',
     group: 'Appearance & Behavior',
     section: 'ui',
-    keywords: 'theme islands dark light darcula high contrast sync os zoom font size scrollbars compact mode full path window header project colors toolbar smooth scrolling menu icons tree indent guides smaller indents tool window bars names',
+    keywords: 'theme blitz dark light classic high contrast sync os zoom font size scrollbars compact mode full path window header project colors toolbar smooth scrolling menu icons tree indent guides smaller indents tool window bars names',
+  },
+  {
+    id: 'editor-general',
+    label: 'General',
+    group: 'Editor',
+    section: 'editor',
+    keywords: 'soft wraps soft-wrap these files md txt appearance line numbers code folding outline indent guides whitespaces',
+  },
+  {
+    id: 'gutter-icons',
+    label: 'Gutter Icons',
+    group: 'Editor',
+    section: 'editor',
+    keywords: 'gutter icons bookmarks run markdown code blocks documentation comments vcs changes markers breakpoints',
   },
   {
     id: 'editor-tabs',
@@ -55,7 +69,7 @@ const PAGES: Page[] = [
     label: 'Color Scheme',
     group: 'Editor',
     section: 'editor',
-    keywords: 'theme colors dark light darcula high contrast monokai solarized one dark github islands',
+    keywords: 'theme colors blitz dark light classic daylight high contrast monokai solarized one dark',
   },
   {
     id: 'editor-font',
@@ -190,6 +204,8 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
               {active.id === 'color-scheme' && <ColorSchemePage value={draft.editor} onChange={setEditor} />}
               {active.id === 'editor-font' && <EditorFontPage value={draft.editor} onChange={setEditor} highlight={query.trim().toLowerCase()} />}
               {active.id === 'inlay-hints' && <HintsPage value={draft.editor} onChange={setEditor} highlight={query.trim().toLowerCase()} />}
+              {active.id === 'editor-general' && <EditorGeneralPage value={draft.editor} onChange={setEditor} highlight={query.trim().toLowerCase()} />}
+              {active.id === 'gutter-icons' && <GutterIconsPage value={draft.editor} onChange={setEditor} highlight={query.trim().toLowerCase()} />}
               {active.id === 'terminal' && <TerminalPage ws={ws} value={draft.terminal} onChange={setTerminal} highlight={query.trim().toLowerCase()} />}
             </div>
           </div>
@@ -450,6 +466,66 @@ function HintsPage({ value: e, onChange, highlight }: { value: EditorSettings; o
       {check('inlayHints', 'Parameter names and types', 'Hints from the language server, such as content: and status: before arguments.')}
       {check('lightbulb', 'Show lightbulb for context actions', 'A bulb on the caret line when Alt+Enter has something to offer.')}
       {check('renderDocs', 'Render documentation comments', 'Show /** */ comments formatted. Click the pencil in the gutter or press Ctrl+Alt+Q to edit one.')}
+    </div>
+  );
+}
+
+type EditorFlag = { [K in keyof EditorSettings]: EditorSettings[K] extends boolean ? K : never }[keyof EditorSettings];
+
+function EditorCheck({ e, k, label, help, onChange, hit, disabled }: { e: EditorSettings; k: EditorFlag; label: string; help?: string; onChange: (patch: Partial<EditorSettings>) => void; hit: (label: string) => string; disabled?: boolean }) {
+  return (
+    <div>
+      <label className={'settings-check' + hit(label)}>
+        <input type="checkbox" className="checkbox" checked={e[k]} disabled={disabled} onChange={(ev) => onChange({ [k]: ev.target.checked })} />
+        {label}
+      </label>
+      {help && <div className="muted settings-help">{help}</div>}
+    </div>
+  );
+}
+
+/** Editor ▸ General: soft wraps and what the editor shows. */
+function EditorGeneralPage({ value: e, onChange, highlight }: { value: EditorSettings; onChange: (patch: Partial<EditorSettings>) => void; highlight: string }) {
+  const hit = (label: string) => (highlight && label.toLowerCase().includes(highlight) ? ' hit' : '');
+  const props = { e, onChange, hit };
+  return (
+    <>
+      <h3 className="settings-section">Soft Wraps</h3>
+      <div className="settings-grid">
+        <label htmlFor="soft-wrap-files" className={hit('Soft-wrap these files')}>
+          Soft-wrap these files:
+        </label>
+        <div className="settings-row">
+          <div className="field" style={{ width: 260 }}>
+            <input id="soft-wrap-files" value={e.softWrapFiles} spellCheck={false} onChange={(ev) => onChange({ softWrapFiles: ev.target.value })} />
+          </div>
+          <span className="muted">Separate patterns with ";". Alt+Z wraps or unwraps one editor.</span>
+        </div>
+      </div>
+      <h3 className="settings-section">Appearance</h3>
+      <div className="settings-checks" style={{ gap: 10 }}>
+        <EditorCheck {...props} k="lineNumbers" label="Show line numbers" />
+        <EditorCheck {...props} k="foldingOutline" label="Show code folding outline" />
+        <EditorCheck {...props} k="indentGuides" label="Show indent guides" />
+        <EditorCheck {...props} k="whitespaces" label="Show whitespaces" />
+      </div>
+    </>
+  );
+}
+
+/** Editor ▸ General ▸ Gutter Icons. */
+function GutterIconsPage({ value: e, onChange, highlight }: { value: EditorSettings; onChange: (patch: Partial<EditorSettings>) => void; highlight: string }) {
+  const hit = (label: string) => (highlight && label.toLowerCase().includes(highlight) ? ' hit' : '');
+  const props = { e, onChange, hit, disabled: !e.gutterIcons };
+  return (
+    <div className="settings-checks" style={{ marginTop: 14, gap: 12 }}>
+      <EditorCheck e={e} onChange={onChange} hit={hit} k="gutterIcons" label="Show gutter icons" help="Breakpoints always show." />
+      <div className="settings-checks" style={{ paddingLeft: 22, gap: 12 }}>
+        <EditorCheck {...props} k="gutterBookmarks" label="Bookmarks" help="F11 adds one, Ctrl+F11 one with a mnemonic, Shift+F11 lists them." />
+        <EditorCheck {...props} k="gutterRun" label="Run code blocks (Markdown)" help="▷ beside shell code blocks in .md files." />
+        <EditorCheck {...props} k="gutterDocs" label="Rendered documentation comments" help="The pencil that switches a /** */ comment between rendered and raw." />
+        <EditorCheck e={e} onChange={onChange} hit={hit} k="gutterChanges" label="VCS changes (added, modified, deleted lines)" help="The colored bars next to the line numbers. Click one to see what changed." />
+      </div>
     </div>
   );
 }

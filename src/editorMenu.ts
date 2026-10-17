@@ -9,6 +9,7 @@ import { isTauri } from './platform';
 import { codeActionsAt, isLspActive, type CodeAction } from './lsp/monacoBridge';
 import type { ContextItem } from './components/ContextMenu';
 import { structureOf } from './php';
+import { symbols } from './symbols';
 import { magoAvailable, suppressionComment } from './mago';
 
 type Editor = monaco.editor.IStandaloneCodeEditor;
@@ -196,7 +197,7 @@ export function buildEditorMenu(
   ws: Workspace,
   path: string,
   actions: CodeAction[],
-  open: { contextActions: () => void; generate: () => void; gotoLine: () => void },
+  open: { contextActions: () => void; generate: () => void; gotoLine: () => void; rename: () => void },
 ): ContextItem[] {
   const model = editor.getModel()!;
   const lsp = isLspActive();
@@ -234,7 +235,8 @@ export function buildEditorMenu(
       label: 'Find Usages',
       shortcut: SHORTCUTS.findUsages,
       icon: 'search',
-      disabled: !lsp,
+      // From the language server, or from the symbol index without one.
+      disabled: !lsp && !symbols.rust,
       run: () => {
         const pos = editor.getPosition();
         if (pos) ws.findUsagesAt(model, pos);
@@ -244,7 +246,7 @@ export function buildEditorMenu(
       label: 'Refactor',
       icon: 'pencil',
       submenu: [
-        { label: 'Rename…', shortcut: SHORTCUTS.rename, disabled: !lsp, run: run('editor.action.rename') },
+        { label: 'Rename…', shortcut: SHORTCUTS.rename, run: open.rename },
         ...(refactors.length ? [SEP, ...actionItems(refactors, '', (e) => reportError(ws, e))] : []),
       ],
     },

@@ -391,6 +391,10 @@ export interface Usage {
   column: number;
   endColumn: number;
   preview: string;
+  /** Without a language server: called on an untyped receiver, maybe another class's member. */
+  dynamic?: boolean;
+  /** Properties: read or written there. */
+  access?: '' | 'read' | 'write';
 }
 
 export async function findUsages(model: monaco.editor.ITextModel, position: monaco.IPosition): Promise<{ name: string; usages: Usage[] } | null> {

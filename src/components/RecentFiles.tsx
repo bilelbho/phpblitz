@@ -25,6 +25,7 @@ export const TOOL_WINDOWS: ToolEntry[] = [
   { label: 'Structure', icon: 'structure', shortcut: 'Alt+7', run: (ws) => ws.showLeft('structure') },
   { label: 'Problems', icon: 'error', shortcut: 'Alt+6', run: (ws) => ws.showBottom('problems') },
   { label: 'Git', icon: 'git', shortcut: 'Alt+9', run: (ws) => ws.showBottom('git') },
+  { label: 'TODO', icon: 'todo', run: (ws) => ws.showBottom('todo') },
   { label: 'Run', icon: 'run', shortcut: 'Alt+4', run: (ws) => ws.showBottom('tests') },
   { label: 'AI Assistant', icon: 'sparkle', run: (ws) => ws.setRightTool('ai') },
   { label: 'Endpoints', icon: 'route', run: (ws) => ws.setRightTool('endpoints') },

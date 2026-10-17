@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+// The code editor and its PHP support load with the workspace, not at launch (see lazy.tsx).
+import '../monaco';
+import '../mago';
 import type { Backend } from '../backend/types';
 import { useWorkspace, type BottomTab, type LeftTool, type RightTool } from '../useWorkspace';
 import { Icon } from './Icon';
@@ -8,7 +11,6 @@ import { ToolStrip, type StripItem } from './ToolStrip';
 import { ProjectTree } from './ProjectTree';
 import { CommitPanel } from './CommitPanel';
 import { StructurePanel } from './StructurePanel';
-import { DatabasePanel } from './DatabasePanel';
 import { EditorArea } from './EditorArea';
 import { BottomPanel } from './BottomPanel';
 import { NotificationsPanel } from './NotificationsPanel';
@@ -18,13 +20,16 @@ import { ComposerPanel } from './ComposerPanel';
 import { StatusBar } from './StatusBar';
 import { SearchEverywhere, type SearchTab } from './SearchEverywhere';
 import { FindInFiles } from './FindInFiles';
-import { SettingsDialog } from './SettingsDialog';
+import { AboutDialog, DatabasePanel, SettingsDialog, StartupPerformance } from './lazy';
+import { openAppDialog, useAppDialog } from '../appDialogs';
+import { perf, usePerf } from '../perf';
 import { GitDialogs } from './GitDialogs';
 import { useProjectColor } from '../projectColors';
 import { zoomBy } from '../uiSettings';
 import { RecentFiles, TOOL_WINDOWS } from './RecentFiles';
 import { getSettings } from '../settings';
 import { debug, useDebug } from '../debug/manager';
+import { UsagesPopup } from './UsagesPopup';
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
@@ -54,6 +59,9 @@ function ToolWindow({ title, hint, onHide, children, style }: { title: string; h
 
 export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Props) {
   const ws = useWorkspace(backend);
+  const perfState = usePerf();
+  const appDialog = useAppDialog();
+  useEffect(() => perf.mark('Workspace shown', 'UI and code editor loaded'), []);
   const [leftWidth, setLeftWidth] = useState(330);
   const [leftTopHeight, setLeftTopHeight] = useState(430);
   const [rightWidth, setRightWidth] = useState(340);
@@ -184,6 +192,7 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
     { id: 'problems', label: 'Problems', icon: 'error', active: bottomActive('problems'), dot: problemCount > 0 },
     { id: 'composer', label: 'Composer Log', icon: 'box', active: bottomActive('composer') },
     { id: 'git', label: 'Git', icon: 'git', active: bottomActive('git') },
+    { id: 'todo', label: 'TODO', icon: 'todo', active: bottomActive('todo') },
   ];
   const rightItems: StripItem[] = [
     { id: 'notifications', label: 'Notifications', icon: 'bell', active: ws.rightTool === 'notifications', count: ws.notices.length },
@@ -280,6 +289,8 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
       <GitDialogs ws={ws} />
       {ws.recentOpen && <RecentFiles ws={ws} onClose={() => ws.setRecentOpen(false)} />}
       {ws.settingsPage && <SettingsDialog ws={ws} page={ws.settingsPage} onClose={ws.closeSettings} />}
+      {perfState.open && <StartupPerformance onClose={() => perf.show(false)} />}
+      {appDialog && <AboutDialog view={appDialog} onClose={() => openAppDialog(null)} />}
       {ws.searchOpen && (
         <SearchEverywhere
           ws={ws}
@@ -288,6 +299,7 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
           actions={{ openFolder: onOpenFolder, closeProject: onClose }}
         />
       )}
+      {ws.usagesPopup && <UsagesPopup ws={ws} />}
     </div>
   );
 }

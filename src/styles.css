@@ -255,6 +255,23 @@ textarea:focus-visible {
   user-select: text;
 }
 
+/* Problems ▸ Project Errors: why type checking is off, with the fix. */
+.problems-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(229, 163, 61, 0.1);
+  border: 1px solid rgba(229, 163, 61, 0.35);
+  line-height: 18px;
+}
+.problems-banner > svg {
+  flex: none;
+  color: var(--orange);
+}
+
 /* Splitters are the gaps between islands. */
 .splitter {
   flex: none;
@@ -2756,7 +2773,8 @@ table.grid tr.row-deleted td {
 /* -- Git: gutter markers, diff, popups, log ----------------- */
 
 .monaco-editor .git-mark {
-  margin-left: 4px;
+  /* Right of the bookmark slot, next to the folding arrows. */
+  margin-left: 19px;
   width: 4px !important;
   border-radius: 1px;
   cursor: pointer;
@@ -4694,4 +4712,524 @@ body {
   color: #f0787f;
   font-size: 12.5px;
   white-space: pre-wrap;
+}
+.usages-group {
+  margin-top: 6px;
+  color: #e5a33d;
+  font-size: 12px;
+}
+.usages-dynamic .name {
+  opacity: 0.8;
+}
+
+/* Show Usages popup (Ctrl+Alt+F7 / "N usages"), like PhpStorm's. */
+.usages-popup {
+  position: fixed;
+  z-index: 70;
+  width: min(720px, calc(100vw - 16px));
+  display: flex;
+  flex-direction: column;
+  background: var(--popup);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  outline: none;
+  overflow: hidden;
+}
+.up-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px 6px 16px;
+}
+.up-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13.5px;
+}
+.up-title b {
+  font-weight: 600;
+}
+.up-kind {
+  font-weight: 600;
+}
+.up-tools {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 12px 6px 14px;
+}
+.up-toggle {
+  border-radius: 5px;
+}
+.up-toggle.on {
+  background: var(--select);
+  color: var(--text);
+}
+.up-glyph {
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1;
+}
+.up-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 5px;
+  background: var(--line-strong);
+}
+.up-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.up-list {
+  max-height: min(380px, 50vh);
+  overflow-y: auto;
+  padding: 0 6px;
+}
+.up-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 5px;
+  white-space: nowrap;
+  cursor: default;
+}
+.up-row.selected {
+  background: var(--select);
+}
+.up-row.dynamic .up-code {
+  opacity: 0.75;
+}
+.up-file {
+  flex: none;
+}
+.up-line {
+  flex: none;
+  min-width: 24px;
+  color: var(--muted);
+  text-align: right;
+}
+.up-access {
+  flex: none;
+  width: 14px;
+  text-align: center;
+  font-weight: 700;
+  color: var(--muted);
+}
+.up-access.write {
+  color: #e5737d;
+}
+.up-access.read {
+  color: #6aab73;
+}
+.up-code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12.5px;
+}
+.up-hit {
+  color: var(--text);
+  background: rgba(84, 138, 247, 0.28);
+  border-radius: 2px;
+  font-weight: 600;
+}
+.up-empty {
+  padding: 10px 10px 12px;
+}
+.up-foot {
+  padding: 6px 16px 8px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  min-height: 28px;
+}
+
+/* Bookmarks (F11 / Ctrl+F11): a ribbon in the gutter, or the mnemonic in a box. */
+.monaco-editor .bookmark-glyph::before {
+  content: '';
+  display: block;
+  width: 9px;
+  height: 12px;
+  margin: 3px 0 0 4px;
+  background: #e8b33a;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%);
+}
+.monaco-editor .bookmark-glyph.bm-m::before {
+  width: 13px;
+  height: 14px;
+  margin: 2px 0 0 2px;
+  clip-path: none;
+  border-radius: 3px;
+  border: 1px solid #e8b33a;
+  background: rgba(232, 179, 58, 0.2);
+  color: var(--text-strong);
+  font: 600 10px/14px Inter, sans-serif;
+  text-align: center;
+}
+.monaco-editor .bm-m-1::before { content: '1'; }
+.monaco-editor .bm-m-2::before { content: '2'; }
+.monaco-editor .bm-m-3::before { content: '3'; }
+.monaco-editor .bm-m-4::before { content: '4'; }
+.monaco-editor .bm-m-5::before { content: '5'; }
+.monaco-editor .bm-m-6::before { content: '6'; }
+.monaco-editor .bm-m-7::before { content: '7'; }
+.monaco-editor .bm-m-8::before { content: '8'; }
+.monaco-editor .bm-m-9::before { content: '9'; }
+.monaco-editor .bm-m-0::before { content: '0'; }
+.monaco-editor .bm-m-A::before { content: 'A'; }
+.monaco-editor .bm-m-B::before { content: 'B'; }
+.monaco-editor .bm-m-C::before { content: 'C'; }
+.monaco-editor .bm-m-D::before { content: 'D'; }
+.monaco-editor .bm-m-E::before { content: 'E'; }
+.monaco-editor .bm-m-F::before { content: 'F'; }
+.monaco-editor .bm-m-G::before { content: 'G'; }
+.monaco-editor .bm-m-H::before { content: 'H'; }
+.monaco-editor .bm-m-I::before { content: 'I'; }
+.monaco-editor .bm-m-J::before { content: 'J'; }
+.monaco-editor .bm-m-K::before { content: 'K'; }
+.monaco-editor .bm-m-L::before { content: 'L'; }
+.monaco-editor .bm-m-M::before { content: 'M'; }
+.monaco-editor .bm-m-N::before { content: 'N'; }
+.monaco-editor .bm-m-O::before { content: 'O'; }
+.monaco-editor .bm-m-P::before { content: 'P'; }
+.monaco-editor .bm-m-Q::before { content: 'Q'; }
+.monaco-editor .bm-m-R::before { content: 'R'; }
+.monaco-editor .bm-m-S::before { content: 'S'; }
+.monaco-editor .bm-m-T::before { content: 'T'; }
+.monaco-editor .bm-m-U::before { content: 'U'; }
+.monaco-editor .bm-m-V::before { content: 'V'; }
+.monaco-editor .bm-m-W::before { content: 'W'; }
+.monaco-editor .bm-m-X::before { content: 'X'; }
+.monaco-editor .bm-m-Y::before { content: 'Y'; }
+.monaco-editor .bm-m-Z::before { content: 'Z'; }
+
+/* Editor ▸ General ▸ Gutter Icons. Breakpoints always show. */
+.no-gutter-icons .monaco-editor :is(.bookmark-glyph, .md-run-glyph, .doc-raw-glyph),
+.no-gutter-bookmarks .monaco-editor .bookmark-glyph,
+.no-gutter-run .monaco-editor .md-run-glyph,
+.no-gutter-docs .monaco-editor .doc-raw-glyph,
+.no-gutter-changes .monaco-editor .git-mark {
+  display: none !important;
+}
+
+.mnemonic-dialog {
+  outline: none;
+}
+.mnemonic-grid {
+  display: grid;
+  grid-template-columns: repeat(10, 28px);
+  gap: 4px;
+}
+.mnemonic-key {
+  height: 26px;
+  border-radius: 5px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--text);
+  font: 600 12px Inter, sans-serif;
+  cursor: pointer;
+}
+.mnemonic-key.used {
+  background: var(--hover-strong);
+  color: var(--muted);
+}
+.mnemonic-key:hover {
+  border-color: var(--accent, #3574f0);
+}
+.mnemonic-key.picked {
+  background: #3574f0;
+  border-color: #3574f0;
+  color: #fff;
+}
+.bookmark-row {
+  height: 26px;
+  gap: 8px;
+  padding: 0 6px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.bookmark-row.selected {
+  background: var(--selection, rgba(53, 116, 240, 0.3));
+}
+.bookmark-badge {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  border: 1px solid #e8b33a;
+  color: #e8b33a;
+  font: 600 10px Inter, sans-serif;
+}
+
+.gl-file.selected {
+  background: var(--selection, rgba(53, 116, 240, 0.3));
+}
+
+/* Annotate with Git Blame: "10/12/2026 Martin" before the line number, in the UI font like
+   PhpStorm (the number keeps the editor font). The text comes from a per-label ::before rule. */
+.monaco-editor .line-numbers.blame-ln {
+  cursor: pointer;
+}
+.monaco-editor .line-numbers.blame-ln::before {
+  float: left;
+  max-width: calc(100% - 4ch);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: 6px;
+  font-family: Inter, 'Segoe UI', sans-serif;
+  font-size: 12.5px;
+  color: #a9abb0;
+  text-align: left;
+}
+.monaco-editor .line-numbers.blame-ln:hover::before {
+  color: var(--text-strong, #fff);
+  text-decoration: underline;
+}
+.monaco-editor .line-numbers.blame-new::before {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.blame-tip {
+  position: fixed;
+  z-index: 60;
+  max-width: 420px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--line-strong);
+  background: var(--popup);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 18px;
+  pointer-events: none;
+}
+.blame-tip-hash {
+  color: #548af7;
+}
+.blame-tip-message {
+  margin-top: 12px;
+  white-space: pre-wrap;
+}
+.blame-tip-hint {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+/* A breakpoint covers its line number, like PhpStorm (click the number to toggle one). */
+.monaco-editor .line-numbers {
+  cursor: pointer;
+}
+.monaco-editor .line-numbers.bp-number {
+  color: transparent !important;
+}
+.monaco-editor .line-numbers.bp-number::after {
+  content: '';
+  position: absolute;
+  right: 1px;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  margin-top: -6.5px;
+  border-radius: 50%;
+  background: #db5c5c;
+}
+
+/* TODO comments (editor) and the TODO tool window. */
+.monaco-editor .todo-comment {
+  font-style: italic;
+  color: #c9b45f !important;
+}
+.todo-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+.todo-tree {
+  flex: 1 1 50%;
+  min-width: 0;
+  overflow: auto;
+  padding: 4px 0;
+  outline: none;
+}
+.todo-tree .row {
+  height: 24px;
+  gap: 6px;
+  cursor: default;
+}
+.todo-tree .row .detail {
+  color: var(--muted);
+}
+.todo-row.selected {
+  background: var(--selection, rgba(53, 116, 240, 0.3));
+}
+.todo-line {
+  flex: none;
+  color: var(--muted);
+}
+.todo-text-row {
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.todo-word {
+  color: #c9b45f;
+}
+.todo-preview {
+  flex: 1 1 50%;
+  min-width: 0;
+  border-left: 1px solid var(--line);
+}
+.monaco-editor .todo-preview-hit {
+  background: rgba(95, 184, 101, 0.28);
+  border-radius: 2px;
+}
+.monaco-editor .todo-preview-line {
+  background: var(--hover-strong);
+}
+
+/* While the workspace code loads (the first project opened after launch). */
+.app-loading {
+  height: 100vh;
+  background: var(--bg);
+}
+
+/* Help ▸ Startup Performance */
+.perf-dialog {
+  width: min(860px, calc(100vw - 32px));
+}
+.perf-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.perf-table {
+  max-height: 60vh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.perf-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 70px 70px 200px;
+  gap: 10px;
+  align-items: center;
+  padding: 4px 10px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--line);
+}
+.perf-row:last-child {
+  border-bottom: none;
+}
+.perf-head {
+  color: var(--muted);
+  font-size: 11.5px;
+  position: sticky;
+  top: 0;
+  background: var(--popup);
+}
+.perf-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.perf-slow {
+  color: var(--orange);
+  font-weight: 600;
+}
+.perf-track {
+  position: relative;
+  height: 10px;
+  background: var(--hover-strong);
+  border-radius: 3px;
+}
+.perf-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 2px;
+  border-radius: 3px;
+  background: #3574f0;
+}
+.perf-bar.running {
+  background: #e5a33d;
+}
+.perf-bar.instant {
+  width: 2px;
+  background: var(--muted);
+}
+
+/* Help ▸ About PHPBlitz / Open Source Licenses */
+.about-dialog {
+  width: min(640px, calc(100vw - 32px));
+}
+.about-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: 22px 28px 8px;
+  line-height: 20px;
+}
+.about-body p {
+  margin: 6px 0 0;
+}
+.about-name {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.about-small {
+  font-size: 11.5px;
+  line-height: 17px;
+}
+.licenses-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px 6px;
+}
+.licenses-list {
+  height: min(380px, 50vh);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.licenses-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 46px minmax(0, 190px) 48px;
+  gap: 10px;
+  align-items: center;
+  padding: 3px 10px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--line);
+}
+.licenses-name,
+.licenses-license {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.licenses-text {
+  height: min(440px, 56vh);
+  overflow: auto;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  user-select: text;
 }

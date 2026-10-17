@@ -376,6 +376,7 @@ export function setupDocComments(editor: monaco.editor.IStandaloneCodeEditor, en
   );
   disposables.push(
     editor.onMouseDown((e) => {
+      if (!e.event.leftButton) return; // right-click: the gutter menu
       const T = monaco.editor.MouseTargetType;
       // Zones sit under Monaco's own layers, so their clicks arrive here: the pencil (margin),
       // a double click in the text, or a link.

@@ -30,9 +30,11 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 
 /// Bump when what is stored per file changes: old caches are then ignored.
-const CACHE_VERSION: u32 = 1;
+/// The cache's format: bump when FileSymbols or the encoding changes (an old cache is then rebuilt).
+const CACHE_VERSION: u32 = 3;
+const CACHE_MAGIC: &[u8; 8] = b"BLITZIDX";
 /// Never indexed (dependencies of JS tooling, caches, build output).
-const SKIPPED_DIRS: [&str; 9] = [".git", ".idea", ".svn", "node_modules", "storage", "var", "dist", "target", ".phpblitz"];
+const SKIPPED_DIRS: [&str; 9] = [".git", ".idea", ".svn", "node_modules", "storage", "var", "dist", "target", ".blitz"];
 const MAX_FILES: usize = 300_000;
 /// Files larger than this are not parsed (generated code, dumps).
 const MAX_FILE_BYTES: u64 = 2_500_000;
@@ -46,7 +48,7 @@ pub struct Member {
     /// Return type, property or constant type.
     pub detail: String,
     /// Methods: the parameter list without parentheses.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[serde(default)]
     pub params: Option<String>,
     pub line: u32,
     pub visibility: String,
@@ -61,8 +63,11 @@ pub struct ClassEntry {
     /// "class", "interface", "trait" or "enum".
     pub kind: String,
     pub line: u32,
+    /// Last line of the declaration (to find the class around a line).
+    #[serde(default)]
+    pub end_line: u32,
     /// Fully qualified, as written in the code (case kept).
-    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[serde(default)]
     pub extends: Option<String>,
     #[serde(default)]
     pub implements: Vec<String>,
@@ -96,11 +101,17 @@ struct CachedFile {
     symbols: FileSymbols,
 }
 
-#[derive(Serialize, Deserialize)]
+/// `.blitz/cache/index.bin`: CACHE_MAGIC, CACHE_VERSION (u32 LE), then this in bincode. Paths are
+/// relative to the project, so the cache still works after the folder is moved or renamed.
+#[derive(Deserialize)]
 struct CacheFile {
-    version: u32,
-    root: String,
-    files: HashMap<String, CachedFile>,
+    files: Vec<(String, CachedFile)>,
+}
+
+/// What CacheFile reads back, written from references (no copy of the whole index).
+#[derive(Serialize)]
+struct CacheRef<'a> {
+    files: Vec<(&'a str, &'a CachedFile)>,
 }
 
 // ── Scanning one file ─────────────────────────────────────────
@@ -240,6 +251,7 @@ fn classes_of(src: &[u8], codebase: &CodebaseMetadata, line: &dyn Fn(u32) -> u32
             name: fqn.rsplit('\\').next().unwrap_or(&fqn).to_string(),
             kind: kind.into(),
             line: line(class.name_span.unwrap_or(class.span).start.offset),
+            end_line: line(class.span.end.offset),
             extends: class.direct_parent_class.as_ref().map(original),
             implements,
             traits,
@@ -305,6 +317,8 @@ struct ProjectIndex {
     by_short: HashMap<String, Vec<(String, usize)>>,
     /// Name → references across the project.
     refs: HashMap<String, u32>,
+    /// Lower-case function FQN → (file, function index).
+    functions: HashMap<String, (String, usize)>,
 }
 
 impl ProjectIndex {
@@ -316,6 +330,9 @@ impl ProjectIndex {
         }
         for (name, n) in &f.symbols.refs {
             *self.refs.entry(name.clone()).or_default() += n;
+        }
+        for (i, fun) in f.symbols.functions.iter().enumerate() {
+            self.functions.insert(fun.fqn.to_lowercase(), (path.to_string(), i));
         }
     }
 
@@ -334,12 +351,18 @@ impl ProjectIndex {
                 *total = total.saturating_sub(*n);
             }
         }
+        for fun in &f.symbols.functions {
+            if self.functions.get(&fun.fqn.to_lowercase()).is_some_and(|(p, _)| p == path) {
+                self.functions.remove(&fun.fqn.to_lowercase());
+            }
+        }
     }
 
     fn rebuild(&mut self) {
         self.by_fqn.clear();
         self.by_short.clear();
         self.refs.clear();
+        self.functions.clear();
         let paths: Vec<String> = self.files.keys().cloned().collect();
         for p in paths {
             self.add_aggregates(&p);
@@ -359,6 +382,75 @@ impl ProjectIndex {
 
     fn class(&self, at: &(String, usize)) -> Option<&ClassEntry> {
         self.files.get(&at.0)?.symbols.classes.get(at.1)
+    }
+
+    /// Is `class` the class `ancestor`, or does it extend, implement or use it (at any depth)?
+    fn is_a(&self, class: &str, ancestor: &str) -> bool {
+        let target = ancestor.trim_start_matches('\\').to_lowercase();
+        let mut queue = vec![class.trim_start_matches('\\').to_string()];
+        let mut seen = HashSet::new();
+        while let Some(name) = queue.pop() {
+            let key = name.to_lowercase();
+            if key == target {
+                return true;
+            }
+            if !seen.insert(key.clone()) || seen.len() > 64 {
+                continue;
+            }
+            if let Some(at) = self.by_fqn.get(&key) {
+                if let Some(c) = self.class(at) {
+                    queue.extend(c.extends.iter().cloned());
+                    queue.extend(c.implements.iter().cloned());
+                    queue.extend(c.traits.iter().cloned());
+                }
+            }
+        }
+        false
+    }
+
+    /// Where a member of a class is declared: the class itself, else its parents and traits, then
+    /// interfaces. `kind`: "method", "property", "const", or empty for any.
+    fn find_member(&self, class: &str, name: &str, kind: &str) -> Option<(String, &ClassEntry, &Member)> {
+        let mut queue = std::collections::VecDeque::from([class.to_string()]);
+        let mut seen = HashSet::new();
+        while let Some(c) = queue.pop_front() {
+            let Some((path, entry)) = self.find(&c) else { continue };
+            if !seen.insert(entry.fqn.to_lowercase()) || seen.len() > 64 {
+                continue;
+            }
+            // Methods are case-insensitive in PHP; properties and constants are not.
+            let hit = entry.members.iter().find(|m| (kind.is_empty() || m.kind == kind) && if m.kind == "method" { m.name.eq_ignore_ascii_case(name) } else { m.name == name });
+            if let Some(m) = hit {
+                return Some((path.clone(), entry, m));
+            }
+            queue.extend(entry.traits.iter().cloned());
+            queue.extend(entry.extends.iter().cloned());
+            queue.extend(entry.implements.iter().cloned());
+        }
+        None
+    }
+
+    /// A function by name: `Ns\foo` first, then the global `foo` (PHP's fallback for unqualified calls).
+    fn find_function(&self, name: &str, namespace: Option<&str>) -> Option<(&String, &FunctionEntry)> {
+        let name = name.trim_start_matches('\\');
+        let mut tries = Vec::new();
+        if let Some(ns) = namespace.filter(|ns| !ns.is_empty() && !name.contains('\\')) {
+            tries.push(format!("{ns}\\{name}"));
+        }
+        tries.push(name.to_string());
+        for t in tries {
+            if let Some((path, i)) = self.functions.get(&t.to_lowercase()) {
+                if let Some(f) = self.files.get(path).and_then(|f| f.symbols.functions.get(*i)) {
+                    return Some((path, f));
+                }
+            }
+        }
+        None
+    }
+
+    /// The class declared around a line of a file.
+    fn class_at(&self, path: &str, line: u32) -> Option<&ClassEntry> {
+        self.files.get(path)?.symbols.classes.iter().filter(|c| c.line <= line && line <= c.end_line.max(c.line)).last()
     }
 
     /// A class by FQN (leading `\` optional), else by short name (first match, project files first).
@@ -382,31 +474,46 @@ pub struct IndexState {
     generation: Arc<std::sync::atomic::AtomicU64>,
 }
 
+/// The cache file: in the project's `.blitz/cache` (like IntelliJ's .idea), or in the app's cache
+/// folder when the project can't be written to.
 fn cache_path(app: &AppHandle, root: &str) -> Option<PathBuf> {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     root.to_lowercase().hash(&mut h);
-    let dir = app.path().app_cache_dir().ok()?.join("index");
+    let app_dir = app.path().app_cache_dir().ok().map(|d| d.join("index"));
+    let key = format!("{:016x}", h.finish());
+    // The JSON cache of earlier versions: not read any more.
+    if let Some(d) = &app_dir {
+        let _ = std::fs::remove_file(d.join(format!("{key}.json")));
+    }
+    if let Ok(dir) = crate::blitz::cache_dir(root) {
+        return Some(dir.join("index.bin"));
+    }
+    let dir = app_dir?;
     std::fs::create_dir_all(&dir).ok()?;
-    Some(dir.join(format!("{:016x}.json", h.finish())))
+    Some(dir.join(format!("{key}.bin")))
 }
 
 fn load_cache(path: &Path, root: &str) -> HashMap<String, CachedFile> {
-    let Ok(text) = std::fs::read(path) else { return HashMap::new() };
-    match serde_json::from_slice::<CacheFile>(&text) {
-        Ok(c) if c.version == CACHE_VERSION && c.root == root => c.files,
-        _ => HashMap::new(),
+    let Ok(bytes) = std::fs::read(path) else { return HashMap::new() };
+    let header = CACHE_MAGIC.len() + 4;
+    if bytes.len() < header || &bytes[..CACHE_MAGIC.len()] != CACHE_MAGIC || bytes[CACHE_MAGIC.len()..header] != CACHE_VERSION.to_le_bytes() {
+        return HashMap::new();
+    }
+    match bincode::deserialize::<CacheFile>(&bytes[header..]) {
+        Ok(c) => c.files.into_iter().map(|(rel, f)| (format!("{root}/{rel}"), f)).collect(),
+        Err(_) => HashMap::new(),
     }
 }
 
 fn save_cache(path: &Path, index: &ProjectIndex) {
-    let cache = CacheFile { version: CACHE_VERSION, root: index.root.clone(), files: index.files.clone() };
-    if let Ok(bytes) = serde_json::to_vec(&cache) {
-        // Write then rename, so a crash never leaves a half-written cache.
-        let tmp = path.with_extension("tmp");
-        if std::fs::write(&tmp, bytes).is_ok() {
-            let _ = std::fs::rename(&tmp, path);
-        }
+    let prefix = format!("{}/", index.root);
+    let files = index.files.iter().filter_map(|(p, f)| Some((p.strip_prefix(&prefix)?, f))).collect();
+    let mut bytes = Vec::with_capacity(1 << 20);
+    bytes.extend_from_slice(CACHE_MAGIC);
+    bytes.extend_from_slice(&CACHE_VERSION.to_le_bytes());
+    if bincode::serialize_into(&mut bytes, &CacheRef { files }).is_ok() {
+        let _ = crate::blitz::write_atomic(path, &bytes);
     }
 }
 
@@ -776,6 +883,297 @@ pub fn index_usages(state: tauri::State<'_, IndexState>, names: Vec<String>) -> 
     Ok(names.iter().map(|n| idx.refs.get(n).copied().unwrap_or(0)).collect())
 }
 
+// ── Go to Definition / Find Usages ───────────────────────────
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Target {
+    Class { name: String },
+    #[serde(rename_all = "camelCase")]
+    Member { class: String, name: String, member_kind: Option<String> },
+    Function { name: String, namespace: Option<String> },
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Location {
+    path: String,
+    line: u32,
+    /// What was found: "App\Models\User", "User::save()", "helper()".
+    name: String,
+}
+
+fn locate(idx: &ProjectIndex, target: &Target) -> Option<Location> {
+    match target {
+        Target::Class { name } => idx.find(name).map(|(path, c)| Location { path: path.clone(), line: c.line, name: c.fqn.clone() }),
+        Target::Member { class, name, member_kind } => idx.find_member(class, name, member_kind.as_deref().unwrap_or("")).map(|(path, c, m)| Location {
+            path,
+            line: m.line,
+            name: format!("{}::{}{}", c.name, if m.kind == "property" { "$" } else { "" }, if m.kind == "method" { format!("{}()", m.name) } else { m.name.clone() }),
+        }),
+        Target::Function { name, namespace } => idx.find_function(name, namespace.as_deref()).map(|(path, f)| Location { path: path.clone(), line: f.line, name: format!("{}()", f.fqn) }),
+    }
+}
+
+/// Every declaration a rename must change: the class or function itself; for a member, its
+/// declaration and the same member declared up and down the hierarchy (parents, interfaces, traits,
+/// subclasses), so overrides and implementations keep matching.
+fn declarations(idx: &ProjectIndex, target: &Target) -> Vec<Location> {
+    let Target::Member { class, name, member_kind } = target else { return locate(idx, target).into_iter().collect() };
+    let kind = member_kind.as_deref().unwrap_or("");
+    let Some((_, declaring, member)) = idx.find_member(class, name, kind) else { return Vec::new() };
+    let (base, kind) = (declaring.fqn.clone(), member.kind.clone());
+    let same = |m: &Member| m.kind == kind && if kind == "method" { m.name.eq_ignore_ascii_case(name) } else { m.name == *name };
+    let mut out: Vec<Location> = Vec::new();
+    for (path, file) in &idx.files {
+        for c in &file.symbols.classes {
+            if !(idx.is_a(&c.fqn, &base) || idx.is_a(&base, &c.fqn)) {
+                continue;
+            }
+            for m in c.members.iter().filter(|m| same(m)) {
+                out.push(Location { path: path.clone(), line: m.line, name: format!("{}::{}", c.fqn, m.name) });
+            }
+        }
+    }
+    out.sort_by(|a, b| a.path.cmp(&b.path).then(a.line.cmp(&b.line)));
+    out
+}
+
+/// Rename: the declarations to change with the usages (see `declarations`).
+#[tauri::command]
+pub async fn index_declarations(state: tauri::State<'_, IndexState>, target: Target) -> Result<Vec<Location>, String> {
+    let index = state.index.clone();
+    tauri::async_runtime::spawn_blocking(move || Ok(declarations(&*index.read().map_err(|e| e.to_string())?, &target)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Go to Definition: where a class, member or function is declared.
+#[tauri::command]
+pub async fn index_locate(state: tauri::State<'_, IndexState>, target: Target) -> Result<Option<Location>, String> {
+    let index = state.index.clone();
+    tauri::async_runtime::spawn_blocking(move || Ok(locate(&*index.read().map_err(|e| e.to_string())?, &target)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[derive(Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageHit {
+    path: String,
+    line: u32,
+    /// 1-based, UTF-16 (Monaco's columns).
+    column: u32,
+    end_column: u32,
+    preview: String,
+    /// Called on something whose type is unknown (`$x->save()`): maybe this member, maybe another
+    /// class's member of the same name (PhpStorm's "dynamic usages").
+    dynamic: bool,
+    /// Properties: "read" or "write" (`$this->x = …`, `+=`, `++`); empty for the rest.
+    access: &'static str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsagesResult {
+    name: String,
+    /// "Class", "Method", "Field", "Constant", "Function" (PhpStorm's words).
+    kind: String,
+    /// "\App\Entity\Photo.$uploader", "\App\Models\User::save()", "\App\Models\User".
+    title: String,
+    /// The class (or namespace) it belongs to, and the declaring file.
+    container: String,
+    declared_in: String,
+    items: Vec<UsageHit>,
+    /// Files searched.
+    files: usize,
+}
+
+/// `$this->x = 1`, `+=`, `.=`, `??=`, `++` / `--`: the property is written.
+fn is_write(after: &str, before: &str) -> bool {
+    let a = after.trim_start();
+    let assigned = (a.starts_with('=') && !a.starts_with("==") && !a.starts_with("=>"))
+        || ["+=", "-=", "*=", "/=", ".=", "%=", "??=", "**=", "|=", "&=", "^=", "<<=", ">>=", "++", "--"].iter().any(|op| a.starts_with(op));
+    assigned || before.trim_end().rsplit(|c: char| c.is_whitespace() || c == '(' || c == ';').find(|s| !s.is_empty()).is_some_and(|t| t.starts_with("++") || t.starts_with("--"))
+}
+
+const MAX_USAGES: usize = 5000;
+
+/// Line, 1-based UTF-16 column, and the line's text for a byte offset.
+fn position(text: &str, offset: usize) -> (u32, u32, &str) {
+    let start = text[..offset].rfind('\n').map_or(0, |i| i + 1);
+    let end = text[offset..].find('\n').map_or(text.len(), |i| offset + i);
+    let line = text[..start].matches('\n').count() as u32 + 1;
+    let column = text[start..offset].encode_utf16().count() as u32 + 1;
+    (line, column, text[start..end].trim_end_matches('\r'))
+}
+
+/// Usages of a target in one file's text.
+fn usages_in(idx: &ProjectIndex, path: &str, text: &str, target: &Target, class_fqn: Option<&str>) -> Vec<UsageHit> {
+    let mut out = Vec::new();
+    let hit = |out: &mut Vec<UsageHit>, start: usize, end: usize, dynamic: bool| {
+        let (line, column, line_text) = position(text, start);
+        let width = text[start..end].encode_utf16().count() as u32;
+        out.push(UsageHit { path: path.to_string(), line, column, end_column: column + width, preview: line_text.trim().to_string(), dynamic, access: "" });
+    };
+    // Names as PHP resolves them (imports, namespace): exact class and function references.
+    let file = File::new(Cow::Owned(path.as_bytes().to_vec()), FileType::Host, Some(PathBuf::from(path)), Cow::Owned(text.as_bytes().to_vec()));
+    let arena = LocalArena::new();
+    let program = parse_file_borrowed_with_settings(&arena, &file, ParserSettings::default());
+    let names = NameResolver::new(&arena).resolve(program);
+    let resolved_at = |offset: usize| names.iter().find(|(s, e, _, _)| *s as usize <= offset && offset < *e as usize).map(|(_, _, n, _)| String::from_utf8_lossy(n).trim_start_matches('\\').to_string());
+
+    match target {
+        Target::Class { .. } => {
+            let fqn = class_fqn.unwrap_or_default();
+            for (start, end, name, _) in names.iter() {
+                if !String::from_utf8_lossy(name).trim_start_matches('\\').eq_ignore_ascii_case(fqn) {
+                    continue;
+                }
+                // The declaration itself (`class Post`) is not a usage.
+                let before = text[..start as usize].trim_end();
+                if ["class", "interface", "trait", "enum"].iter().any(|k| before.ends_with(k)) {
+                    continue;
+                }
+                hit(&mut out, start as usize, end as usize, false);
+            }
+        }
+        Target::Function { name, .. } => {
+            let fqn = class_fqn.unwrap_or(name).trim_start_matches('\\');
+            let global = !fqn.contains('\\');
+            for (start, end, resolved, _) in names.iter() {
+                let resolved = String::from_utf8_lossy(resolved);
+                let resolved = resolved.trim_start_matches('\\');
+                let written = &text[start as usize..end as usize];
+                // `foo()` in a namespace falls back to the global foo() unless Ns\foo exists.
+                let fallback = global && !written.contains('\\') && resolved.rsplit('\\').next().is_some_and(|n| n.eq_ignore_ascii_case(fqn)) && idx.find_function(resolved, None).is_none();
+                let declaration = text[..start as usize].trim_end().ends_with("function");
+                if (resolved.eq_ignore_ascii_case(fqn) || fallback) && !declaration && text[end as usize..].trim_start().starts_with('(') {
+                    hit(&mut out, start as usize, end as usize, false);
+                }
+            }
+        }
+        Target::Member { name, member_kind, .. } => {
+            let class = class_fqn.unwrap_or_default();
+            let kind = member_kind.as_deref().unwrap_or("");
+            let escaped = regex::escape(name);
+            let re = Regex::new(&format!(r"(?i)(->|\?->|::)(\s*)(\$?)({escaped})\b(\s*\()?")).unwrap();
+            for m in re.captures_iter(text) {
+                let (op, dollar, word, call) = (m.get(1).unwrap(), m.get(3).unwrap(), m.get(4).unwrap(), m.get(5));
+                // PHP: methods are case-insensitive, properties and constants are not.
+                let is_call = call.is_some();
+                let ok = match kind {
+                    "method" => is_call,
+                    "property" => !is_call && (op.as_str() != "::" || !dollar.as_str().is_empty()),
+                    "const" => !is_call && op.as_str() == "::" && dollar.as_str().is_empty(),
+                    _ => true,
+                };
+                if !ok || (kind != "method" && word.as_str() != name) {
+                    continue;
+                }
+                // What it is called on.
+                let before = text[..op.start()].trim_end();
+                let receiver: Option<String> = if before.ends_with("$this") {
+                    idx.class_at(path, position(text, op.start()).0).map(|c| c.fqn.clone())
+                } else if let Some(word_start) = before.rfind(|c: char| !(c.is_alphanumeric() || c == '_' || c == '\\')).map(|i| i + 1).or(Some(0)) {
+                    let ident = &before[word_start..];
+                    if ident.is_empty() || before[..word_start].ends_with('$') || ident.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                        None
+                    } else {
+                        match ident.to_ascii_lowercase().as_str() {
+                            "self" | "static" => idx.class_at(path, position(text, op.start()).0).map(|c| c.fqn.clone()),
+                            "parent" => idx.class_at(path, position(text, op.start()).0).and_then(|c| c.extends.clone()),
+                            _ if op.as_str() == "::" => resolved_at(word_start),
+                            _ => None,
+                        }
+                    }
+                } else {
+                    None
+                };
+                let dynamic = match receiver {
+                    // Known class: a usage when it is the class or inherits from it.
+                    Some(r) => {
+                        if !idx.is_a(&r, class) {
+                            continue;
+                        }
+                        false
+                    }
+                    None => true,
+                };
+                hit(&mut out, word.start() - dollar.len(), word.end(), dynamic);
+                if kind == "property" {
+                    if let Some(last) = out.last_mut() {
+                        last.access = if is_write(&text[word.end()..], before) { "write" } else { "read" };
+                    }
+                }
+            }
+        }
+    }
+    out.sort_by_key(|u| (u.line, u.column));
+    out
+}
+
+/// Find Usages: classes and functions by resolved name (exact); members through `$this`, `self`,
+/// `static`, `parent` and `Class::` (exact, checked against the class hierarchy) and on untyped
+/// receivers (dynamic). Project files only (not vendor). `overrides`: unsaved editor texts.
+#[tauri::command]
+pub async fn index_find_usages(state: tauri::State<'_, IndexState>, target: Target, overrides: Option<HashMap<String, String>>, include_vendor: Option<bool>) -> Result<UsagesResult, String> {
+    let index = state.index.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let idx = index.read().map_err(|e| e.to_string())?;
+        let overrides = overrides.unwrap_or_default();
+        // The declaration, to search for its real FQN.
+        let (display, class_fqn, needle, kind, title, container, declared_in) = match &target {
+            Target::Class { name } => {
+                let (path, c) = idx.find(name).ok_or_else(|| format!("{name} is not in the index"))?;
+                let kind = match c.kind.as_str() { "interface" => "Interface", "trait" => "Trait", "enum" => "Enum", _ => "Class" };
+                let ns = c.fqn.rsplit_once('\\').map(|(ns, _)| ns.to_string()).unwrap_or_default();
+                (c.fqn.clone(), c.fqn.clone(), c.name.clone(), kind, format!("\\{}", c.fqn), ns, path.clone())
+            }
+            Target::Member { class, name, member_kind } => {
+                let (path, c, m) = idx.find_member(class, name, member_kind.as_deref().unwrap_or("")).ok_or_else(|| format!("{class}::{name} is not in the index"))?;
+                let (kind, title) = match m.kind.as_str() {
+                    "method" => ("Method", format!("\\{}::{}()", c.fqn, m.name)),
+                    "property" => ("Field", format!("\\{}.${}", c.fqn, m.name)),
+                    _ => ("Constant", format!("\\{}::{}", c.fqn, m.name)),
+                };
+                (format!("{}::{}", c.name, m.name), c.fqn.clone(), m.name.clone(), kind, title, c.name.clone(), path)
+            }
+            Target::Function { name, namespace } => {
+                let (path, f) = idx.find_function(name, namespace.as_deref()).ok_or_else(|| format!("{name}() is not in the index"))?;
+                let ns = f.fqn.rsplit_once('\\').map(|(ns, _)| ns.to_string()).unwrap_or_default();
+                (format!("{}()", f.fqn), f.fqn.clone(), f.name.clone(), "Function", format!("\\{}()", f.fqn), ns, path.clone())
+            }
+        };
+        let needle_lower = needle.to_lowercase();
+        let vendor = format!("{}/vendor/", idx.root);
+        let with_vendor = include_vendor.unwrap_or(false);
+        let paths: Vec<&String> = idx.files.keys().filter(|p| with_vendor || !p.starts_with(&vendor)).collect();
+        let files = paths.len();
+        let mut items: Vec<UsageHit> = crate::mago::analysis_pool().install(|| {
+            paths
+                .par_iter()
+                .flat_map_iter(|path| {
+                    let text = match overrides.get(*path) {
+                        Some(t) => t.clone(),
+                        None => std::fs::read(path).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default(),
+                    };
+                    // Cheap filter first: most files never mention the name.
+                    if !text.to_lowercase().contains(&needle_lower) {
+                        return Vec::new();
+                    }
+                    usages_in(&idx, path, &text, &target, Some(&class_fqn))
+                })
+                .collect()
+        });
+        items.sort_by(|a, b| a.dynamic.cmp(&b.dynamic).then_with(|| a.path.cmp(&b.path)).then_with(|| a.line.cmp(&b.line)).then_with(|| a.column.cmp(&b.column)));
+        items.truncate(MAX_USAGES);
+        Ok(UsagesResult { name: display, kind: kind.to_string(), title, container, declared_in, items, files })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -885,13 +1283,40 @@ function helper(int $a, $b = 1): ?string { return null; }
         let t3 = Instant::now();
         idx.rebuild();
         let classes: usize = idx.files.values().map(|f| f.symbols.classes.len()).sum();
-        let json = serde_json::to_vec(&CacheFile { version: CACHE_VERSION, root: root.clone(), files: idx.files.clone() }).unwrap();
+        let aggregated = t3.elapsed();
+        // The cache, as JSON (versions before 0.1.3) and as it is now.
+        let json = serde_json::to_vec(&idx.files).unwrap();
         let t4 = Instant::now();
-        let back: CacheFile = serde_json::from_slice(&json).unwrap();
+        let back: HashMap<String, CachedFile> = serde_json::from_slice(&json).unwrap();
+        let json_load = t4.elapsed();
+        let bin = std::env::temp_dir().join("phpblitz-bench-index.bin");
+        let t5 = Instant::now();
+        save_cache(&bin, &idx);
+        let bin_save = t5.elapsed();
+        let t6 = Instant::now();
+        let loaded = load_cache(&bin, &root);
+        let bin_load = t6.elapsed();
+        let bin_size = std::fs::metadata(&bin).map(|m| m.len()).unwrap_or(0);
         eprintln!(
-            "BENCH {} files, {} classes | list {:?} | parse+scan {:?} | aggregate {:?} | cache {} KB, load {:?} ({} files)",
-            idx.files.len(), classes, listed, scanned, t3.elapsed(), json.len() / 1024, t4.elapsed(), back.files.len()
+            "BENCH {} files, {} classes | list {:?} | parse+scan {:?} | aggregate {:?}",
+            idx.files.len(), classes, listed, scanned, aggregated
         );
+        eprintln!("BENCH cache JSON {} KB, load {:?} ({} files)", json.len() / 1024, json_load, back.len());
+        eprintln!("BENCH cache binary {} KB, save {:?}, load {:?} ({} files)", bin_size / 1024, bin_save, bin_load, loaded.len());
+        assert_eq!(loaded.len(), idx.files.len());
+        let _ = std::fs::remove_file(bin);
+        // Rough heap bytes: what declarations take vs per-file references.
+        let str_bytes = |t: &str| t.len() + 24;
+        let member_bytes = |m: &Member| str_bytes(&m.kind) + str_bytes(&m.name) + str_bytes(&m.detail) + m.params.as_deref().map_or(0, str_bytes) + str_bytes(&m.visibility) + 16;
+        let decl: usize = idx.files.values().map(|f| {
+            f.symbols.classes.iter().map(|c| str_bytes(&c.name) + str_bytes(&c.fqn) + str_bytes(&c.kind) + c.extends.as_deref().map_or(0, str_bytes) + c.implements.iter().chain(&c.traits).map(|t| str_bytes(t)).sum::<usize>() + c.members.iter().map(member_bytes).sum::<usize>() + 64).sum::<usize>()
+                + f.symbols.functions.iter().map(|x| str_bytes(&x.name) + str_bytes(&x.fqn) + str_bytes(&x.params) + str_bytes(&x.detail) + 8).sum::<usize>()
+        }).sum();
+        let refs: usize = idx.files.values().map(|f| f.symbols.refs.iter().map(|(n, _)| str_bytes(n) + 8).sum::<usize>()).sum();
+        let ref_count: usize = idx.files.values().map(|f| f.symbols.refs.len()).sum();
+        let paths: usize = idx.files.keys().map(|k| str_bytes(k) * 2).sum();
+        let totals: usize = idx.refs.keys().map(|k| str_bytes(k) + 8).sum();
+        eprintln!("BENCH memory ~ declarations {} KB | per-file refs {} KB ({ref_count} entries) | ref totals {} KB ({} names) | paths {} KB", decl / 1024, refs / 1024, totals / 1024, idx.refs.len(), paths / 1024);
         let q = Instant::now();
         let hits = idx.files.values().flat_map(|f| f.symbols.classes.iter()).filter(|c| score(&c.name, "UpHa").is_some()).count();
         eprintln!("BENCH search 'UpHa': {hits} matches in {:?}", q.elapsed());
@@ -918,20 +1343,32 @@ function helper(int $a, $b = 1): ?string { return null; }
         found.sort();
         assert_eq!(found, vec!["/app/A.php".to_string(), "/vendor/acme/lib/B.php".to_string()], "vendor in, node_modules / excluded / blade out");
 
-        // Cache: saved, loaded for the same root and version, ignored otherwise.
+        // Cache: saved and loaded back; paths are relative, so it follows a moved project.
         let mut idx = ProjectIndex { root: r.clone(), ..Default::default() };
         for (p, mtime, size) in php_files(&r, &[]) {
             let symbols = scan(&p, &std::fs::read(&p).unwrap());
             idx.set(p, CachedFile { mtime, size, symbols });
         }
-        let cache = root.join("cache.json");
+        let cache = root.join("index.bin");
         save_cache(&cache, &idx);
         let loaded = load_cache(&cache, &r);
         assert_eq!(loaded.len(), idx.files.len());
         let a = format!("{r}/app/A.php");
         assert_eq!(loaded[&a].symbols, idx.files[&a].symbols);
-        assert!(load_cache(&cache, "/other/project").is_empty());
-        std::fs::write(&cache, br#"{"version":0,"root":"x","files":{}}"#).unwrap();
+        assert_eq!(loaded[&a].mtime, idx.files[&a].mtime);
+        let moved = load_cache(&cache, "/moved/project");
+        assert_eq!(moved["/moved/project/app/A.php"].symbols, idx.files[&a].symbols);
+        // Another format version, the old JSON cache, or garbage: ignored (the index is rebuilt).
+        let mut old = std::fs::read(&cache).unwrap();
+        old[CACHE_MAGIC.len()] = 2;
+        std::fs::write(&cache, &old).unwrap();
+        assert!(load_cache(&cache, &r).is_empty());
+        std::fs::write(&cache, br#"{"version":2,"root":"x","files":{}}"#).unwrap();
+        assert!(load_cache(&cache, &r).is_empty());
+        let mut cut = CACHE_MAGIC.to_vec();
+        cut.extend_from_slice(&CACHE_VERSION.to_le_bytes());
+        cut.extend_from_slice(&[9, 9, 9]);
+        std::fs::write(&cache, &cut).unwrap();
         assert!(load_cache(&cache, &r).is_empty());
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -954,6 +1391,89 @@ function helper(int $a, $b = 1): ?string { return null; }
         assert_eq!(keys, vec!["detail", "kind", "line", "name", "path", "vendor"]);
         let stats = serde_json::to_value(IndexStats { files: 1, classes: 1, functions: 0, parsed: 1, ms: 2 }).unwrap();
         assert!(stats.get("parsed").is_some() && stats.get("functions").is_some());
+    }
+
+
+    fn project(files: &[(&str, &str)]) -> ProjectIndex {
+        let mut idx = ProjectIndex { root: "/p".into(), ..Default::default() };
+        for (path, text) in files {
+            idx.set(path.to_string(), CachedFile { mtime: 1, size: 1, symbols: scan(path, text.as_bytes()) });
+        }
+        idx
+    }
+
+    const BASE: &str = "<?php\nnamespace App\\Models;\n\nabstract class Model\n{\n    public function save(): bool { return true; }\n    public static function find(int $id): ?static { return null; }\n}\n";
+    const POST: &str = "<?php\nnamespace App\\Models;\n\nclass Post extends Model\n{\n    public string $title = '';\n    const DRAFT = 'draft';\n\n    public function publish(): void\n    {\n        $this->save();\n        self::find(1);\n        echo $this->title . self::DRAFT;\n    }\n}\n";
+    const CTRL: &str = "<?php\nnamespace App\\Http;\n\nuse App\\Models\\Post;\nuse App\\Models\\Model as Base;\n\nfunction helper(): void {}\n\nfinal class PostController\n{\n    public function store(Post $post, $other): Post\n    {\n        $post->save();\n        $other->save();\n        Post::find(2);\n        Base::find(3);\n        \\App\\Models\\Post::find(4);\n        $p = new Post();\n        helper();\n        strlen('x');\n        return $post;\n    }\n}\n";
+
+    fn idx3() -> ProjectIndex {
+        project(&[("/p/app/Models/Model.php", BASE), ("/p/app/Models/Post.php", POST), ("/p/app/Http/PostController.php", CTRL)])
+    }
+
+    #[test]
+    fn locates_classes_members_and_functions() {
+        let idx = idx3();
+        let at = |t: Target| locate(&idx, &t).map(|l| (l.path.rsplit('/').next().unwrap().to_string(), l.line, l.name));
+        assert_eq!(at(Target::Class { name: "App\\Models\\Post".into() }), Some(("Post.php".into(), 4, "App\\Models\\Post".into())));
+        // Inherited method: declared in the parent.
+        assert_eq!(at(Target::Member { class: "App\\Models\\Post".into(), name: "save".into(), member_kind: Some("method".into()) }), Some(("Model.php".into(), 6, "Model::save()".into())));
+        assert_eq!(at(Target::Member { class: "App\\Models\\Post".into(), name: "SAVE".into(), member_kind: None }).map(|x| x.1), Some(6), "methods are case-insensitive");
+        assert_eq!(at(Target::Member { class: "App\\Models\\Post".into(), name: "title".into(), member_kind: Some("property".into()) }).map(|x| x.1), Some(6));
+        assert_eq!(at(Target::Member { class: "App\\Models\\Post".into(), name: "DRAFT".into(), member_kind: None }).map(|x| x.1), Some(7));
+        assert_eq!(at(Target::Function { name: "helper".into(), namespace: Some("App\\Http".into()) }).map(|x| x.2), Some("App\\Http\\helper()".into()));
+        assert!(at(Target::Function { name: "nope".into(), namespace: None }).is_none());
+        assert!(idx.is_a("App\\Models\\Post", "App\\Models\\Model") && !idx.is_a("App\\Models\\Model", "App\\Models\\Post"));
+    }
+
+    /// Renaming a method renames it where it is overridden too, but not in unrelated classes.
+    #[test]
+    fn finds_the_declarations_a_rename_changes() {
+        let draft = "<?php\nnamespace App\\Models;\n\nclass Draft extends Post\n{\n    public function save(): bool { return false; }\n}\n";
+        let other = "<?php\nnamespace App\\Other;\n\nclass Cache\n{\n    public function save(): bool { return true; }\n}\n";
+        let idx = project(&[("/p/app/Models/Model.php", BASE), ("/p/app/Models/Post.php", POST), ("/p/app/Models/Draft.php", draft), ("/p/app/Other/Cache.php", other)]);
+        let at = |t: Target| declarations(&idx, &t).into_iter().map(|l| (l.path.rsplit('/').next().unwrap().to_string(), l.line)).collect::<Vec<_>>();
+        // From the subclass that inherits it: the base declaration and the override, not Cache::save.
+        assert_eq!(at(Target::Member { class: "App\\Models\\Post".into(), name: "save".into(), member_kind: Some("method".into()) }), vec![("Draft.php".into(), 6), ("Model.php".into(), 6)]);
+        assert_eq!(at(Target::Member { class: "App\\Models\\Draft".into(), name: "save".into(), member_kind: Some("method".into()) }), vec![("Draft.php".into(), 6), ("Model.php".into(), 6)]);
+        assert_eq!(at(Target::Class { name: "App\\Models\\Post".into() }), vec![("Post.php".into(), 4)]);
+        assert_eq!(at(Target::Member { class: "App\\Models\\Post".into(), name: "title".into(), member_kind: Some("property".into()) }), vec![("Post.php".into(), 6)]);
+    }
+
+    #[test]
+    fn finds_usages() {
+        let idx = idx3();
+        let all = |t: Target, fqn: &str| -> Vec<(String, u32, bool)> {
+            let mut v = Vec::new();
+            for (path, text) in [("/p/app/Models/Model.php", BASE), ("/p/app/Models/Post.php", POST), ("/p/app/Http/PostController.php", CTRL)] {
+                v.extend(usages_in(&idx, path, text, &t, Some(fqn)).into_iter().map(|u| (u.path.rsplit('/').next().unwrap().to_string(), u.line, u.dynamic)));
+            }
+            v
+        };
+        // Class: the import, the type hints, Post::find, the FQN call and new Post; not the alias of Model.
+        let post = all(Target::Class { name: "Post".into() }, "App\\Models\\Post");
+        assert_eq!(post.iter().filter(|u| u.0 == "PostController.php").map(|u| u.1).collect::<Vec<_>>(), vec![4, 11, 11, 15, 17, 18], "{post:?}");
+        // Model::save(): $this->save() in Post (exact), $post->save() and $other->save() (dynamic).
+        let save = all(Target::Member { class: "App\\Models\\Model".into(), name: "save".into(), member_kind: Some("method".into()) }, "App\\Models\\Model");
+        assert_eq!(save, vec![("Post.php".into(), 11, false), ("PostController.php".into(), 13, true), ("PostController.php".into(), 14, true)]);
+        // Model::find(): self::find in Post, Post::find, Base::find (alias), \App\Models\Post::find.
+        let find = all(Target::Member { class: "App\\Models\\Model".into(), name: "find".into(), member_kind: Some("method".into()) }, "App\\Models\\Model");
+        assert_eq!(find, vec![("Post.php".into(), 12, false), ("PostController.php".into(), 15, false), ("PostController.php".into(), 16, false), ("PostController.php".into(), 17, false)]);
+        // Post::find() alone: Base::find (Model) is not a usage of Post's.
+        let post_find = all(Target::Member { class: "App\\Models\\Post".into(), name: "find".into(), member_kind: Some("method".into()) }, "App\\Models\\Post");
+        assert_eq!(post_find.iter().map(|u| u.1).collect::<Vec<_>>(), vec![12, 15, 17]);
+        // Property and constant.
+        assert_eq!(all(Target::Member { class: "App\\Models\\Post".into(), name: "title".into(), member_kind: Some("property".into()) }, "App\\Models\\Post"), vec![("Post.php".into(), 13, false)]);
+        assert!(is_write(" = 1;", "$this->") && is_write(" .= 'x'", "") && is_write("++;", "") && is_write(" ??= []", ""));
+        assert!(!is_write(" == 1", "") && !is_write(" => 1", "") && !is_write(";", "echo $this->") && !is_write("->save()", ""));
+        assert!(is_write(";", "++$this->"));
+        let rw = usages_in(&idx, "/p/x.php", "<?php class W extends App\\Models\\Post { function f() { $this->title = 'a'; echo $this->title; $this->title .= 'b'; } }", &Target::Member { class: "App\\Models\\Post".into(), name: "title".into(), member_kind: Some("property".into()) }, Some("App\\Models\\Post"));
+        assert_eq!(rw.iter().map(|u| u.access).collect::<Vec<_>>(), vec!["write", "read", "write"]);
+        assert_eq!(all(Target::Member { class: "App\\Models\\Post".into(), name: "DRAFT".into(), member_kind: Some("const".into()) }, "App\\Models\\Post"), vec![("Post.php".into(), 13, false)]);
+        // Function: helper() resolved in its namespace; strlen() is not helper.
+        assert_eq!(all(Target::Function { name: "helper".into(), namespace: None }, "App\\Http\\helper"), vec![("PostController.php".into(), 19, false)]);
+        // Columns are 1-based UTF-16, like Monaco's.
+        let first = usages_in(&idx, "/p/app/Http/PostController.php", CTRL, &Target::Class { name: "Post".into() }, Some("App\\Models\\Post"));
+        assert_eq!((first[0].line, first[0].column, first[0].end_column), (4, 5, 20));
     }
 
     #[test]

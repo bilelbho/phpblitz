@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import * as monaco from 'monaco-editor';
 import type { Backend, CommitOptions, Entry, GitInfo, Package, Problem, RunResult, TestResult } from './backend/types';
 import { baseName } from './backend/types';
-import { phpIndex, routesOf, structureOf, type Route } from './php';
+import { languageOf, phpIndex, routesOf, structureOf, type Route } from './php';
 import { symbols } from './symbols';
+import { findUsages as indexFindUsages, setDefinitionOpener, targetAt } from './navigation';
 import { aiReply, type AiMessage } from './mock';
 import { refreshUsageHints } from './monaco';
 import {
@@ -13,6 +14,7 @@ import {
   magoDisableRule,
   magoEnsureConfig,
   magoOpen,
+  magoAnalyze,
   magoProjectIssues,
   magoSync,
   suppressionComment,
@@ -28,6 +30,9 @@ import { db } from './db/store';
 import { consoleText } from './components/QueryConsole';
 import { ANALYSIS_DELAY, AnalysisQueue, CODE_INSIGHT_LIMIT, lowPriority, markBusy } from './daemon';
 import { dirMarks } from './dirMarks';
+import { bookmarks } from './bookmarks';
+import { planForTarget, renameEdits } from './rename';
+import { perf } from './perf';
 import { insertTab, nextActive, overLimit } from './tabPolicy';
 import { getSettings } from './settings';
 import { Git } from './git/git';
@@ -36,6 +41,7 @@ import { applyEditNow, findUsages as lspFindUsages, renameSymbol, setActiveLsp, 
 import type { Diagnostic, WorkspaceEdit } from './lsp/protocol';
 import { debug, useDebug } from './debug/manager';
 import { useInterpreters } from './interpreters';
+import { projectStorage } from './projectStorage';
 
 /** `preview`: PhpStorm's preview tab (italic), replaced by the next previewed file. */
 export type Tab =
@@ -60,7 +66,27 @@ export type GitDialogRequest =
   | { kind: 'reset'; hash: string; subject: string }
   | { kind: 'tag'; hash: string };
 
-export type BottomTab = 'problems' | 'terminal' | 'tests' | 'composer' | 'usages' | 'find' | 'git' | 'debug';
+/** A usage search's results (Find Usages / Show Usages). */
+export interface UsageSearch {
+  name: string;
+  /** "\\App\\Entity\\Photo.$uploader" (empty with a language server). */
+  title: string;
+  /** "Field", "Method", "Class"… */
+  kind: string;
+  container: string;
+  items: Usage[];
+  target: unknown;
+}
+
+export interface UsagesPopupState extends Omit<UsageSearch, 'target'> {
+  request: { model: monaco.editor.ITextModel; position: monaco.IPosition; anchor: { x: number; y: number } };
+  loading: boolean;
+  vendor: boolean;
+  error?: string;
+  target?: unknown;
+}
+
+export type BottomTab = 'problems' | 'terminal' | 'tests' | 'composer' | 'usages' | 'find' | 'git' | 'debug' | 'todo';
 
 export interface LspStatus {
   state: 'off' | 'starting' | 'ready' | 'missing' | 'stopped' | 'error';
@@ -99,32 +125,78 @@ export function useWorkspace(backend: Backend) {
   const [children, setChildren] = useState<Record<string, Entry[]>>({});
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([backend.root]));
 
+  const childrenRef = useRef(children);
+  childrenRef.current = children;
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
+  /** Folders being listed: one request per folder at a time. */
+  const listing = useRef(new Map<string, Promise<void>>());
+
+  /**
+   * Lists a folder into the tree. A folder that is shown open also gets its sub-folders listed in
+   * the background (one level ahead, like PhpStorm's file cache), so opening them is instant.
+   * `quiet`: a background listing (no error notification).
+   */
   const loadDir = useCallback(
-    async (path: string) => {
-      try {
-        const entries = await backend.listDir(path);
-        setChildren((c) => ({ ...c, [path]: entries }));
-      } catch (e) {
-        notify({ title: 'Could not read folder', body: String(e), tone: 'error' });
-      }
+    (path: string, quiet = false): Promise<void> => {
+      const pending = listing.current.get(path);
+      if (pending) return pending;
+      const run = (async () => {
+        let entries: Entry[] | null = null;
+        let error: unknown = null;
+        for (let attempt = 0; attempt < 2 && !entries; attempt++) {
+          try {
+            entries = await backend.listDir(path);
+          } catch (e) {
+            error = e;
+            if (attempt === 0) await new Promise((r) => setTimeout(r, 250));
+          }
+        }
+        if (!entries) {
+          // Not a Loading… row forever: an empty folder, and why (unless this was a background listing).
+          setChildren((c) => (c[path] ? c : { ...c, [path]: [] }));
+          if (!quiet) notify({ title: 'Could not read folder', body: `${path}: ${String(error)}`, tone: 'error' });
+          return;
+        }
+        const listed = entries;
+        setChildren((c) => ({ ...c, [path]: listed }));
+        if (expandedRef.current.has(path)) prefetchUnder(listed);
+      })().finally(() => listing.current.delete(path));
+      listing.current.set(path, run);
+      return run;
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [backend],
   );
 
+  /** Lists sub-folders not listed yet, when the UI is idle (at most 40 at a time). */
+  const prefetchUnder = useCallback((entries: Entry[]) => {
+    const todo = entries.filter((e) => e.isDir && !childrenRef.current[e.path] && !listing.current.has(e.path) && !['node_modules', '.git'].includes(e.name)).slice(0, 40);
+    if (!todo.length) return;
+    void (async () => {
+      for (const e of todo) {
+        await lowPriority();
+        if (!childrenRef.current[e.path]) await loadDir(e.path, true);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const toggleDir = useCallback(
     (path: string) => {
-      setExpanded((prev) => {
-        const next = new Set(prev);
-        if (next.has(path)) next.delete(path);
-        else {
-          next.add(path);
-          loadDir(path);
-        }
-        return next;
-      });
+      const open = !expandedRef.current.has(path);
+      const next = new Set(expandedRef.current);
+      if (open) next.add(path);
+      else next.delete(path);
+      // Updated now, so a second click before the next render sees this one.
+      expandedRef.current = next;
+      setExpanded(next);
+      if (!open) return;
+      const known = childrenRef.current[path];
+      if (known) prefetchUnder(known);
+      else void loadDir(path);
     },
-    [loadDir],
+    [loadDir, prefetchUnder],
   );
 
   /** Expands every folder between the project root and `path` (Always Select Opened File). */
@@ -165,7 +237,7 @@ export function useWorkspace(backend: Backend) {
   const nextNoticeId = useRef(1);
   const notify = useCallback((n: Omit<Notice, 'id'>) => {
     const id = nextNoticeId.current++;
-    setNotices((list) => [{ ...n, id }, ...list].slice(0, 30));
+    setNotices((list) => [{ ...n, id }, ...list.filter((x) => x.title !== n.title || x.body !== n.body)].slice(0, 30));
   }, []);
   const dismissNotice = useCallback((id: number) => setNotices((list) => list.filter((n) => n.id !== id)), []);
 
@@ -240,7 +312,7 @@ export function useWorkspace(backend: Backend) {
   const recentKey = `phpblitz.recentFiles:${backend.root}`;
   const [recentFiles, setRecentFiles] = useState<string[]>(() => {
     try {
-      return JSON.parse(localStorage.getItem(`phpblitz.recentFiles:${backend.root}`) ?? '[]');
+      return JSON.parse(projectStorage.getItem(`phpblitz.recentFiles:${backend.root}`) ?? '[]');
     } catch {
       return [];
     }
@@ -256,7 +328,7 @@ export function useWorkspace(backend: Backend) {
       if (list[0] === activePath) return list;
       const next = [activePath, ...list.filter((p) => p !== activePath)].slice(0, 60);
       try {
-        localStorage.setItem(recentKey, JSON.stringify(next));
+        projectStorage.setItem(recentKey, JSON.stringify(next));
       } catch {
         // Only a convenience.
       }
@@ -268,7 +340,7 @@ export function useWorkspace(backend: Backend) {
       setRecentFiles((list) => {
         const next = list.filter((p) => p !== path);
         try {
-          localStorage.setItem(recentKey, JSON.stringify(next));
+          projectStorage.setItem(recentKey, JSON.stringify(next));
         } catch {
           // Only a convenience.
         }
@@ -288,6 +360,8 @@ export function useWorkspace(backend: Backend) {
   const [projectProblems, setProjectProblems] = useState<Problem[] | null>(null);
   /** How many problems the project really has (projectProblems is capped). */
   const [projectProblemsTotal, setProjectProblemsTotal] = useState(0);
+  /** Type analysis problems held back because vendor/ is missing. */
+  const [projectProblemsHidden, setProjectProblemsHidden] = useState(0);
   const checkSeq = useRef<Record<string, number>>({});
   /** Set once openWithMago exists (it is declared further down). */
   const reanalyzeRef = useRef<(() => void) | null>(null);
@@ -339,6 +413,7 @@ export function useWorkspace(backend: Backend) {
     if (!result) return;
     setProjectProblems(result.files.flatMap((f) => f.diagnostics.map((d) => toProblem(f.path, d))));
     setProjectProblemsTotal(result.total);
+    setProjectProblemsHidden(result.hidden);
   }, [backend]);
   const lint = checkFile;
 
@@ -372,9 +447,29 @@ export function useWorkspace(backend: Backend) {
    * Opens a file in a tab. With `preview`, it reuses the preview tab (PhpStorm's
    * "Enable Preview Tab"): the next preview replaces it until it is edited or pinned.
    */
+  /** Files being read ahead of opening (mouse pressed on them in the tree). */
+  const prefetched = useRef(new Map<string, Promise<string>>());
+  /** When each file's open started (for Startup Performance: click → editor ready). */
+  const openStarted = useRef(new Map<string, number>());
+  /** Starts reading a file that is about to be opened, so the editor has it sooner. */
+  const prefetchFile = useCallback(
+    (path: string) => {
+      if (path in savedText.current || prefetched.current.has(path)) return;
+      const read = backend.readFile(path);
+      read.catch(() => {});
+      prefetched.current.set(path, read);
+      // Not opened after all: forget it.
+      window.setTimeout(() => prefetched.current.get(path) === read && prefetched.current.delete(path), 10_000);
+    },
+    [backend],
+  );
+
   const openFile = useCallback(
     async (path: string, at?: { line?: number; column?: number; find?: string }, opts?: { preview?: boolean }) => {
       const id = `file:${path}`;
+      // Only the latest open is timed (a tab opened in the background shows later, if ever).
+      openStarted.current.clear();
+      if (!(path in savedText.current)) openStarted.current.set(path, performance.now());
       const current = tabsRef.current;
       const tabRules = getSettings().tabs;
       // Settings ▸ Editor Tabs ▸ Enable preview tab: off means every file gets its own tab.
@@ -405,7 +500,11 @@ export function useWorkspace(backend: Backend) {
       markBusy();
       if (!(path in savedText.current)) {
         try {
-          const text = await backend.readFile(path);
+          const ahead = prefetched.current.get(path);
+          prefetched.current.delete(path);
+          const readStart = performance.now();
+          const text = await (ahead ?? backend.readFile(path));
+          openReadMs.current.set(path, [Math.round(performance.now() - readStart), !!ahead]);
           savedText.current[path] = text;
           liveText.current[path] = text;
           if (text.length > CODE_INSIGHT_LIMIT) largeFiles.current.add(path);
@@ -425,6 +524,18 @@ export function useWorkspace(backend: Backend) {
     },
     [backend, lint, notify, releaseFile],
   );
+  /** How long reading each opened file took, and whether it was read ahead. */
+  const openReadMs = useRef(new Map<string, [number, boolean]>());
+  /** The editor for a file is ready: Startup Performance records the open. */
+  const editorReady = useCallback((path: string) => {
+    const started = openStarted.current.get(path);
+    if (started === undefined) return;
+    openStarted.current.delete(path);
+    const read = openReadMs.current.get(path);
+    const text = liveText.current[path] ?? '';
+    const lines = text.split('\n').length;
+    perf.record(`Open ${baseName(path)}`, started, performance.now(), `${lines.toLocaleString()} lines` + (read ? `, read in ${read[0]} ms${read[1] ? ' (started on mouse press)' : ''}` : ''));
+  }, []);
 
   /** Drag and drop in the tab bar: moves the tab at `from` to index `to`. */
   const moveTab = useCallback((from: number, to: number) => {
@@ -519,6 +630,43 @@ export function useWorkspace(backend: Backend) {
     [backend, checkFile],
   );
 
+  /**
+   * Edits several files as one refactoring (Rename). Open files change in their editor (undoable,
+   * unsaved like any edit); the others are changed on disk. `edits`: 1-based line, UTF-16 columns.
+   */
+  const applyFileEdits = useCallback(
+    async (byFile: Map<string, { line: number; column: number; endColumn: number; text: string }[]>) => {
+      for (const [path, edits] of byFile) {
+        const ranges = edits.map((e) => ({ range: new monaco.Range(e.line, e.column, e.line, e.endColumn), text: e.text }));
+        if (path in liveText.current) {
+          const uri = monaco.Uri.file(path);
+          // A tab whose editor hasn't been shown yet has no model: make it from the editor's text.
+          const model = monaco.editor.getModel(uri) ?? monaco.editor.createModel(liveText.current[path], languageOf(path), uri);
+          model.pushStackElement();
+          model.pushEditOperations([], ranges, () => null);
+          model.pushStackElement();
+          const text = model.getValue();
+          onEdit(path, text);
+          if (path.endsWith('.php')) void symbols.updateText(path, text);
+          checkFile(path, text, 0);
+          continue;
+        }
+        const text = await backend.readFile(path);
+        const lines = text.split('\n');
+        // Right to left on each line, so earlier columns stay valid.
+        for (const e of [...edits].sort((a, b) => b.line - a.line || b.column - a.column)) {
+          const l = lines[e.line - 1];
+          if (l === undefined) continue;
+          lines[e.line - 1] = l.slice(0, e.column - 1) + e.text + l.slice(e.endColumn - 1);
+        }
+        await backend.writeFile(path, lines.join('\n'));
+        if (path.endsWith('.php') && symbols.rust) void symbols.update([path], []);
+      }
+      refreshUsageHints();
+    },
+    [backend, onEdit, checkFile],
+  );
+
   useEffect(() => {
     setActiveText(activePath ? liveText.current[activePath] ?? '' : '');
   }, [activePath, loaded]);
@@ -584,14 +732,15 @@ export function useWorkspace(backend: Backend) {
   gitRepoRef.current = gitRepo;
 
   /** What the Git tool window should show: a file's history, a commit, the console; `reload` after actions. */
-  const [gitLogRequest, setGitLogRequest] = useState<{ path?: string; hash?: string; console?: boolean; nonce?: number; reload?: number }>({});
+  const [gitLogRequest, setGitLogRequest] = useState<{ path?: string; hash?: string; file?: string; console?: boolean; nonce?: number; reload?: number }>({});
   const showHistory = useCallback((path: string) => {
     setGitLogRequest({ path, nonce: Date.now() });
     setBottomTab('git');
     setBottomOpen(true);
   }, []);
-  const showCommit = useCallback((hash: string) => {
-    setGitLogRequest({ hash, nonce: Date.now() });
+  /** A commit in the Git log; `file`: highlighted among its changed files (from an annotation). */
+  const showCommit = useCallback((hash: string, file?: string) => {
+    setGitLogRequest({ hash, file, nonce: Date.now() });
     setBottomTab('git');
     setBottomOpen(true);
   }, []);
@@ -668,6 +817,8 @@ export function useWorkspace(backend: Backend) {
   const [packages, setPackages] = useState<Package[]>([]);
   const [outdated, setOutdated] = useState<Record<string, string> | null>(null);
   const [composerBusy, setComposerBusy] = useState<string | null>(null);
+  /** Whether the project root has a composer.json (the Composer actions need one). */
+  const [hasComposer, setHasComposer] = useState(false);
 
   const checkOutdated = useCallback(async () => {
     setComposerBusy('Checking for updates…');
@@ -797,12 +948,9 @@ export function useWorkspace(backend: Backend) {
       }
     }
     if (!spec) {
+      // Optional: go to definition, find usages, completion and problems work without one (the
+      // Rust index and Mago). The status bar says how to add one; no notification.
       setLspStatus({ state: 'missing' });
-      notify({
-        title: 'No PHP language server found',
-        body: 'Install one to get go to definition, find usages and rename: cargo install phpantom_lsp',
-        tone: 'warning',
-      });
       return;
     }
 
@@ -873,8 +1021,6 @@ export function useWorkspace(backend: Backend) {
   }, [backend]);
 
   // ── File watcher: changes made outside PHPBlitz ───────────────
-  const childrenRef = useRef(children);
-  childrenRef.current = children;
   const gitTimer = useRef<number>();
   const vendorTimer = useRef<number>();
   const problemsTimer = useRef<number>();
@@ -949,6 +1095,10 @@ export function useWorkspace(backend: Backend) {
         const name = baseName(path);
         const open = path in liveText.current;
         if (!c.exists) {
+          if (path === `${backend.root}/composer.json`) {
+            setHasComposer(false);
+            setOutdated(null);
+          }
           if (path.endsWith('.php')) {
             if (symbols.rust) indexRemoved.push(path);
             else phpIndex.remove(path);
@@ -1001,6 +1151,7 @@ export function useWorkspace(backend: Backend) {
           indexChanged = true;
         }
         if (name === 'mago.toml' && path === `${backend.root}/mago.toml`) reanalyzeRef.current?.();
+        if (path === `${backend.root}/composer.json`) setHasComposer(true);
         if (name === 'composer.json' || name === 'composer.lock') backend.packages().then(setPackages).catch(() => {});
       }
       if (watched.length) lspRef.current?.notify('workspace/didChangeWatchedFiles', { changes: watched });
@@ -1061,7 +1212,25 @@ export function useWorkspace(backend: Backend) {
       if (stopped) u();
       else unlisten = u;
     });
-    invoke('watch_start', { root: backend.root }).catch((e) =>
+    perf
+      .time('File watcher', invoke<{ watched: number; polled: number; limit: number | null; reason: string | null }>('watch_start', { root: backend.root }), (s) =>
+        `${s.watched.toLocaleString()} folders watched` + (s.polled ? `, ${s.polled.toLocaleString()} polled` : '') + (s.limit !== null ? ` (limit ${s.limit.toLocaleString()})` : ''),
+      )
+      .then((s) => {
+        if (!s.polled) return;
+        // Linux: the inotify limit was reached. Those folders are polled (changes show within seconds).
+        const command = 'echo fs.inotify.max_user_watches=524288 | sudo tee /etc/sysctl.d/60-phpblitz.conf && sudo sysctl --system';
+        const inotify = s.limit !== null;
+        notify({
+          title: 'External file changes sync may be slow',
+          body:
+            `${s.polled.toLocaleString()} ${s.polled === 1 ? 'folder is' : 'folders are'} checked every few seconds instead of watched` +
+            (inotify ? `: the system's file watch limit (${s.limit!.toLocaleString()}) is too low for this project. To raise it, run:\n${command}\nthen reopen the project.` : ` (${s.reason ?? 'the file watcher is unavailable'}).`),
+          tone: 'warning',
+          action: inotify ? { label: 'Copy command', run: () => void navigator.clipboard.writeText(command) } : undefined,
+        });
+      })
+      .catch((e) =>
       notify({ title: 'File watching is off', body: `Changes made outside PHPBlitz won't show until you reopen the project. ${e}`, tone: 'warning' }),
     );
     return () => {
@@ -1157,7 +1326,18 @@ export function useWorkspace(backend: Backend) {
       const parent = path.slice(0, path.lastIndexOf('/'));
       const to = `${parent}/${newName}`;
       let classNote = '';
-      if (renameClass && lspRef.current?.running) {
+      // The class and its usages: from the symbol index (fast), else the language server.
+      if (renameClass && symbols.rust && !lspRef.current?.running) {
+        const text = liveText.current[path] ?? (await backend.readFile(path));
+        const ns = text.match(/^\s*namespace\s+([\w\\]+)\s*;/m)?.[1];
+        const context = { backend, liveTextOf: (p: string) => liveText.current[p], dirty: dirtyRef.current };
+        const plan = await planForTarget(context, { kind: 'class', name: ns ? `${ns}\\${renameClass.from}` : renameClass.from });
+        if (plan.error) notify({ title: `Class ${renameClass.from} was not renamed`, body: plan.error, tone: 'warning' });
+        else {
+          await applyFileEdits(new Map([...renameEdits(plan, false)].map(([p, edits]) => [p, edits.map((e) => ({ ...e, text: renameClass.to }))])));
+          classNote = ` and class ${renameClass.from} → ${renameClass.to} (${plan.usages.length} usages)`;
+        }
+      } else if (renameClass && lspRef.current?.running) {
         try {
           const text = liveText.current[path] ?? (await backend.readFile(path));
           const lines = text.split('\n');
@@ -1174,6 +1354,7 @@ export function useWorkspace(backend: Backend) {
         }
       }
       await backend.renamePath(path, to);
+      bookmarks.renamePath(path, to);
       transferOpenFiles(path, to);
       if (dirtyRef.current.has(path) || (to in liveText.current && liveText.current[to] !== savedText.current[to])) await save(to);
       if (backend.kind === 'sample') await reindexMoved(path, to);
@@ -1181,7 +1362,7 @@ export function useWorkspace(backend: Backend) {
       setStatus(`Renamed ${baseName(path)} → ${newName}${classNote}`);
       return to;
     },
-    [backend, notify, transferOpenFiles, save, reindexMoved, afterTreeChange],
+    [backend, notify, transferOpenFiles, save, reindexMoved, afterTreeChange, applyFileEdits],
   );
 
   /** Deletes to the Recycle Bin; open editors for those files are closed. */
@@ -1266,30 +1447,70 @@ export function useWorkspace(backend: Backend) {
   );
 
   // ── Mago project analysis ─────────────────────────────────────
+  /** `composer install` in the terminal; vendor/ appearing re-analyzes the project. */
+  const composerInstall = useCallback(() => {
+    setBottomTab('terminal');
+    setBottomOpen(true);
+    void terminals.run('composer install', backend.root);
+  }, [backend]);
+
+  /**
+   * After the declarations scan (phase 1): checks the open files right away, then analyzes the
+   * whole project in the background (phase 2), like IntelliJ's "dumb mode" then smart mode.
+   */
+  const analyzeProject = useCallback(
+    async (scanned: MagoSummary) => {
+      setMagoStatus({ state: 'analyzing', summary: scanned });
+      for (const [path, text] of Object.entries(liveText.current)) checkFile(path, text);
+      if (scanned.needsInstall) {
+        notify({
+          title: 'Install dependencies to turn on type checking',
+          body: "composer.json lists packages, but vendor/ is missing, so framework and library classes are unknown and type checking would only report noise. Syntax errors and code style are still checked.",
+          tone: 'warning',
+          action: { label: 'Run composer install', run: composerInstall },
+        });
+      }
+      try {
+        const summary = await perf.time('Mago: whole-project analysis', magoAnalyze(), (s) =>
+          s ? `${s.issues.toLocaleString()} errors and warnings` + (s.hidden ? `, ${s.hidden.toLocaleString()} held back (no vendor/)` : '') : 'replaced by a newer run',
+        );
+        if (!summary) return; // the project was reloaded meanwhile: that run reports instead
+        setMagoStatus({ state: 'ready', summary });
+        if (!summary.needsInstall) {
+          const rules = summary.integrations.length ? ` · ${summary.integrations.join(', ')} rules` : '';
+          notify({
+            title: 'Mago analysis finished',
+            body:
+              `${summary.files.toLocaleString()} PHP files analyzed in ${(summary.millis / 1000).toFixed(1)} s · PHP ${summary.phpVersion}${rules}. ` +
+              `${summary.issues.toLocaleString()} errors and warnings found.`,
+            tone: 'success',
+            action: summary.issues ? { label: 'Show problems', run: () => showBottom('problems') } : undefined,
+          });
+        }
+        // Open files: now checked against the analyzed project (cross-file results).
+        for (const [path, text] of Object.entries(liveText.current)) checkFile(path, text);
+        refreshProjectProblems();
+      } catch (e) {
+        setMagoStatus({ state: 'error', message: String(e) });
+        notify({ title: 'Mago could not analyze the project', body: String(e), tone: 'error' });
+      }
+    },
+    [notify, checkFile, refreshProjectProblems, showBottom, composerInstall],
+  );
+
   const openWithMago = useCallback(async () => {
     if (!magoAvailable || backend.kind !== 'disk') return;
-    setMagoStatus({ state: 'analyzing' });
+    setMagoStatus((s) => ({ state: 'analyzing', summary: s.summary }));
+    let scanned: MagoSummary;
     try {
-      const summary = await magoOpen(backend.root, dirMarks.excludedFolders());
-      setMagoStatus({ state: 'ready', summary });
-      const rules = summary.integrations.length ? ` · ${summary.integrations.join(', ')} rules` : '';
-      notify({
-        title: 'Mago analysis finished',
-        body:
-          `${summary.files.toLocaleString()} PHP files analyzed in ${(summary.millis / 1000).toFixed(1)} s · PHP ${summary.phpVersion}${rules}. ` +
-          `${summary.issues.toLocaleString()} problems found.` +
-          (summary.vendor ? '' : ' Run composer install so framework classes are known.'),
-        tone: summary.vendor ? 'success' : 'warning',
-        action: summary.issues ? { label: 'Show problems', run: () => showBottom('problems') } : undefined,
-      });
-      // Files opened while the project was loading: check them against the full project.
-      for (const [path, text] of Object.entries(liveText.current)) checkFile(path, text);
-      refreshProjectProblems();
+      scanned = await perf.time('Mago: read files and declarations', magoOpen(backend.root, dirMarks.excludedFolders()), (s) => `${s.files.toLocaleString()} project files, PHP ${s.phpVersion}`);
     } catch (e) {
       setMagoStatus({ state: 'error', message: String(e) });
       notify({ title: 'Mago could not analyze the project', body: String(e), tone: 'error' });
+      return;
     }
-  }, [backend, notify, checkFile, refreshProjectProblems]);
+    await analyzeProject(scanned);
+  }, [backend, notify, analyzeProject]);
 
   reanalyzeRef.current = openWithMago;
 
@@ -1369,12 +1590,10 @@ export function useWorkspace(backend: Backend) {
 
   const afterConfigChange = useCallback(
     (summary: MagoSummary) => {
-      setMagoStatus({ state: 'ready', summary });
-      for (const [path, text] of Object.entries(liveText.current)) checkFile(path, text);
-      refreshProjectProblems();
       loadDir(backend.root);
+      void analyzeProject(summary);
     },
-    [backend, checkFile, refreshProjectProblems, loadDir],
+    [backend, analyzeProject, loadDir],
   );
 
   const openMagoConfig = useCallback(async () => {
@@ -1427,33 +1646,112 @@ export function useWorkspace(backend: Backend) {
 
   // ── Find usages ───────────────────────────────────────────────
   const [usages, setUsages] = useState<{ name: string; items: Usage[]; loading: boolean; error?: string } | null>(null);
+  /**
+   * Usages of what is at a position: from the language server when one runs, else the Rust index.
+   * `vendor`: also search Composer packages (Project and Libraries).
+   */
+  const collectUsages = useCallback(
+    async (model: monaco.editor.ITextModel, position: monaco.IPosition, vendor = false): Promise<UsageSearch> => {
+      const word = model.getWordAtPosition(position)?.word ?? '';
+      if (lspRef.current?.running) {
+        const found = await lspFindUsages(model, position);
+        return { name: found?.name || word, title: found?.name || word, kind: '', container: '', items: found?.usages ?? [], target: null };
+      }
+      if (!symbols.rust) throw new Error('Find Usages needs the desktop app (or a language server).');
+      const target = targetAt(model, position);
+      if (!target) throw new Error('Put the caret on a class, method, property, constant or function.');
+      // Unsaved editor texts are searched as they are.
+      const overrides: Record<string, string> = {};
+      for (const p of dirtyRef.current) if (liveText.current[p] !== undefined) overrides[p] = liveText.current[p];
+      const found = await indexFindUsages(target, overrides, vendor);
+      return { name: found.name, title: found.title, kind: found.kind, container: found.container, items: found.items, target };
+    },
+    [],
+  );
+
+  /** Find Usages (Alt+F7): results in the Find tool window. */
   const findUsagesAt = useCallback(
     async (model: monaco.editor.ITextModel, position: monaco.IPosition) => {
       const name = model.getWordAtPosition(position)?.word ?? '';
-      if (!lspRef.current?.running) {
-        notify({ title: 'Find Usages needs a language server', body: 'Install PHPantom: cargo install phpantom_lsp', tone: 'warning' });
-        return;
-      }
       setUsages({ name, items: [], loading: true });
       showBottom('usages');
       try {
-        const found = await lspFindUsages(model, position);
-        setUsages({ name: found?.name || name, items: found?.usages ?? [], loading: false });
+        const found = await collectUsages(model, position);
+        setUsages({ name: found.name, items: found.items, loading: false });
       } catch (e) {
-        setUsages({ name, items: [], loading: false, error: String(e) });
+        setUsages({ name, items: [], loading: false, error: String(e instanceof Error ? e.message : e) });
       }
     },
-    [notify, showBottom],
+    [collectUsages, showBottom],
   );
+
+  /** Show Usages (Ctrl+Alt+F7, a "N usages" lens): PhpStorm's popup at the code. One usage: jump there. */
+  const [usagesPopup, setUsagesPopup] = useState<UsagesPopupState | null>(null);
+  const showUsagesAt = useCallback(
+    async (model: monaco.editor.ITextModel, position: monaco.IPosition, anchor: { x: number; y: number }) => {
+      const name = model.getWordAtPosition(position)?.word ?? '';
+      const request = { model, position, anchor };
+      setUsagesPopup({ request, name, title: name, kind: '', container: '', items: [], loading: true, vendor: false });
+      try {
+        const found = await collectUsages(model, position);
+        if (found.items.length === 1 && !found.items[0].dynamic) {
+          setUsagesPopup(null);
+          const u = found.items[0];
+          openFile(u.path, { line: u.line, column: u.column });
+          setStatus(`Only one usage of ${found.name}`);
+          return;
+        }
+        setUsagesPopup({ request, ...found, loading: false, vendor: false });
+      } catch (e) {
+        setUsagesPopup({ request, name, title: name, kind: '', container: '', items: [], loading: false, vendor: false, error: String(e instanceof Error ? e.message : e) });
+      }
+    },
+    [collectUsages, openFile],
+  );
+  /** The popup's scope: Project Files, or Project and Libraries (vendor). */
+  const setUsagesScope = useCallback(
+    async (vendor: boolean) => {
+      const p = usagesPopup;
+      if (!p) return;
+      setUsagesPopup({ ...p, vendor, loading: true });
+      try {
+        const found = await collectUsages(p.request.model, p.request.position, vendor);
+        setUsagesPopup((cur) => (cur && cur.request === p.request ? { ...cur, ...found, loading: false, vendor } : cur));
+      } catch (e) {
+        setUsagesPopup((cur) => (cur ? { ...cur, loading: false, error: String(e) } : cur));
+      }
+    },
+    [usagesPopup, collectUsages],
+  );
+  /** The popup's results in the Find tool window. */
+  const usagesToToolWindow = useCallback(() => {
+    const p = usagesPopup;
+    if (!p) return;
+    setUsages({ name: p.name, items: p.items, loading: false });
+    setUsagesPopup(null);
+    showBottom('usages');
+  }, [usagesPopup, showBottom]);
+
+  // Go to Definition into another file (no language server): open it in a tab.
+  useEffect(() => {
+    setDefinitionOpener((path, line, column) => openFile(path, { line, column }));
+    return () => setDefinitionOpener(null);
+  }, [openFile]);
 
   // ── Startup ───────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
     phpIndex.clear();
-    loadDir(backend.root);
-    refreshGit();
-    backend.packages().then((p) => !cancelled && setPackages(p));
-    backend.phpVersion().then((v) => {
+    bookmarks.open(backend.root);
+    void perf.time('Project tree (top folder)', loadDir(backend.root));
+    void perf.time('Git status', refreshGit());
+    void perf.time('Composer packages', backend.packages(), (p) => `${p.length} packages`).then((p) => !cancelled && setPackages(p), () => {});
+    setHasComposer(false);
+    backend.readFile(`${backend.root}/composer.json`).then(
+      () => !cancelled && setHasComposer(true),
+      () => {},
+    );
+    perf.time('PHP version', backend.phpVersion(), (v) => v || 'PHP not found').then((v) => {
       if (cancelled) return;
       setPhpVersion(v);
       if (!v) {
@@ -1469,14 +1767,16 @@ export function useWorkspace(backend: Backend) {
       const started = performance.now();
       // Let the first files the user opens come first.
       await lowPriority();
-      const all = await backend.listFiles().catch(() => [] as string[]);
+      const all = await perf.time('File list', backend.listFiles().catch(() => [] as string[]), (l) => `${l.length.toLocaleString()} files`);
       if (cancelled) return;
       setFiles(all);
       if (isTauri && backend.kind === 'disk') {
         // Mago-parsed project + vendor, cached on disk: reopening only re-parses what changed.
         let stats;
         try {
-          stats = await symbols.open(backend.root, dirMarks.excludedFolders());
+          stats = await perf.time('Symbol index', symbols.open(backend.root, dirMarks.excludedFolders()), (s) =>
+            s ? `${s.files.toLocaleString()} PHP files: ${s.parsed.toLocaleString()} parsed, ${(s.files - s.parsed).toLocaleString()} from the cache` : '',
+          );
         } catch (e) {
           if (!cancelled) notify({ title: 'Indexing failed', body: String(e), tone: 'error' });
           return;
@@ -1575,7 +1875,7 @@ export function useWorkspace(backend: Backend) {
     // git
     git, gitLoaded, refreshGit, commit, gitRepo, runGit, rollbackFiles, gitLogRequest, showHistory, showCommit, annotated, toggleAnnotate, openDiff, gitDialog, setGitDialog,
     // composer
-    packages, outdated, composerBusy, checkOutdated, updatePackage,
+    packages, outdated, composerBusy, checkOutdated, updatePackage, hasComposer,
     // run
     tests, runTests, terminal, runCommand, clearTerminal: () => setTerminal([]), terminalCwd,
     openTerminalAt: (dir: string) => {
@@ -1587,9 +1887,9 @@ export function useWorkspace(backend: Backend) {
     },
     renameItem, deleteItems, fileClipboard, setFileClipboard, pasteInto, reloadItem,
     // misc
-    lspStatus, restartLanguageServer: startLanguageServer, usages, findUsagesAt,
-    magoStatus, reanalyzeProject: openWithMago, projectProblems, projectProblemsTotal, refreshProjectProblems,
-    applyFix, suppressProblem, disableMagoRule, openMagoConfig,
+    lspStatus, restartLanguageServer: startLanguageServer, usages, findUsagesAt, usagesPopup, showUsagesAt, closeUsagesPopup: () => setUsagesPopup(null), setUsagesScope, usagesToToolWindow,
+    magoStatus, reanalyzeProject: openWithMago, projectProblems, projectProblemsTotal, projectProblemsHidden, refreshProjectProblems, composerInstall,
+    applyFix, suppressProblem, disableMagoRule, openMagoConfig, applyFileEdits, prefetchFile, editorReady,
     notices, notify, dismissNotice, aiMessages, askAi, listening, setListening, phpVersion, status, setStatus,
   };
 }

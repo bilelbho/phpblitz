@@ -9,13 +9,8 @@ import { tabLabel, terminals, useTerminals, type Session, type ShellSpec } from 
 import { ContextMenu, type ContextItem } from './ContextMenu';
 import { Icon } from './Icon';
 import { useTabDrag } from './useTabDrag';
+import { terminalStartDir } from '../terminal/startDir';
 
-/** Folder new tabs start in: Settings ▸ Start directory, else the project root. */
-export function terminalStartDir(ws: Workspace): string {
-  const configured = getSettings().terminal.startDir.trim();
-  if (configured) return configured;
-  return ws.backend.kind === 'disk' ? ws.backend.root : '';
-}
 
 type Zone = 'left' | 'right' | 'top' | 'bottom';
 

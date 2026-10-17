@@ -2,17 +2,29 @@
 //!
 //! - **Lint** (`mago_check`): style and correctness rules for one file, straight from
 //!   the editor's text. Needs no project scan, so it also works for unsaved buffers.
-//! - **Analysis** (`mago_open`, `mago_check`): PHPStan-like type checking over the whole
-//!   project, kept up to date incrementally: an edit re-analyzes only what it affects.
+//! - **Analysis**: PHPStan-like type checking, in two phases like IntelliJ's indexing:
+//!   1. `mago_open` scans the project's declarations only (fast). From then on `mago_check`
+//!      analyzes the files the user opens against them.
+//!   2. `mago_analyze` analyzes every file in the background, without holding the engine, so
+//!      open files keep being checked meanwhile. After it, edits re-analyze only what they affect.
+//! - **No vendor/**: when composer.json has dependencies that are not installed, type analysis is
+//!   mostly noise (every framework class is unknown, and so is everything typed with one: a Kimai
+//!   checkout showed 12,700 problems). Its problems are held back and counted until `composer
+//!   install` has run; syntax errors and lint still show.
 //! - **Formatting** (`mago_format`).
 //!
 //! Framework rules (Laravel, Symfony, PHPUnit, …) and the PHP version come from composer.json.
 
 use std::borrow::Cow;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use mago_allocator::LocalArena;
+use mago_analyzer::analysis_result::AnalysisResult;
+use mago_analyzer::Analyzer;
+use mago_codex::reference::SymbolReferences;
 use mago_database::file::{File, FileId, FileType};
 use mago_database::{Database, DatabaseReader};
 use mago_linter::integration::{Integration, IntegrationSet};
@@ -21,7 +33,10 @@ use mago_orchestrator::service::incremental_analysis::IncrementalAnalysisService
 use mago_orchestrator::service::lint::LintMode;
 use mago_orchestrator::{Orchestrator, OrchestratorConfiguration};
 use mago_php_version::PHPVersion;
+use mago_names::resolver::NameResolver;
 use mago_reporting::{AnnotationKind, Issue, IssueCollection, Level};
+use mago_semantics::SemanticsChecker;
+use mago_syntax::parser::parse_file_with_settings;
 use serde::Serialize;
 
 /// PHP's built-in functions, classes and extensions, encoded by build.rs.
@@ -43,16 +58,29 @@ const INTEGRATIONS: &[(&str, Integration, &str)] = &[
     ("magento/framework", Integration::Magento, "Magento"),
 ];
 
+/// Tells engines apart, so a background analysis never lands in a project opened after it started.
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+
 struct Engine {
     /// Project root with forward slashes, as the UI sends paths.
     root: String,
+    generation: u64,
     orchestrator: &'static Orchestrator<'static>,
     database: Database<'static>,
+    /// Declarations only until the full analysis has run (`analyzed`), then everything.
     analysis: IncrementalAnalysisService,
+    analyzed: bool,
+    /// Files changed since the background analysis took its snapshot: re-analyzed when it lands.
+    pending: Vec<FileId>,
+    pending_deleted: bool,
+    settings: mago_analyzer::settings::Settings,
     /// Analyzer checks turned off in mago.toml (`[analyzer] ignore`).
     analyzer_ignore: Vec<String>,
     /// Folders marked Excluded in the project tree (relative), kept for reloads.
     excludes: Vec<String>,
+    /// Dependencies are declared in composer.json but vendor/ is missing.
+    needs_install: bool,
+    summary: ProjectSummary,
 }
 
 /// The engine is shared with blocking worker threads: Mago's work never runs on the main thread
@@ -104,6 +132,10 @@ fn open_engine(root: &str, excludes: &[String]) -> Result<(Engine, ProjectSummar
 #[derive(Serialize)]
 pub struct ProjectIssues {
     total: usize,
+    /// Problems about unknown symbols hidden because vendor/ is missing.
+    hidden: usize,
+    /// False while only open files have been analyzed.
+    analyzed: bool,
     files: Vec<FileIssues>,
 }
 
@@ -144,15 +176,22 @@ pub struct FixEdit {
     text: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectSummary {
     files: usize,
+    /// Problems in the whole project (0 until `analyzed`).
     issues: usize,
+    /// Problems hidden because vendor/ is missing.
+    hidden: usize,
     millis: u64,
+    /// False after `mago_open` (declarations scanned), true after `mago_analyze`.
+    analyzed: bool,
     php_version: String,
     integrations: Vec<String>,
     vendor: bool,
+    /// composer.json declares dependencies but vendor/ is missing: `composer install` is needed.
+    needs_install: bool,
     /// Path of mago.toml when the project has one.
     config_file: Option<String>,
     /// mago.toml could not be read; defaults were used.
@@ -171,6 +210,7 @@ struct ProjectInfo {
     integrations: IntegrationSet,
     names: Vec<String>,
     vendor: bool,
+    needs_install: bool,
     /// Linter rule settings from mago.toml (`[linter.rules]`).
     rules: Option<mago_linter::settings::RulesSettings>,
     analyzer_ignore: Vec<String>,
@@ -185,6 +225,7 @@ impl ProjectInfo {
             integrations: IntegrationSet::empty(),
             names: Vec::new(),
             vendor: false,
+            needs_install: false,
             rules: None,
             analyzer_ignore: Vec::new(),
             config_file: false,
@@ -202,6 +243,8 @@ fn project_info(root: &Path) -> ProjectInfo {
             .filter_map(|k| json.get(*k).and_then(|v| v.as_object()))
             .flat_map(|o| o.keys().cloned())
             .collect();
+        // Packages are "vendor/name"; `php` and `ext-*` are not installed by Composer.
+        info.needs_install = !info.vendor && packages.iter().any(|p| p.contains('/'));
         for (package, integration, name) in INTEGRATIONS {
             if packages.iter().any(|p| p == package) {
                 info.integrations.insert(*integration);
@@ -270,7 +313,8 @@ fn lowest_php_version(constraint: &str) -> Option<PHPVersion> {
 
 fn configuration(root: &str, info: &ProjectInfo, excluded: &[String]) -> OrchestratorConfiguration<'static> {
     // The configuration lives as long as the leaked orchestrator that borrows it.
-    let mut excludes: Vec<&'static str> = vec!["node_modules", "storage", "bootstrap/cache"];
+    // Generated code and caches (Laravel, Symfony), excluded like PhpStorm does.
+    let mut excludes: Vec<&'static str> = vec!["node_modules", "storage", "bootstrap/cache", "var/cache", "var/log", ".blitz"];
     excludes.extend(excluded.iter().filter(|e| !e.is_empty() && !e.contains("..")).map(|e| &*Box::leak(e.clone().into_boxed_str())));
     let mut linter_settings = mago_linter::settings::Settings::default();
     linter_settings.php_version = info.php;
@@ -278,8 +322,6 @@ fn configuration(root: &str, info: &ProjectInfo, excluded: &[String]) -> Orchest
     if let Some(rules) = &info.rules {
         linter_settings.rules = rules.clone();
     }
-    let mut analyzer_settings = mago_analyzer::settings::Settings::default();
-    analyzer_settings.version = info.php;
     OrchestratorConfiguration {
         php_version: info.php,
         paths: vec![root.to_string()],
@@ -290,7 +332,7 @@ fn configuration(root: &str, info: &ProjectInfo, excluded: &[String]) -> Orchest
         extensions: vec!["php"],
         glob: Default::default(),
         parser_settings: Default::default(),
-        analyzer_settings,
+        analyzer_settings: analyzer_settings(info),
         linter_settings,
         guard_settings: Default::default(),
         formatter_settings: Default::default(),
@@ -299,6 +341,12 @@ fn configuration(root: &str, info: &ProjectInfo, excluded: &[String]) -> Orchest
         use_progress_bars: false,
         use_colors: false,
     }
+}
+
+fn analyzer_settings(info: &ProjectInfo) -> mago_analyzer::settings::Settings {
+    let mut settings = mago_analyzer::settings::Settings::default();
+    settings.version = info.php;
+    settings
 }
 
 /// A process-wide orchestrator for files outside an opened project (sample project, formatting).
@@ -399,7 +447,7 @@ fn relative<'a>(root: &str, path: &'a str) -> Option<&'a str> {
 
 // ── Commands ──────────────────────────────────────────────────
 
-/// Loads a project and analyzes it fully. Later `mago_check` calls are incremental.
+/// Loads a project and scans its declarations (phase 1, fast). `mago_analyze` does the rest.
 #[tauri::command]
 pub async fn mago_open(state: tauri::State<'_, MagoState>, root: String, excludes: Option<Vec<String>>) -> Result<ProjectSummary, String> {
     let excludes = excludes.unwrap_or_default();
@@ -408,7 +456,35 @@ pub async fn mago_open(state: tauri::State<'_, MagoState>, root: String, exclude
     Ok(summary)
 }
 
+/// Analyzes the whole project (phase 2) without holding the engine: open files keep being checked
+/// meanwhile. Returns `None` when there was nothing to do or another project was opened meanwhile.
+#[tauri::command]
+pub async fn mago_analyze(state: tauri::State<'_, MagoState>) -> Result<Option<ProjectSummary>, String> {
+    let snapshot = state
+        .with(|slot| {
+            Ok(slot.as_mut().filter(|e| !e.analyzed).map(|e| {
+                e.pending.clear();
+                e.pending_deleted = false;
+                (e.generation, e.orchestrator, e.database.read_only())
+            }))
+        })
+        .await?;
+    let Some((generation, orchestrator, database)) = snapshot else { return Ok(None) };
+    let started = Instant::now();
+    let service = tauri::async_runtime::spawn_blocking(move || analysis_pool().install(|| Engine::analyze_all(orchestrator, database)))
+        .await
+        .map_err(|e| e.to_string())??;
+    let millis = started.elapsed().as_millis() as u64;
+    state
+        .with(move |slot| match slot.as_mut().filter(|e| e.generation == generation && !e.analyzed) {
+            Some(engine) => engine.finish(service, millis).map(Some),
+            None => Ok(None),
+        })
+        .await
+}
+
 impl Engine {
+    /// Phase 1: reads the project and scans its declarations (no function bodies).
     fn open(root: &str, excludes: &[String]) -> Result<(Engine, ProjectSummary), String> {
         let started = Instant::now();
         let root = root.trim_end_matches('/').to_string();
@@ -420,27 +496,105 @@ impl Engine {
         let prelude = mago_prelude::Prelude::decode(PRELUDE).map_err(|e| format!("Mago prelude: {e}"))?;
         let database = orchestrator.load_database(workspace, true, Some(prelude.database), None).map_err(|e| e.to_string())?;
         let mut analysis = orchestrator.get_incremental_analysis_service(database.read_only(), prelude.metadata, prelude.symbol_references);
-        let result = analysis.analyze().map_err(|e| e.to_string())?;
-        let ignored = |code: &Option<String>| code.as_ref().is_some_and(|c| info.analyzer_ignore.contains(c));
+        analysis.set_scan_only(true);
+        analysis.analyze_without_collecting().map_err(|e| e.to_string())?;
         let summary = ProjectSummary {
             files: database.read_only().files_with_type(FileType::Host).count(),
-            issues: result.issues.iter().filter(|i| !ignored(&i.code)).count(),
+            issues: 0,
+            hidden: 0,
             millis: started.elapsed().as_millis() as u64,
+            analyzed: false,
             php_version: info.php.to_string(),
             integrations: info.names.clone(),
             vendor: info.vendor,
+            needs_install: info.needs_install,
             config_file: info.config_file.then(|| format!("{root}/mago.toml")),
             config_error: info.config_error.clone(),
         };
-        Ok((Engine { root, orchestrator, database, analysis, analyzer_ignore: info.analyzer_ignore, excludes: excludes.to_vec() }, summary))
+        let engine = Engine {
+            root,
+            generation: GENERATION.fetch_add(1, Ordering::Relaxed) + 1,
+            orchestrator,
+            database,
+            analysis,
+            analyzed: false,
+            pending: Vec::new(),
+            pending_deleted: false,
+            settings: analyzer_settings(&info),
+            analyzer_ignore: info.analyzer_ignore,
+            excludes: excludes.to_vec(),
+            needs_install: info.needs_install,
+            summary: summary.clone(),
+        };
+        Ok((engine, summary))
     }
 
-    /// Drops analyzer findings turned off in mago.toml.
+    /// Phase 2, the slow part: a full analysis of a snapshot of the project.
+    fn analyze_all(orchestrator: &'static Orchestrator<'static>, database: mago_database::ReadDatabase) -> Result<IncrementalAnalysisService, String> {
+        let prelude = mago_prelude::Prelude::decode(PRELUDE).map_err(|e| format!("Mago prelude: {e}"))?;
+        let mut service = orchestrator.get_incremental_analysis_service(database, prelude.metadata, prelude.symbol_references);
+        service.analyze_without_collecting().map_err(|e| e.to_string())?;
+        Ok(service)
+    }
+
+    /// Takes the full analysis, catching up with files changed while it ran.
+    fn finish(&mut self, mut service: IncrementalAnalysisService, millis: u64) -> Result<ProjectSummary, String> {
+        if !self.pending.is_empty() || self.pending_deleted {
+            service.update_database(self.database.read_only());
+            let hint = if self.pending_deleted { None } else { Some(self.pending.as_slice()) };
+            service.analyze_incremental_without_collecting(hint).map_err(|e| e.to_string())?;
+        }
+        self.pending.clear();
+        self.pending_deleted = false;
+        self.analysis = service;
+        self.analyzed = true;
+        let issues = self.project_issues(0);
+        self.summary.issues = issues.total;
+        self.summary.hidden = issues.hidden;
+        self.summary.millis += millis;
+        self.summary.analyzed = true;
+        Ok(self.summary.clone())
+    }
+
+    #[cfg(test)]
+    fn open_analyzed(root: &str, excludes: &[String]) -> Result<(Engine, ProjectSummary), String> {
+        let (mut engine, _) = Engine::open(root, excludes)?;
+        let service = Engine::analyze_all(engine.orchestrator, engine.database.read_only())?;
+        let summary = engine.finish(service, 0)?;
+        Ok((engine, summary))
+    }
+
+    /// Drops analyzer findings turned off in mago.toml, and all of them while vendor/ is missing.
     fn keep(&self, d: &Diagnostic) -> bool {
-        d.source != "analysis" || !self.analyzer_ignore.contains(&d.code)
+        d.source != "analysis" || !(self.analyzer_ignore.contains(&d.code) || self.hidden(d))
     }
 
-    /// Lint + incremental analysis of one project file's current text.
+    /// Type analysis problems while vendor/ is missing.
+    fn hidden(&self, d: &Diagnostic) -> bool {
+        self.needs_install && d.source == "analysis"
+    }
+
+    /// Phase 1: analyzes one file against the declarations scanned so far.
+    fn analyze_file(&self, file: &File) -> IssueCollection {
+        let arena = LocalArena::new();
+        let program = parse_file_with_settings(&arena, file, Default::default());
+        let resolved = NameResolver::new(&arena).resolve(program);
+        let mut issues = IssueCollection::new();
+        for error in program.errors.iter() {
+            issues.push(Issue::from(error));
+        }
+        issues.extend(SemanticsChecker::new(self.settings.version).check(file, program, &resolved));
+        let registry = self.orchestrator.get_analyzer_plugin_registry();
+        let mut result = AnalysisResult::new(SymbolReferences::new());
+        let analyzer = Analyzer::new(&arena, file, &resolved, self.analysis.codebase(), &registry, self.settings.clone());
+        if let Err(e) = analyzer.analyze(program, &mut result) {
+            issues.push(Issue::error(format!("Analysis error: {e}")));
+        }
+        issues.extend(result.issues);
+        issues
+    }
+
+    /// Lint + analysis of one project file's current text (incremental once the project is analyzed).
     fn check(&mut self, path: &str, content: String) -> Result<Vec<Diagnostic>, String> {
         let rel = relative(&self.root, path).ok_or("file is outside the project")?.to_string();
         let id = FileId::new(rel.as_bytes());
@@ -456,10 +610,16 @@ impl Engine {
         let lint = self.orchestrator.get_lint_service(self.database.read_only());
         to_diagnostics(&file, &lint.lint_file(&file, LintMode::Full, None, false), "lint", &mut out);
 
+        // Declarations first (cheap in phase 1), so the file sees its own edits.
         self.analysis.update_database(self.database.read_only());
-        self.analysis.analyze_incremental(Some(&[id])).map_err(|e| e.to_string())?;
-        if let Some(issues) = self.analysis.get_file_diagnostics(&id) {
-            to_diagnostics(&file, issues, "analysis", &mut out);
+        self.analysis.analyze_incremental_without_collecting(Some(&[id])).map_err(|e| e.to_string())?;
+        if self.analyzed {
+            if let Some(issues) = self.analysis.get_file_diagnostics(&id) {
+                to_diagnostics(&file, issues, "analysis", &mut out);
+            }
+        } else {
+            self.pending.push(id);
+            to_diagnostics(&file, &self.analyze_file(&file), "analysis", &mut out);
         }
         out.retain(|d| self.keep(d));
         out.sort_by_key(|d| (d.line, d.column));
@@ -498,37 +658,46 @@ impl Engine {
         if !touched {
             return Ok(());
         }
+        if !self.analyzed {
+            self.pending.extend_from_slice(&ids);
+            self.pending_deleted |= deleted;
+        }
         self.analysis.update_database(self.database.read_only());
         // A deleted file can't be hashed: then let Mago compare everything.
         let hint = if deleted { None } else { Some(ids.as_slice()) };
-        self.analysis.analyze_incremental(hint).map_err(|e| e.to_string())?;
+        self.analysis.analyze_incremental_without_collecting(hint).map_err(|e| e.to_string())?;
         Ok(())
     }
 
+    /// The project's errors and warnings, at most `limit` of them (`total` and `hidden` count them
+    /// all). Weak warnings (`info`) are only shown in open files, like PhpStorm's Project Errors.
     fn project_issues(&self, limit: usize) -> ProjectIssues {
+        let mut result = ProjectIssues { total: 0, hidden: 0, analyzed: self.analyzed, files: Vec::new() };
+        if !self.analyzed {
+            return result;
+        }
         let db = self.database.read_only();
-        let mut out = Vec::new();
-        let mut total = 0;
         let mut sent = 0;
         for file in db.files_with_type(FileType::Host) {
             let Some(issues) = self.analysis.get_file_diagnostics(&file.id) else { continue };
             let mut diagnostics = Vec::new();
             to_diagnostics(&file, issues, "analysis", &mut diagnostics);
-            diagnostics.retain(|d| self.keep(d));
+            result.hidden += diagnostics.iter().filter(|d| self.hidden(d)).count();
+            diagnostics.retain(|d| d.severity != "info" && self.keep(d));
             if diagnostics.is_empty() {
                 continue;
             }
-            total += diagnostics.len();
+            result.total += diagnostics.len();
             if sent >= limit {
                 continue;
             }
             diagnostics.sort_by_key(|d| (d.line, d.column));
             diagnostics.truncate(limit - sent);
             sent += diagnostics.len();
-            out.push(FileIssues { path: format!("{}/{}", self.root, String::from_utf8_lossy(&file.name)), diagnostics });
+            result.files.push(FileIssues { path: format!("{}/{}", self.root, String::from_utf8_lossy(&file.name)), diagnostics });
         }
-        out.sort_by(|a, b| a.path.cmp(&b.path));
-        ProjectIssues { total, files: out }
+        result.files.sort_by(|a, b| a.path.cmp(&b.path));
+        result
     }
 }
 
@@ -576,7 +745,7 @@ pub async fn mago_sync(state: tauri::State<'_, MagoState>, changed: Vec<String>,
 #[tauri::command]
 pub async fn mago_project_issues(state: tauri::State<'_, MagoState>, limit: Option<usize>) -> Result<ProjectIssues, String> {
     let limit = limit.unwrap_or(5000);
-    state.with(move |slot| Ok(slot.as_ref().map(|e| e.project_issues(limit)).unwrap_or(ProjectIssues { total: 0, files: Vec::new() }))).await
+    state.with(move |slot| Ok(slot.as_ref().map(|e| e.project_issues(limit)).unwrap_or(ProjectIssues { total: 0, hidden: 0, analyzed: false, files: Vec::new() }))).await
 }
 
 /// Turns a rule off in the project's mago.toml, then reloads the project with it.
@@ -724,6 +893,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("phpblitz-mago-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("app")).unwrap();
+        std::fs::create_dir_all(dir.join("vendor")).unwrap();
         std::fs::write(dir.join("composer.json"), r#"{"require":{"php":"^8.2","laravel/framework":"^11.0"},"require-dev":{"phpunit/phpunit":"^11"}}"#).unwrap();
         std::fs::write(
             dir.join("app/Greeter.php"),
@@ -734,7 +904,7 @@ mod tests {
         std::fs::write(dir.join("app/Caller.php"), caller).unwrap();
         let root = crate::fs::norm(&dir);
 
-        let (mut engine, summary) = Engine::open(&root, &[]).expect("open project");
+        let (mut engine, summary) = Engine::open_analyzed(&root, &[]).expect("open project");
         assert_eq!(summary.files, 2);
         assert_eq!(summary.php_version, "8.2.0");
         assert_eq!(summary.integrations, vec!["Laravel", "PHPUnit"]);
@@ -788,6 +958,136 @@ mod tests {
         dir
     }
 
+    /// Phase 1 checks open files right away; edits made while phase 2 runs are caught up when it
+    /// lands. Without vendor/, type analysis is held back and counted; lint still shows.
+    #[test]
+    fn checks_open_files_before_the_full_analysis() {
+        let caller = r#"<?php
+
+declare(strict_types=1);
+
+namespace App;
+
+use Symfony\Component\HttpFoundation\Response;
+
+final class Caller
+{
+    public function run(Greeter $g): Response
+    {
+        $a = $b = $g->great();
+        return new Response($a . $b);
+    }
+}
+"#;
+        let dir = temp_project(
+            "mago-phases",
+            &[
+                ("composer.json", r#"{"require":{"php":"^8.2","ext-json":"*","symfony/framework-bundle":"^7.0"}}"#),
+                ("app/Greeter.php", "<?php
+
+namespace App;
+
+final class Greeter
+{
+    public function greet(): string
+    {
+        return 'hi';
+    }
+}
+"),
+                ("app/Caller.php", caller),
+            ],
+        );
+        let root = crate::fs::norm(&dir);
+        let path = format!("{root}/app/Caller.php");
+        let analysis = |found: &[Diagnostic]| found.iter().filter(|d| d.source == "analysis").map(|d| (d.line, d.code.clone())).collect::<Vec<_>>();
+
+        // No vendor/: lint shows, type analysis is held back.
+        let (mut engine, summary) = Engine::open(&root, &[]).unwrap();
+        assert!(summary.needs_install, "symfony is required but vendor/ is missing");
+        let found = engine.check(&path, caller.into()).unwrap();
+        assert!(found.iter().any(|d| d.code == "no-multi-assignments"), "lint still runs");
+        assert!(analysis(&found).is_empty(), "{:?}", analysis(&found));
+        let service = Engine::analyze_all(engine.orchestrator, engine.database.read_only()).unwrap();
+        let summary = engine.finish(service, 0).unwrap();
+        assert_eq!(summary.issues, 0);
+        assert!(summary.hidden >= 1, "held-back problems are counted");
+
+        // With vendor/ (installed): phase 1 analyzes the open file against the scanned declarations.
+        std::fs::create_dir_all(dir.join("vendor")).unwrap();
+        let (mut engine, summary) = Engine::open(&root, &[]).unwrap();
+        assert!(!summary.analyzed && !summary.needs_install);
+        assert!(!engine.project_issues(100).analyzed);
+        let found = engine.check(&path, caller.into()).unwrap();
+        assert!(analysis(&found).iter().any(|(line, code)| *line == 13 && code == "non-existent-method"), "great() is missing: {:?}", analysis(&found));
+
+        // Phase 2 snapshots the project; the user fixes the call meanwhile.
+        let snapshot = engine.database.read_only();
+        engine.pending.clear();
+        engine.check(&path, caller.replace("great", "greet")).unwrap();
+        let service = Engine::analyze_all(engine.orchestrator, snapshot).unwrap();
+        let summary = engine.finish(service, 0).unwrap();
+        assert!(summary.analyzed);
+        let issues = engine.project_issues(usize::MAX);
+        let all = issues.files.iter().flat_map(|f| f.diagnostics.iter().map(|d| (d.line, d.code.clone()))).collect::<Vec<_>>();
+        assert!(!all.iter().any(|(_, code)| code == "non-existent-method"), "the edit made during phase 2 counts: {all:?}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `PHPBLITZ_MAGO_BENCH=<project root> cargo test --release mago_bench -- --nocapture`
+    #[test]
+    fn mago_bench() {
+        let Ok(root) = std::env::var("PHPBLITZ_MAGO_BENCH") else { return };
+        // Working set of this process, in MB (Windows; for the benchmark only).
+        let mem = || {
+            let out = std::process::Command::new("powershell").args(["-NoProfile", "-Command", &format!("(Get-Process -Id {}).WorkingSet64", std::process::id())]).output().ok()?;
+            String::from_utf8_lossy(&out.stdout).trim().parse::<u64>().ok().map(|b| b / 1_048_576)
+        };
+        eprintln!("memory before: {:?} MB", mem());
+        if std::env::var("PHPBLITZ_MAGO_STEPS").is_ok() {
+            let prelude = mago_prelude::Prelude::decode(PRELUDE).unwrap();
+            eprintln!("  step: prelude decoded: {:?} MB ({} KB encoded)", mem(), PRELUDE.len() / 1024);
+            let root_static: &'static str = Box::leak(root.clone().into_boxed_str());
+            let info = project_info(Path::new(root_static));
+            let orchestrator: &'static Orchestrator<'static> = Box::leak(Box::new(Orchestrator::new(configuration(root_static, &info, &[]))));
+            let database = orchestrator.load_database(Path::new(root_static), true, Some(prelude.database), None).unwrap();
+            let bytes: usize = database.read_only().files().map(|f| f.contents.len()).sum();
+            eprintln!("  step: database loaded: {:?} MB ({} files, {} MB of source)", mem(), database.read_only().files().count(), bytes / 1_048_576);
+            let mut analysis = orchestrator.get_incremental_analysis_service(database.read_only(), prelude.metadata, prelude.symbol_references);
+            analysis.set_scan_only(true);
+            analysis.analyze_without_collecting().unwrap();
+            eprintln!("  step: declarations scanned: {:?} MB", mem());
+            return;
+        }
+        let (mut engine, scanned) = Engine::open(&root, &[]).unwrap();
+        eprintln!("memory after phase 1: {:?} MB", mem());
+        eprintln!("phase 1 (declarations): {} files in {} ms, needs_install={}", scanned.files, scanned.millis, scanned.needs_install);
+        let started = Instant::now();
+        let service = Engine::analyze_all(engine.orchestrator, engine.database.read_only()).unwrap();
+        let summary = engine.finish(service, 0).unwrap();
+        eprintln!("memory after phase 2: {:?} MB", mem());
+        eprintln!("phase 2 (everything): {} ms, {} problems shown, {} hidden", started.elapsed().as_millis(), summary.issues, summary.hidden);
+        let mut by_code = std::collections::BTreeMap::<String, usize>::new();
+        for f in engine.project_issues(usize::MAX).files {
+            for d in f.diagnostics {
+                *by_code.entry(format!("{} {}", d.severity, d.code)).or_default() += 1;
+            }
+        }
+        let mut top: Vec<_> = by_code.into_iter().collect();
+        top.sort_by(|a, b| b.1.cmp(&a.1));
+        for (code, n) in top.iter().take(15) {
+            eprintln!("  {n:>6}  {code}");
+        }
+        if let Ok(code) = std::env::var("PHPBLITZ_MAGO_SAMPLE") {
+            for f in engine.project_issues(usize::MAX).files {
+                for d in f.diagnostics.iter().filter(|d| d.code == code).take(2) {
+                    eprintln!("  {}:{} {}", f.path, d.line, d.message);
+                }
+            }
+        }
+    }
+
     #[test]
     fn skips_excluded_folders() {
         let dir = temp_project(
@@ -795,8 +1095,8 @@ mod tests {
             &[("app/Mine.php", "<?php\n\nnamespace App;\n\nfinal class Mine {}\n"), ("plugins/big/Theirs.php", "<?php\n\nfinal class Theirs {}\n"), ("plugins/big/More.php", "<?php\n\nfinal class More {}\n")],
         );
         let root = crate::fs::norm(&dir);
-        let (_, all) = Engine::open(&root, &[]).unwrap();
-        let (_, mine) = Engine::open(&root, &["plugins".to_string()]).unwrap();
+        let (_, all) = Engine::open_analyzed(&root, &[]).unwrap();
+        let (_, mine) = Engine::open_analyzed(&root, &["plugins".to_string()]).unwrap();
         assert_eq!(all.files, 3);
         assert_eq!(mine.files, 1, "plugins/ is excluded");
         let _ = std::fs::remove_dir_all(&dir);
@@ -820,6 +1120,8 @@ mod tests {
             "config",
             &[
                 ("composer.json", r#"{"require":{"php":"^8.3","laravel/framework":"^11"},"autoload":{"psr-4":{"App\\":"app/"}},"autoload-dev":{"psr-4":{"Tests\\":"tests/"}}}"#),
+                ("vendor/autoload.php", "<?php
+"),
                 ("app/Caller.php", caller),
                 ("app/Missing.php", "<?php\n\ndeclare(strict_types=1);\n\nnamespace App;\n\nfinal class Missing\n{\n    public function run(Caller $c): void\n    {\n        $c->nope();\n    }\n}\n"),
             ],
@@ -827,7 +1129,7 @@ mod tests {
         let root = crate::fs::norm(&dir);
         let caller_path = format!("{root}/app/Caller.php");
         let missing_path = format!("{root}/app/Missing.php");
-        let (mut engine, _) = Engine::open(&root, &[]).unwrap();
+        let (mut engine, _) = Engine::open_analyzed(&root, &[]).unwrap();
 
         // 1. The lint warning shows, and a comment above the line hides it.
         let before = engine.check(&caller_path, caller.into()).unwrap();
@@ -857,7 +1159,7 @@ mod tests {
         assert_eq!(toml_text.matches(&format!("\"{analysis_code}\"")).count(), 1, "{toml_text}");
         assert!(toml_text.contains("# rule-name = { enabled = false }"), "comments are kept: {toml_text}");
 
-        let (mut engine, summary) = Engine::open(&root, &[]).unwrap();
+        let (mut engine, summary) = Engine::open_analyzed(&root, &[]).unwrap();
         assert!(summary.config_error.is_none(), "{:?}", summary.config_error);
         assert_eq!(summary.integrations, vec!["Laravel"]);
         let caller_now = engine.check(&caller_path, caller.into()).unwrap();

@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 const MAX_MATCHES: usize = 2000;
 const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
 const PREVIEW_CHARS: usize = 160;
-const SKIPPED_DIRS: [&str; 4] = ["vendor", "node_modules", "storage", "target"];
+const SKIPPED_DIRS: [&str; 5] = ["vendor", "node_modules", "storage", "target", ".blitz"];
 
 /// Bumped by every search; a running search stops as soon as a newer one starts.
 static GENERATION: AtomicU64 = AtomicU64::new(0);

@@ -5,6 +5,7 @@
 import { useSyncExternalStore } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from './platform';
+import { projectStorage } from './projectStorage';
 
 export type InterpreterKind = 'local' | 'docker' | 'compose' | 'ssh';
 
@@ -115,7 +116,7 @@ export function saveInterpreters(list: Interpreter[]) {
 
 export function projectPhp(root: string): ProjectPhp {
   try {
-    return { ...DEFAULT_PROJECT, ...JSON.parse(localStorage.getItem(projectKey(root)) ?? '{}') };
+    return { ...DEFAULT_PROJECT, ...JSON.parse(projectStorage.getItem(projectKey(root)) ?? '{}') };
   } catch {
     return DEFAULT_PROJECT;
   }
@@ -123,7 +124,7 @@ export function projectPhp(root: string): ProjectPhp {
 
 export function saveProjectPhp(root: string, value: ProjectPhp) {
   try {
-    localStorage.setItem(projectKey(root), JSON.stringify(value));
+    projectStorage.setItem(projectKey(root), JSON.stringify(value));
   } catch {
     // Kept for this session only.
   }
