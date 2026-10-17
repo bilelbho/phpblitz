@@ -210,7 +210,7 @@ export function FindInFiles({ ws }: { ws: Workspace }) {
             <span className="chip scope-chip" title={scopeDir}>
               In {relativePath(ws.backend, scopeDir) || ws.backend.name}
               <button type="button" aria-label="Search the whole project" title="Search the whole project" onClick={() => setScopeDir(undefined)}>
-                <Icon name="close" size={9} strokeWidth={2.6} />
+                <Icon name="close" size={9} />
               </button>
             </span>
           )}
@@ -240,7 +240,7 @@ export function FindInFiles({ ws }: { ws: Workspace }) {
         <div className="find-row" style={{ padding: '0 10px' }}>
           <button type="button" className="icon-btn small" aria-label={replaceMode ? 'Hide replace' : 'Show replace'} title="Replace (Ctrl+Shift+R)" onClick={() => setReplaceMode((r) => !r)}>
             <span className={'chev' + (replaceMode ? ' open' : '')}>
-              <Icon name="chevronRight" size={12} strokeWidth={2.4} />
+              <Icon name="chevronRight" size={12} />
             </span>
           </button>
           <div className={'field find-field' + (query && result && !result.total ? ' invalid' : '')} style={{ flex: '1 1 auto', maxWidth: 'none' }}>

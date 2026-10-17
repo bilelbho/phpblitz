@@ -34,7 +34,7 @@ export function DebugPanel({ ws }: { ws: Workspace }) {
                 debug.closeSession(x.id);
               }}
             >
-              <Icon name="close" size={11} strokeWidth={2.4} />
+              <Icon name="close" size={11} />
             </button>
           </span>
         ))}
@@ -300,7 +300,7 @@ function ContextNode({ name, id, onMenu }: { name: string; id: number; onMenu: (
         }}
       >
         <span className={'chev' + (open ? ' open' : '')}>
-          <Icon name="chevronRight" size={11} strokeWidth={2.5} />
+          <Icon name="chevronRight" size={11} />
         </span>
         <Icon name="structure" size={12} />
         <span className="var-name context">{name}</span>

@@ -167,7 +167,7 @@ export function EditorHover({ editor, ws, path, request, onMoreActions, onClose,
               ))}
             </div>
             <button type="button" className="icon-btn small" aria-label="Problem options" title="More" onClick={optionsMenu}>
-              <Icon name="more" size={13} strokeWidth={3} />
+              <Icon name="more" size={13} />
             </button>
           </div>
           <div className="pb-hover-fixes">

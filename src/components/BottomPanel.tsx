@@ -415,7 +415,7 @@ function Tests({ ws }: { ws: Workspace }) {
         </button>
         {result && (
           <span style={{ color: result.ok ? 'var(--green)' : 'var(--red)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
-            {result.ok && <Icon name="check" size={14} strokeWidth={3} />}
+            {result.ok && <Icon name="check" size={14} />}
             {result.summary}
           </span>
         )}
@@ -424,7 +424,7 @@ function Tests({ ws }: { ws: Workspace }) {
       {result?.tests?.map((t) => (
         <div key={t.name} className="row" style={{ paddingLeft: 38, gap: 10 }}>
           <span style={{ color: t.ok ? 'var(--green)' : 'var(--red)', display: 'inline-flex' }}>
-            <Icon name={t.ok ? 'check' : 'close'} size={12} strokeWidth={3} />
+            <Icon name={t.ok ? 'check' : 'close'} size={12} />
           </span>
           <span>{t.name}</span>
           <span className="grow" />

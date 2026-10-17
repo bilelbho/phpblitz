@@ -388,7 +388,7 @@ function GitLog({ ws }: { ws: Workspace }) {
             <Icon name="refresh" size={13} />
           </button>
           <button type="button" className="icon-btn small" title="Fetch" aria-label="Fetch" onClick={() => ws.runGit('Fetch', () => repo.fetch())}>
-            <Icon name="chevronDown" size={13} strokeWidth={2.4} />
+            <Icon name="chevronDown" size={13} />
           </button>
           <span className="grow" />
           <span className="muted" style={{ fontSize: 12 }}>

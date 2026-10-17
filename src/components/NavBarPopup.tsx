@@ -222,7 +222,7 @@ function Column({
           {item.icon}
           <span className="nav-label">{item.label}</span>
           {item.detail && <span className="muted nav-detail">{item.detail}</span>}
-          {item.dir && <Icon name="chevronRight" size={11} strokeWidth={2.2} />}
+          {item.dir && <Icon name="chevronRight" size={11} />}
         </div>
       ))}
     </div>

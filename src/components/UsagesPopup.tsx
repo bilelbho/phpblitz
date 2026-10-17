@@ -124,7 +124,7 @@ export function UsagesPopup({ ws }: { ws: Workspace }) {
             });
           }}
         >
-          {p.vendor ? 'Project and Libraries' : 'Project Files'} <Icon name="chevronDown" size={11} strokeWidth={2.2} />
+          {p.vendor ? 'Project and Libraries' : 'Project Files'} <Icon name="chevronDown" size={11} />
         </button>
       </div>
       <div ref={list} className="up-list" role="listbox">

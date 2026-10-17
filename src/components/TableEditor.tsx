@@ -7,6 +7,7 @@ import { db, useDb } from '../db/store';
 import { qualified, quoteIdent, quoteLiteral, rowMatch } from '../db/dialect';
 import type { Column, QueryResult } from '../db/types';
 import { DataGrid, type Cell } from './DataGrid';
+import { ExportDialog } from './ExportDialog';
 import { Icon } from './Icon';
 
 const PAGE_SIZES = [100, 500, 1000];
@@ -29,6 +30,9 @@ export function TableEditor({ ws, source, schema, table }: { ws: Workspace; sour
   const [added, setAdded] = useState(0);
   const [deleted, setDeleted] = useState<Set<number>>(new Set());
   const pending = edits.size > 0 || added > 0 || deleted.size > 0;
+  /** The SQL Submit will run, shown under the grid. */
+  const [preview, setPreview] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const editable = ds?.driver !== 'sample';
 
   const load = useCallback(async () => {
@@ -85,12 +89,26 @@ export function TableEditor({ ws, source, schema, table }: { ws: Workspace; sour
     }
   };
 
+  /** A new row with this row's values, except the primary key (the database gives it a new one). */
+  const cloneRow = (r: number) => {
+    const row = baseRows.length + added;
+    setAdded((n) => n + 1);
+    setEdits((m) => {
+      const next = new Map(m);
+      columns.forEach((name, c) => {
+        const value = m.has(`${r}:${c}`) ? m.get(`${r}:${c}`)! : rows[r]?.[c] ?? null;
+        if (value !== null && meta.find((x) => x.name === name)?.key !== 'pk') next.set(`${row}:${c}`, value);
+      });
+      return next;
+    });
+  };
+
   /** The statements Submit runs, in order: updates, inserts, deletes. */
-  const statements = (): string[] => {
+  const statements = (): { sql: string; expectRow: boolean }[] => {
     if (!ds) return [];
     const d = ds.driver;
     const target = qualified(d, schema, table);
-    const out: string[] = [];
+    const out: { sql: string; expectRow: boolean }[] = [];
     const byRow = new Map<number, [number, string | null][]>();
     for (const [key, value] of edits) {
       const [r, c] = key.split(':').map(Number);
@@ -99,21 +117,24 @@ export function TableEditor({ ws, source, schema, table }: { ws: Workspace; sour
     for (const [r, changes] of byRow) {
       if (r >= baseRows.length || deleted.has(r)) continue;
       const set = changes.map(([c, v]) => `${quoteIdent(d, columns[c])} = ${quoteLiteral(d, v)}`).join(', ');
-      out.push(`UPDATE ${target} SET ${set} WHERE ${rowMatch(d, meta, columns, baseRows[r])}`);
+      out.push({ sql: `UPDATE ${target} SET ${set} WHERE ${rowMatch(d, meta, columns, baseRows[r])}`, expectRow: true });
     }
     for (let r = baseRows.length; r < baseRows.length + added; r++) {
       const changes = byRow.get(r) ?? [];
-      out.push(
-        changes.length
-          ? `INSERT INTO ${target} (${changes.map(([c]) => quoteIdent(d, columns[c])).join(', ')}) VALUES (${changes.map(([, v]) => quoteLiteral(d, v)).join(', ')})`
-          : d === 'mysql'
-            ? `INSERT INTO ${target} () VALUES ()`
-            : `INSERT INTO ${target} DEFAULT VALUES`,
-      );
+      const sql = changes.length
+        ? `INSERT INTO ${target} (${changes.map(([c]) => quoteIdent(d, columns[c])).join(', ')}) VALUES (${changes.map(([, v]) => quoteLiteral(d, v)).join(', ')})`
+        : d === 'mysql'
+          ? `INSERT INTO ${target} () VALUES ()`
+          : `INSERT INTO ${target} DEFAULT VALUES`;
+      out.push({ sql, expectRow: false });
     }
-    for (const r of deleted) out.push(`DELETE FROM ${target} WHERE ${rowMatch(d, meta, columns, baseRows[r])}`);
+    for (const r of deleted) out.push({ sql: `DELETE FROM ${target} WHERE ${rowMatch(d, meta, columns, baseRows[r])}`, expectRow: true });
     return out;
   };
+  const pendingSql = () =>
+    statements()
+      .map((s) => s.sql + ';')
+      .join('\n');
 
   const submit = async () => {
     const list = statements();
@@ -122,17 +143,16 @@ export function TableEditor({ ws, source, schema, table }: { ws: Workspace; sour
       ws.notify({ title: 'No primary key', body: `${table} has no primary key, so rows are matched by all their values.`, tone: 'warning' });
     }
     setLoading(true);
-    for (const sql of list) {
-      try {
-        const r = await db.query(source, sql);
-        if (r.affected === 0) ws.notify({ title: 'No row changed', body: sql, tone: 'warning' });
-      } catch (e) {
-        setLoading(false);
-        setError(`${String(e instanceof Error ? e.message : e)}\n\n${sql}`);
-        return;
-      }
+    // One transaction: everything is saved, or nothing (and the failing statement is shown).
+    try {
+      await db.execute(source, list);
+    } catch (e) {
+      setLoading(false);
+      setError(String(e instanceof Error ? e.message : e));
+      return;
     }
     ws.setStatus(`${list.length} change${list.length === 1 ? '' : 's'} submitted to ${table}`);
+    setPreview(false);
     await load();
   };
 
@@ -191,16 +211,23 @@ export function TableEditor({ ws, source, schema, table }: { ws: Workspace; sour
             <button type="button" className="icon-btn small" title="Add Row" aria-label="Add row" onClick={() => setAdded((n) => n + 1)}>
               <Icon name="plus" size={14} />
             </button>
-            <button type="button" className={'btn small te-submit' + (pending ? ' on' : '')} disabled={!pending || loading} onClick={submit} title={statements().join(';\n') || 'No changes'}>
-              <Icon name="check" size={13} strokeWidth={2.6} />
+            <button type="button" className={'btn small te-submit' + (pending ? ' on' : '')} disabled={!pending || loading} onClick={submit} title={pendingSql() || 'No changes'}>
+              <Icon name="check" size={13} />
               Submit
             </button>
             <button type="button" className="btn small ghost" disabled={!pending || loading} onClick={load}>
               <Icon name="rollback" size={13} />
               Revert
             </button>
+            <button type="button" className={'btn small ghost' + (preview ? ' on' : '')} disabled={!pending} onClick={() => setPreview(!preview)} title="Show the SQL that Submit will run">
+              Preview
+            </button>
           </>
         )}
+        <span className="te-sep" />
+        <button type="button" className="btn small ghost" disabled={!result} onClick={() => setExporting(true)} title="Export Data…">
+          Export…
+        </button>
         <span className="grow" />
         <span className="muted te-name">
           {ds?.name} · {schema}.{table}
@@ -232,7 +259,7 @@ export function TableEditor({ ws, source, schema, table }: { ws: Workspace; sour
         <div className="te-error">
           <pre>{error}</pre>
           <button type="button" className="icon-btn small" aria-label="Dismiss" onClick={() => setError(null)}>
-            <Icon name="close" size={10} strokeWidth={2.5} />
+            <Icon name="close" size={10} />
           </button>
         </div>
       )}
@@ -248,9 +275,41 @@ export function TableEditor({ ws, source, schema, table }: { ws: Workspace; sour
           onEdit={editable ? onEdit : undefined}
           rowState={(r) => (r >= baseRows.length ? 'new' : deleted.has(r) ? 'deleted' : undefined)}
           onDeleteRows={editable ? deleteRows : undefined}
+          onCloneRow={editable ? cloneRow : undefined}
         />
       ) : (
         <div className="empty">{loading ? 'Loading…' : error ? '' : 'No data'}</div>
+      )}
+      {preview && pending && (
+        <div className="te-preview">
+          <div className="te-preview-head">
+            <span className="muted">Submit runs these in one transaction (Ctrl+Enter):</span>
+            <span className="grow" />
+            <button type="button" className="btn small ghost" onClick={() => navigator.clipboard.writeText(pendingSql()).catch(() => {})}>
+              Copy
+            </button>
+          </div>
+          <pre className="mono">{pendingSql()}</pre>
+        </div>
+      )}
+      {exporting && ds && (
+        <ExportDialog
+          ws={ws}
+          fileName={table}
+          options={{ table: { driver: ds.driver, schema, name: table }, numeric: new Set(meta.filter((c) => /^(int|integer|bigint|smallint|tinyint|mediumint|decimal|numeric|real|double|float|serial|bigserial)/i.test(c.type)).map((c) => c.name)) }}
+          scopes={[
+            { id: 'page', label: `This page (${baseRows.length.toLocaleString()} rows)`, load: async () => ({ columns, rows: baseRows }) },
+            {
+              id: 'all',
+              label: `All rows${where ? ' matching the filter' : ''}${total !== null ? ` (${total.toLocaleString()})` : ''}`,
+              load: async () => {
+                const all = await db.page(source, { schema, table, where, orderBy, limit: 1_000_000, offset: 0 });
+                return { columns: all.result.columns, rows: all.result.rows };
+              },
+            },
+          ]}
+          onClose={() => setExporting(false)}
+        />
       )}
     </div>
   );

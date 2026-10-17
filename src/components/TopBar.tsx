@@ -87,7 +87,7 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
         </span>
         {backend.name}
         <span className="chevron">
-          <Icon name="chevronDown" size={12} strokeWidth={2.2} />
+          <Icon name="chevronDown" size={12} />
         </span>
       </button>
       {projects && (
@@ -105,7 +105,7 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
           <Icon name="branch" size={15} />
           {ws.git.branch}
           <span className="chevron">
-            <Icon name="chevronDown" size={12} strokeWidth={2.2} />
+            <Icon name="chevronDown" size={12} />
           </span>
         </button>
       )}
@@ -117,7 +117,7 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
         <span className="badge" style={{ background: '#5fb865' }}>T</span>
         PHPUnit
         <span className="chevron">
-          <Icon name="chevronDown" size={12} strokeWidth={2.2} />
+          <Icon name="chevronDown" size={12} />
         </span>
       </MenuButton>
       <button type="button" className="top-icon" aria-label="Run tests" title="Run 'PHPUnit'" style={{ color: '#5fb865' }} onClick={ws.runTests} disabled={ws.tests.running}>
@@ -146,7 +146,7 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
         <Icon name="listen" />
       </button>
       <MenuButton className="top-icon" label="More actions" entries={runMenu}>
-        <Icon name="more" strokeWidth={3} />
+        <Icon name="more" />
       </MenuButton>
 
       <div className="drag" data-tauri-drag-region style={{ flex: '0 0 24px' }} />

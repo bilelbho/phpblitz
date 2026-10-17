@@ -225,7 +225,7 @@ export function TerminalView({ ws }: { ws: Workspace }) {
                   </button>
                 )}
                 <button type="button" className="icon-btn small term-tab-close" aria-label={`Close ${tabLabel(s)}`} onClick={() => terminals.close(s.id)}>
-                  <Icon name="close" size={9} strokeWidth={2.6} />
+                  <Icon name="close" size={9} />
                 </button>
               </div>
             );
@@ -234,12 +234,12 @@ export function TerminalView({ ws }: { ws: Workspace }) {
             <Icon name="plus" size={14} />
           </button>
           <button type="button" className="icon-btn small" aria-label="Choose shell" title="New tab with…" aria-haspopup="menu" onClick={shellMenu}>
-            <Icon name="chevronDown" size={12} strokeWidth={2.2} />
+            <Icon name="chevronDown" size={12} />
           </button>
         </div>
         <span className="grow" />
         <button type="button" className="icon-btn small" aria-label="Options" title="Options" aria-haspopup="menu" onClick={optionsMenu}>
-          <Icon name="more" size={14} strokeWidth={3} />
+          <Icon name="more" size={14} />
         </button>
         <button type="button" className="icon-btn small" aria-label="Hide tool window" title="Hide" onClick={() => ws.setBottomOpen(false)}>
           <Icon name="minus" size={14} />
@@ -262,7 +262,7 @@ export function TerminalView({ ws }: { ws: Workspace }) {
       {drag && ghost && (
         <div className="term-tab term-tab-ghost" style={{ left: drag.x - drag.grabX, top: drag.y - drag.grabY, width: drag.width, height: drag.height }}>
           <span className="term-tab-main">{tabLabel(ghost)}</span>
-          <Icon name="close" size={9} strokeWidth={2.6} />
+          <Icon name="close" size={9} />
         </div>
       )}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}

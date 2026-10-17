@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PHPBlitz: a fast, open source PHP IDE</title>
+    <meta name="description" content="PHPBlitz is a fast, open source PHP IDE for Windows and Linux: navigation, find usages and rename from its own index, built-in PHP analysis, Git, databases, Xdebug and a terminal." />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <style>
+      :root {
+        --bg: #f7f8fa;
+        --panel: #ffffff;
+        --text: #1e1f22;
+        --muted: #5f6370;
+        --line: #e3e5ea;
+        --accent: #3574f0;
+        --accent-text: #ffffff;
+        --code: #eef0f4;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #191a1c;
+          --panel: #1f2023;
+          --text: #dfe1e5;
+          --muted: #9a9ea8;
+          --line: #2e3034;
+          --accent: #548af7;
+          --accent-text: #ffffff;
+          --code: #2b2d30;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 16px/1.6 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      }
+      a {
+        color: var(--accent);
+      }
+      .wrap {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 0 20px;
+      }
+      header {
+        padding: 72px 0 48px;
+        text-align: center;
+      }
+      header img {
+        width: 72px;
+        height: 72px;
+      }
+      h1 {
+        font-size: clamp(32px, 6vw, 48px);
+        line-height: 1.15;
+        margin: 16px 0 8px;
+      }
+      .tagline {
+        font-size: 20px;
+        color: var(--muted);
+        margin: 0 auto 28px;
+        max-width: 640px;
+      }
+      .buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        justify-content: center;
+      }
+      .btn {
+        display: inline-block;
+        padding: 12px 22px;
+        border-radius: 8px;
+        background: var(--accent);
+        color: var(--accent-text);
+        font-weight: 600;
+        text-decoration: none;
+      }
+      .btn.secondary {
+        background: transparent;
+        color: var(--text);
+        border: 1px solid var(--line);
+      }
+      .small {
+        font-size: 14px;
+        color: var(--muted);
+      }
+      section {
+        padding: 40px 0;
+        border-top: 1px solid var(--line);
+      }
+      h2 {
+        font-size: 26px;
+        margin: 0 0 20px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 16px;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 18px 20px;
+      }
+      .card h3 {
+        margin: 0 0 6px;
+        font-size: 17px;
+      }
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        overflow: hidden;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--line);
+        font-size: 15px;
+      }
+      code {
+        background: var(--code);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+      details {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 12px 18px;
+        margin-bottom: 10px;
+      }
+      summary {
+        cursor: pointer;
+        font-weight: 600;
+      }
+      footer {
+        padding: 32px 0 48px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 14px;
+      }
+      @media (max-width: 560px) {
+        header {
+          padding: 48px 0 32px;
+        }
+        .btn {
+          width: 100%;
+          text-align: center;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="wrap">
+      <img src="icon.svg" alt="" />
+      <h1>PHPBlitz</h1>
+      <p class="tagline">A fast, open source PHP IDE. Free for everyone, commercial use included.</p>
+      <div class="buttons">
+        <a class="btn" href="https://github.com/bilelbho/phpblitz/releases/latest">Download for Windows, macOS or Linux</a>
+        <a class="btn secondary" href="https://github.com/bilelbho/phpblitz">Source code</a>
+      </div>
+      <p class="small">Windows 10/11 · macOS 11+ (Apple Silicon and Intel) · Ubuntu, Debian, Fedora and other Linux distributions · version 0.x</p>
+    </header>
+
+    <section class="wrap" id="features">
+      <h2>What it does</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Big projects, quickly</h3>
+          <p>Its own index of your project and <code>vendor/</code>, written in Rust and cached in the project. Open files are checked first, the rest in the background.</p>
+        </div>
+        <div class="card">
+          <h3>Navigate and refactor</h3>
+          <p>Go to Definition, Find Usages and Rename work from the index, with no language server to install.</p>
+        </div>
+        <div class="card">
+          <h3>Errors as you type</h3>
+          <p>Mago's linter and PHPStan-like analyzer are built in, with Laravel, Symfony, PHPUnit and Doctrine rules from your <code>composer.json</code>.</p>
+        </div>
+        <div class="card">
+          <h3>Git</h3>
+          <p>Change markers, diffs, commit and push, branches, a log with a graph, annotations and stash.</p>
+        </div>
+        <div class="card">
+          <h3>Databases</h3>
+          <p>PostgreSQL, MySQL/MariaDB and SQLite: schema, query consoles and table data. Passwords stay in your system's credential store.</p>
+        </div>
+        <div class="card">
+          <h3>Debugger and terminal</h3>
+          <p>Xdebug 3 step debugging with inline values, and real shells in tabs: PowerShell, Git Bash, WSL, bash, zsh.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="wrap" id="download">
+      <h2>Download</h2>
+      <table>
+        <tr><th>System</th><th>File on the releases page</th></tr>
+        <tr><td>Windows 10/11</td><td><code>…_x64-setup.exe</code> or <code>.msi</code></td></tr>
+        <tr><td>Windows, no install</td><td><code>…_windows-x64-portable.zip</code></td></tr>
+        <tr><td>macOS 11+ (Apple Silicon and Intel)</td><td><code>…_universal.dmg</code></td></tr>
+        <tr><td>Ubuntu, Debian</td><td><code>.deb</code></td></tr>
+        <tr><td>Fedora, openSUSE</td><td><code>.rpm</code></td></tr>
+        <tr><td>Other Linux</td><td><code>.AppImage</code></td></tr>
+      </table>
+      <p class="small">Have PHP, Git and Composer on your PATH to run PHP, tests, the Git tools and package updates.</p>
+    </section>
+
+    <section class="wrap" id="faq">
+      <h2>Questions</h2>
+      <details>
+        <summary>Is it free?</summary>
+        <p>Yes. PHPBlitz is open source under the Apache License 2.0: you may use it, change it and share it, commercially too. When you redistribute it or build on it, keep the license and the NOTICE file, which credits its author.</p>
+      </details>
+      <details>
+        <summary>Does it send my code or data anywhere?</summary>
+        <p>No. There is no telemetry and no account. PHPBlitz works on your files locally; it only uses the network for things you start, such as Git push and pull, Composer, or a database connection.</p>
+      </details>
+      <details>
+        <summary>Is it related to PhpStorm or JetBrains?</summary>
+        <p>No. PHPBlitz is an independent project written from scratch. It uses a similar workflow and keyboard shortcuts so it feels familiar, but it is not affiliated with, endorsed or sponsored by JetBrains s.r.o.</p>
+      </details>
+      <details>
+        <summary>How can I help?</summary>
+        <p>Try it on your projects and <a href="https://github.com/bilelbho/phpblitz/issues">report what doesn't work</a>. Pull requests are welcome.</p>
+      </details>
+    </section>
+
+    <section class="wrap" id="thanks">
+      <h2>Thank you</h2>
+      <p>PHPBlitz is built on hundreds of open source projects, among them <a href="https://tauri.app">Tauri</a>, <a href="https://github.com/microsoft/monaco-editor">Monaco Editor</a>, <a href="https://github.com/carthage-software/mago">Mago</a>, <a href="https://react.dev">React</a> and <a href="https://xtermjs.org">xterm.js</a>. The full list, with licenses, is in <a href="https://github.com/bilelbho/phpblitz/blob/main/THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a> and in the app under Help ▸ Open Source Licenses.</p>
+    </section>
+
+    <footer class="wrap">
+      <p>© 2026 The PHPBlitz Authors · PHPBlitz is open source under the <a href="https://github.com/bilelbho/phpblitz/blob/main/LICENSE">Apache License 2.0</a>.</p>
+      <p>PhpStorm, IntelliJ IDEA and JetBrains are trademarks of JetBrains s.r.o. Other names are trademarks of their owners and are used only to describe compatibility.</p>
+    </footer>
+  </body>
+</html>

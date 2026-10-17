@@ -57,7 +57,7 @@ export function StructurePanel({ ws }: { ws: Workspace }) {
           >
             {isClass ? (
               <button type="button" className={'chev' + (collapsed ? '' : ' open')} aria-label={collapsed ? 'Expand' : 'Collapse'} onClick={() => setCollapsed((c) => !c)}>
-                <Icon name="chevronRight" size={12} strokeWidth={2.5} />
+                <Icon name="chevronRight" size={12} />
               </button>
             ) : (
               <span style={{ width: 12, flex: 'none' }} />

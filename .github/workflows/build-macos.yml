@@ -1,0 +1,70 @@
+# macOS build: type-check, Rust tests, then one universal .dmg that runs natively on both Apple
+# Silicon (M1 and later) and Intel Macs.
+# Pushing a tag like v0.2.0 also attaches it to that GitHub release (as a draft; release.yml
+# publishes it once every build has succeeded).
+# Signed ad hoc (tauri.conf.json), not notarized yet (that needs an Apple Developer account): the
+# README explains how to open it the first time.
+
+name: Build (macOS)
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Both architectures: the universal app contains one binary for each.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install npm packages
+        run: npm ci
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Rust tests
+        working-directory: src-tauri
+        run: cargo test --locked
+
+      # beforeBuildCommand (npm run build) builds the front end first.
+      - name: Build the universal app
+        run: npx tauri build --target universal-apple-darwin --bundles dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phpblitz-macos
+          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg

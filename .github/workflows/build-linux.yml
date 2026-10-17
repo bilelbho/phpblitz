@@ -1,5 +1,6 @@
 # Linux build: type-check, Rust tests, then the packages (.deb, .rpm and .AppImage).
-# Pushing a tag like v0.2.0 also attaches the packages to that GitHub release (as a draft).
+# Pushing a tag like v0.2.0 also attaches the packages to that GitHub release (as a draft;
+# release.yml publishes it once every build has succeeded).
 # Built on Ubuntu 22.04 so the packages run on older glibc versions too.
 
 name: Build (Linux)

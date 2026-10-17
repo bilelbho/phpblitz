@@ -351,7 +351,7 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
   const groupRow = (key: string, label: string, list: GitChange[] | null, count: number, depth = 0, withCheck = true): ReactNode => (
     <div key={key} className={'row commit-group' + (depth ? ' dir' : ' group')} style={{ paddingLeft: 4 + depth * 18 }} onClick={() => toggleOpen(key)}>
       <span className={'chev' + (collapsed.has(key) ? '' : ' open')}>
-        <Icon name="chevronRight" size={12} strokeWidth={2.5} />
+        <Icon name="chevronRight" size={12} />
       </span>
       {withCheck && list && check(list, label)}
       {depth > 0 && <Icon name="folder" size={14} />}

@@ -207,7 +207,7 @@ export function FindBar({
       <div className="find-row">
         <button type="button" className="icon-btn small" aria-label={showReplace ? 'Hide replace' : 'Show replace'} title="Replace (Ctrl+R)" onClick={() => setShowReplace((s) => !s)}>
           <span className={'chev' + (showReplace ? ' open' : '')}>
-            <Icon name="chevronRight" size={12} strokeWidth={2.4} />
+            <Icon name="chevronRight" size={12} />
           </span>
         </button>
         <div className={'field find-field' + (query && !matches.length ? ' invalid' : '')}>
@@ -224,14 +224,14 @@ export function FindBar({
           {count}
         </span>
         <button type="button" className="icon-btn small" aria-label="Previous occurrence" title="Previous Occurrence (Shift+Enter)" onClick={() => select(current - 1)} disabled={!matches.length}>
-          <Icon name="chevronUp" size={13} strokeWidth={2.2} />
+          <Icon name="chevronUp" size={13} />
         </button>
         <button type="button" className="icon-btn small" aria-label="Next occurrence" title="Next Occurrence (Enter)" onClick={() => select(current + 1)} disabled={!matches.length}>
-          <Icon name="chevronDown" size={13} strokeWidth={2.2} />
+          <Icon name="chevronDown" size={13} />
         </button>
         <span className="grow" />
         <button type="button" className="icon-btn small" aria-label="Close search" title="Close (Escape)" onClick={close}>
-          <Icon name="close" size={11} strokeWidth={2.4} />
+          <Icon name="close" size={11} />
         </button>
       </div>
       {showReplace && (

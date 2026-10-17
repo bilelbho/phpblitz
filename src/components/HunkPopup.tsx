@@ -66,10 +66,10 @@ export function HunkPopup({ x, y, hunk, index, total, language, onMove, onRollba
     <div ref={box} className="hunk-popup" style={pos} role="dialog" aria-label="Change">
       <div className="hunk-bar">
         <button type="button" className="icon-btn small" title="Previous Change" aria-label="Previous change" disabled={total < 2} onClick={() => onMove(-1)}>
-          <Icon name="chevronUp" size={13} strokeWidth={2.4} />
+          <Icon name="chevronUp" size={13} />
         </button>
         <button type="button" className="icon-btn small" title="Next Change" aria-label="Next change" disabled={total < 2} onClick={() => onMove(1)}>
-          <Icon name="chevronDown" size={13} strokeWidth={2.4} />
+          <Icon name="chevronDown" size={13} />
         </button>
         <button type="button" className="icon-btn small" title="Rollback" aria-label="Rollback" onClick={onRollback}>
           <Icon name="rollback" size={13} />

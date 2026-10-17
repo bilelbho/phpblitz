@@ -213,6 +213,18 @@ class DbStore {
     return invoke<QueryResult>('db_query', { id, sql, limit });
   }
 
+  /**
+   * Runs statements in one transaction (the table editor's Submit): all, or none if one fails or an
+   * UPDATE / DELETE with `expectRow` changes no row. Returns the rows each statement changed.
+   */
+  async execute(id: string, statements: { sql: string; expectRow: boolean }[]): Promise<number[]> {
+    const ds = this.get(id);
+    if (!ds) throw new Error('Unknown data source');
+    if (!(await this.connect(id))) throw new Error(this.state[id]?.error ?? 'Could not connect');
+    if (ds.driver === 'sample') return statements.map((s) => sampleQuery(s.sql, 1).affected ?? 0);
+    return invoke<number[]>('db_execute', { id, statements });
+  }
+
   async schemas(id: string, refresh = false): Promise<string[]> {
     const st = this.state[id];
     if (st?.schemas && !refresh) return st.schemas;

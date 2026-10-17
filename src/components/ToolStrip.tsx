@@ -31,7 +31,7 @@ export function ToolStrip({ side, items, bottomItems, onPick }: Props) {
         title={item.label}
         onClick={() => onPick(item.id)}
       >
-        <Icon name={item.icon} size={17} strokeWidth={1.8} />
+        <Icon name={item.icon} size={17} />
         {item.dot && <span className="strip-dot" />}
         {!!item.count && <span className="strip-count">{item.count > 9 ? '9+' : item.count}</span>}
       </button>

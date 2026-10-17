@@ -8,8 +8,8 @@
 //!   2. `mago_analyze` analyzes every file in the background, without holding the engine, so
 //!      open files keep being checked meanwhile. After it, edits re-analyze only what they affect.
 //! - **No vendor/**: when composer.json has dependencies that are not installed, type analysis is
-//!   mostly noise (every framework class is unknown, and so is everything typed with one: a Kimai
-//!   checkout showed 12,700 problems). Its problems are held back and counted until `composer
+//!   mostly noise (every framework class is unknown, and so is everything typed with one: a
+//!   1,150-file project showed 12,700 problems). Its problems are held back and counted until `composer
 //!   install` has run; syntax errors and lint still show.
 //! - **Formatting** (`mago_format`).
 //!

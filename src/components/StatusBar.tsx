@@ -140,7 +140,7 @@ export function StatusBar({ ws }: { ws: Workspace }) {
           <span key={i} style={{ display: 'contents' }}>
             {i > 0 && (
               <span className="sep">
-                <Icon name="chevronRight" size={11} strokeWidth={2.2} />
+                <Icon name="chevronRight" size={11} />
               </span>
             )}
             <button

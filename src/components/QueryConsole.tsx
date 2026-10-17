@@ -6,11 +6,13 @@ import Editor, { type OnMount } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import type { Workspace } from '../useWorkspace';
 import { isRelation } from '../db/types';
+import { resolveQualifier, sqlContext, tableRefs, type TableRef } from '../db/completion';
 import { db, useDb } from '../db/store';
 import type { QueryResult } from '../db/types';
 import { useSettings } from '../settings';
 import { themeId } from '../editor/themes';
 import { DataGrid } from './DataGrid';
+import { ExportDialog } from './ExportDialog';
 import { Icon } from './Icon';
 
 const textKey = (source: string, name: string) => (name === 'console' ? `phpblitz.console:${source}` : `phpblitz.console:${source}:${name}`);
@@ -71,33 +73,80 @@ export function statementAt(text: string, offset: number): { start: number; end:
 const consoleSources = new Map<string, string>();
 let completionRegistered = false;
 
+const KEYWORDS = ['SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'NOT', 'NULL', 'IS', 'IN', 'LIKE', 'ILIKE', 'BETWEEN', 'EXISTS', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'ORDER BY', 'GROUP BY', 'HAVING', 'LIMIT', 'OFFSET', 'JOIN', 'LEFT JOIN', 'INNER JOIN', 'ON', 'USING', 'AS', 'DISTINCT', 'UNION', 'INSERT INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE FROM', 'CREATE TABLE', 'ALTER TABLE', 'DROP TABLE', 'RETURNING', 'ASC', 'DESC', 'WITH'];
+const FUNCTIONS = ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'COALESCE', 'NULLIF', 'LOWER', 'UPPER', 'LENGTH', 'TRIM', 'SUBSTRING', 'REPLACE', 'CONCAT', 'ROUND', 'ABS', 'NOW', 'CURRENT_DATE', 'CURRENT_TIMESTAMP', 'CAST', 'EXTRACT'];
+
 function registerCompletion() {
   if (completionRegistered) return;
   completionRegistered = true;
-  const keywords = ['SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'NOT', 'NULL', 'IS', 'IN', 'LIKE', 'ILIKE', 'BETWEEN', 'ORDER BY', 'GROUP BY', 'HAVING', 'LIMIT', 'OFFSET', 'JOIN', 'LEFT JOIN', 'INNER JOIN', 'ON', 'AS', 'DISTINCT', 'COUNT', 'INSERT INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE FROM', 'CREATE TABLE', 'ALTER TABLE', 'DROP TABLE', 'RETURNING', 'ASC', 'DESC'];
   monaco.languages.registerCompletionItemProvider('sql', {
     triggerCharacters: ['.', ' '],
-    provideCompletionItems(model, position) {
+    async provideCompletionItems(model, position) {
       const source = consoleSources.get(model.uri.toString());
       if (!source) return { suggestions: [] };
       const word = model.getWordUntilPosition(position);
       const range = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn);
-      const st = db.state[source];
       const { CompletionItemKind } = monaco.languages;
-      const tables = Object.entries(st?.tables ?? {}).flatMap(([schema, list]) => (list ?? []).filter((t) => isRelation(t.kind)).map((t) => ({ schema, ...t })));
       const text = model.getValue();
-      // Columns of the tables named in the console, loaded on demand.
-      const used = tables.filter((t) => new RegExp(`\\b${t.name}\\b`, 'i').test(text));
-      used.forEach((t) => {
-        if (!db.cachedColumns(source, t.schema, t.name)) db.columns(source, t.schema, t.name).catch(() => {});
-      });
+      const offset = model.getOffsetAt(position);
+      // Only the statement around the cursor counts (a console holds many): from the `;` before it
+      // to the next one.
+      const start = text.lastIndexOf(';', offset - 1) + 1;
+      const next = text.indexOf(';', offset);
+      const statement = text.slice(start, next < 0 ? text.length : next);
+      const before = text.slice(start, offset);
+      const refs = tableRefs(statement);
+      const context = sqlContext(before);
+
+      const st = db.state[source];
+      const tables = Object.entries(st?.tables ?? {}).flatMap(([schema, list]) => (list ?? []).filter((t) => isRelation(t.kind)).map((t) => ({ schema, ...t })));
+      const schemas = Object.keys(st?.tables ?? {});
+      /** The catalog table a reference names (its schema, or the first schema that has it). */
+      const tableOf = (r: TableRef) => tables.find((t) => t.name.toLowerCase() === r.table.toLowerCase() && (!r.schema || t.schema.toLowerCase() === r.schema.toLowerCase()));
+      const columnsOf = async (r: TableRef) => {
+        const t = tableOf(r);
+        return t ? db.columns(source, t.schema, t.name).catch(() => []) : [];
+      };
+      const tableItems = (list: typeof tables, sort = '1') =>
+        list.map((t) => ({ label: t.name, kind: CompletionItemKind.Struct, detail: `${t.kind} · ${t.schema}`, insertText: t.name, range, sortText: sort + t.name }));
+      const columnItems = async (r: TableRef, sort = '0') =>
+        (await columnsOf(r)).map((c) => ({
+          label: c.name,
+          kind: CompletionItemKind.Field,
+          detail: `${r.alias ?? r.table}.${c.name}: ${c.type}${c.key === 'pk' ? ' · primary key' : ''}`,
+          insertText: c.name,
+          range,
+          sortText: sort + c.name,
+        }));
+
+      if (context.kind === 'member') {
+        // "u." / "users.": that table's columns; "public.": that schema's tables.
+        // A table or alias of the statement that exists, else a table by that name, else a schema.
+        const named = resolveQualifier(refs, context.qualifier);
+        const ref = named && tableOf(named) ? named : tableOf({ table: context.qualifier }) ? { table: context.qualifier } : undefined;
+        if (ref) return { suggestions: await columnItems(ref) };
+        const schema = schemas.find((x) => x.toLowerCase() === context.qualifier.toLowerCase());
+        if (schema) return { suggestions: tableItems(tables.filter((t) => t.schema === schema), '0') };
+        return { suggestions: [] };
+      }
+      if (context.kind === 'tables') {
+        return {
+          suggestions: [
+            ...tableItems(tables, '0'),
+            ...schemas.map((x) => ({ label: x, kind: CompletionItemKind.Module, detail: 'schema', insertText: x, range, sortText: '1' + x })),
+          ],
+        };
+      }
+      // Columns of the statement's tables first, then tables, functions and keywords.
+      const columns = (await Promise.all(refs.map((r) => columnItems(r)))).flat();
+      const seen = new Set<string>();
       return {
         suggestions: [
-          ...tables.map((t) => ({ label: t.name, kind: CompletionItemKind.Struct, detail: `${t.kind} · ${t.schema}`, insertText: t.name, range, sortText: '1' + t.name })),
-          ...used.flatMap((t) =>
-            (db.cachedColumns(source, t.schema, t.name) ?? []).map((c) => ({ label: c.name, kind: CompletionItemKind.Field, detail: `${t.name}.${c.name}: ${c.type}`, insertText: c.name, range, sortText: '0' + c.name })),
-          ),
-          ...keywords.map((k) => ({ label: k, kind: CompletionItemKind.Keyword, insertText: k, range, sortText: '2' + k })),
+          ...columns.filter((c) => !seen.has(c.label) && seen.add(c.label)),
+          ...refs.filter((r) => r.alias).map((r) => ({ label: r.alias!, kind: CompletionItemKind.Variable, detail: `alias of ${r.table}`, insertText: r.alias!, range, sortText: '1' + r.alias })),
+          ...tableItems(tables, '2'),
+          ...FUNCTIONS.map((f) => ({ label: f, kind: CompletionItemKind.Function, insertText: f + '($0)', insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, range, sortText: '3' + f })),
+          ...KEYWORDS.map((k) => ({ label: k, kind: CompletionItemKind.Keyword, insertText: k, range, sortText: '4' + k })),
         ],
       };
     },
@@ -116,6 +165,7 @@ export function QueryConsole({ ws, source, name }: { ws: Workspace; source: stri
   const settings = useSettings().editor;
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const [result, setResult] = useState<QueryResult | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [log, setLog] = useState<LogLine[]>([]);
   const [tab, setTab] = useState<'result' | 'output'>('output');
   const [running, setRunning] = useState(false);
@@ -251,12 +301,26 @@ export function QueryConsole({ ws, source, name }: { ws: Workspace; source: stri
             Result {result && <span className="count">{result.rows.length}{result.truncated ? '+' : ''}</span>}
           </button>
           <span className="grow" />
+          {tab === 'result' && result && (
+            <button type="button" className="btn small ghost" onClick={() => setExporting(true)} title="Export Data…">
+              Export…
+            </button>
+          )}
           {tab === 'output' && log.length > 0 && (
             <button type="button" className="icon-btn small" aria-label="Clear output" title="Clear" onClick={() => setLog([])}>
-              <Icon name="close" size={10} strokeWidth={2.5} />
+              <Icon name="close" size={10} />
             </button>
           )}
         </div>
+        {exporting && result && ds && (
+          <ExportDialog
+            ws={ws}
+            fileName="result"
+            options={{ table: { driver: ds.driver, schema: '', name: 'result' } }}
+            scopes={[{ id: 'result', label: 'Result', load: async () => ({ columns: result.columns, rows: result.rows }) }]}
+            onClose={() => setExporting(false)}
+          />
+        )}
         {tab === 'result' && result ? (
           <DataGrid columns={result.columns} rows={result.rows} />
         ) : (

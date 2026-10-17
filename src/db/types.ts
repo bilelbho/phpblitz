@@ -95,7 +95,7 @@ export function driverName(d: Driver): string {
   return d === 'sample' ? 'Sample (MySQL)' : DRIVERS.find((x) => x.id === d)?.name ?? d;
 }
 
-/** "app@localhost", "shop.sqlite"… */
+/** "shop@localhost", "shop.sqlite"… */
 export function defaultName(ds: Pick<DataSource, 'driver' | 'host' | 'database' | 'file'>): string {
   if (ds.driver === 'sqlite') return ds.file.split(/[\\/]/).pop() || 'SQLite';
   return `${ds.database || ds.driver}@${ds.host || 'localhost'}`;

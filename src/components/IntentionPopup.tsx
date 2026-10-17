@@ -252,7 +252,7 @@ export function IntentionPopup({ x, y, items, model, onClose }: Props) {
                       openSubmenu(i);
                     }}
                   >
-                    <Icon name="more" size={13} strokeWidth={3} />
+                    <Icon name="more" size={13} />
                   </button>
                 )}
               </div>

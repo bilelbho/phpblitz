@@ -165,7 +165,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
               {groups.map((g) => (
                 <div key={g} role="group" aria-label={g}>
                   <div className="settings-group">
-                    <Icon name="chevronDown" size={11} strokeWidth={2.2} />
+                    <Icon name="chevronDown" size={11} />
                     {g}
                   </div>
                   {visible
@@ -191,7 +191,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
             <div className="settings-crumbs">
               {active.group !== active.label && (
                 <>
-                  {active.group} <Icon name="chevronRight" size={11} strokeWidth={2.2} />{' '}
+                  {active.group} <Icon name="chevronRight" size={11} />{' '}
                 </>
               )}
               {active.label}
@@ -386,7 +386,7 @@ function ColorSchemePage({ value, onChange }: { value: EditorSettings; onChange:
         <button type="button" role="radio" aria-checked={value.scheme === 'theme'} className={'scheme-card' + (value.scheme === 'theme' ? ' on' : '')} onClick={() => onChange({ scheme: 'theme' })}>
           <pre className="scheme-preview" style={{ background: schemeOf('theme').bg, color: schemeOf('theme').fg }} dangerouslySetInnerHTML={{ __html: schemePreview('theme', SAMPLE) }} />
           <span className="scheme-name">
-            {value.scheme === 'theme' && <Icon name="check" size={12} strokeWidth={2.6} />}
+            {value.scheme === 'theme' && <Icon name="check" size={12} />}
             Theme default
           </span>
         </button>
@@ -403,7 +403,7 @@ function ColorSchemePage({ value, onChange }: { value: EditorSettings; onChange:
             >
               <pre className="scheme-preview" style={{ background: p.bg, color: p.fg }} dangerouslySetInnerHTML={{ __html: schemePreview(id, SAMPLE) }} />
               <span className="scheme-name">
-                {value.scheme === id && <Icon name="check" size={12} strokeWidth={2.6} />}
+                {value.scheme === id && <Icon name="check" size={12} />}
                 {p.name}
               </span>
             </button>

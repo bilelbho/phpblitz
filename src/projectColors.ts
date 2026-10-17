@@ -36,7 +36,7 @@ export function setProjectColor(root: string, color: string | null) {
   projectColorChanged();
 }
 
-/** "WS" for web-shop, "BA" for blog-api. */
+/** "AS" for acme-shop, "BP" for billing-portal. */
 export function projectInitials(name: string): string {
   const parts = name.split(/[-_\s.]+/).filter(Boolean);
   return (parts.length > 1 ? parts.slice(0, 2).map((w) => w[0]) : [name.slice(0, 1)]).join('').toUpperCase() || 'P';

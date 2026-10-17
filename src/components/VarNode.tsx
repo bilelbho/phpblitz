@@ -50,7 +50,7 @@ export function VarNode({
       <div className="var-row" role="treeitem" aria-expanded={p.hasChildren ? open : undefined} style={{ paddingLeft: 6 + depth * 16 }} onClick={toggle} onContextMenu={(e) => onMenu(e, p)} title={p.fullname}>
         {p.hasChildren ? (
           <span className={'chev' + (open ? ' open' : '')}>
-            <Icon name="chevronRight" size={11} strokeWidth={2.5} />
+            <Icon name="chevronRight" size={11} />
           </span>
         ) : (
           <span style={{ width: 11, flex: 'none' }} />

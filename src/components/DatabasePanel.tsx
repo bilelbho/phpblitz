@@ -689,7 +689,7 @@ export function DatabasePanel({ ws }: { ws: Workspace }) {
                   toggleNode(n);
                 }}
               >
-                <Icon name="chevronRight" size={12} strokeWidth={2.5} />
+                <Icon name="chevronRight" size={12} />
               </span>
               {n.icon}
               <span className={'name' + (n.muted ? ' muted' : '')}>{n.label}</span>

@@ -1,0 +1,71 @@
+# Publishes a version's release on GitHub once every build for its tag has succeeded.
+#
+# Pushing a tag like v0.2.0 runs Build (Windows), Build (macOS) and Build (Linux); each attaches its
+# files to a draft release. When the last one finishes, this publishes the draft: titled
+# "PHPBlitz 0.2.0", marked Latest, with the commit messages since the previous version as notes.
+
+name: Publish release
+
+on:
+  workflow_run:
+    workflows: ['Build (Windows)', 'Build (macOS)', 'Build (Linux)']
+    types: [completed]
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: publish-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # Only builds of a version tag (for tag pushes, head_branch is the tag), and only if it worked.
+    if: github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Publish when every build has succeeded
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          succeeded() {
+            gh run list --workflow "$1" --commit "$SHA" --limit 20 --json headBranch,conclusion \
+              --jq "[.[] | select(.headBranch == \"$TAG\" and .conclusion == \"success\")] | length"
+          }
+          for build in build-windows.yml build-macos.yml build-linux.yml; do
+            if [ "$(succeeded $build)" = "0" ]; then
+              echo "$build hasn't succeeded for $TAG yet: the last build to finish publishes."
+              exit 0
+            fi
+          done
+
+          previous=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)
+          {
+            echo "## What's new"
+            echo
+            git log --no-merges --pretty='- %s' ${previous:+$previous..}"$TAG" | grep -v '^- Release ' || true
+            echo
+            echo "## Download"
+            echo
+            echo "- **Windows 10/11**: \`PHPBlitz_${TAG#v}_x64-setup.exe\` (installer), the \`.msi\`, or \`PHPBlitz_${TAG#v}_windows-x64-portable.zip\` (no install)"
+            echo "- **macOS** (Apple Silicon and Intel): \`PHPBlitz_${TAG#v}_universal.dmg\`. Not notarized yet: the first time, open it from System Settings ▸ Privacy & Security ▸ Open Anyway."
+            echo "- **Ubuntu, Debian**: the \`.deb\` · **Fedora, openSUSE**: the \`.rpm\` · **Other Linux**: the \`.AppImage\`"
+            echo
+            echo "\`SHA256SUMS.txt\` lists every file's checksum. PHPBlitz is open source under the Apache License 2.0."
+          } > notes.md
+          cat notes.md
+
+          # Checksums of every file, so downloads can be verified (see SECURITY.md).
+          mkdir -p assets
+          gh release download "$TAG" --dir assets --skip-existing
+          (cd assets && rm -f SHA256SUMS.txt && sha256sum -- * > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          gh release upload "$TAG" assets/SHA256SUMS.txt --clobber
+
+          gh release edit "$TAG" --draft=false --latest --title "PHPBlitz ${TAG#v}" --notes-file notes.md

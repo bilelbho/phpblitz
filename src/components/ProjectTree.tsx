@@ -486,7 +486,7 @@ export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void 
             }}
             onDoubleClick={(e) => e.stopPropagation()}
           >
-            <Icon name="chevronRight" size={12} strokeWidth={2.5} />
+            <Icon name="chevronRight" size={12} />
           </span>
         ) : (
           <span style={{ width: 12, flex: 'none' }} />
@@ -510,7 +510,7 @@ export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void 
           <span className="tw-title" style={{ padding: 0 }}>
             {VIEW_LABELS[prefs.view]}
           </span>
-          <Icon name="chevronDown" size={11} strokeWidth={2.4} />
+          <Icon name="chevronDown" size={11} />
         </button>
         <span className="grow" />
         <button type="button" className="icon-btn small" aria-label="New" title="New (File, PHP Class, Directory)" onClick={(e) => menuAt(e, newMenu())}>
@@ -529,7 +529,7 @@ export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void 
           <Icon name="collapseAll" size={14} />
         </button>
         <button type="button" className="icon-btn small" aria-label="Options" title="Options" aria-haspopup="menu" onClick={(e) => menuAt(e, optionsMenu)}>
-          <Icon name="more" size={15} strokeWidth={3} />
+          <Icon name="more" size={15} />
         </button>
         <button type="button" className="icon-btn small" aria-label="Hide Project" title="Hide" onClick={onHide}>
           <Icon name="minus" size={14} />

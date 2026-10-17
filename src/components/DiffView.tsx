@@ -113,10 +113,10 @@ export function DiffView({ ws, path, commit }: { ws: Workspace; path: string; co
     >
       <div className="tw-toolbar diff-toolbar">
         <button type="button" className="icon-btn small" title="Previous Difference (Shift+F7)" aria-label="Previous difference" onClick={() => go(-1)}>
-          <Icon name="chevronUp" size={13} strokeWidth={2.4} />
+          <Icon name="chevronUp" size={13} />
         </button>
         <button type="button" className="icon-btn small" title="Next Difference (F7)" aria-label="Next difference" onClick={() => go(1)}>
-          <Icon name="chevronDown" size={13} strokeWidth={2.4} />
+          <Icon name="chevronDown" size={13} />
         </button>
         <span className="te-sep" />
         <button type="button" className={'btn small ghost' + (inline ? '' : ' on')} onClick={() => setInline((v) => !v)} title="Side-by-side or unified">

@@ -160,13 +160,13 @@ function MenuList({ x, y, flipX, items, onClose, onBack, autoFocus }: ListProps)
               }}
             >
               <span className="menu-icon">
-                {item.checked ? <Icon name="check" size={14} strokeWidth={2.4} /> : item.icon && <Icon name={item.icon} size={15} strokeWidth={1.8} />}
+                {item.checked ? <Icon name="check" size={14} /> : item.icon && <Icon name={item.icon} size={15} />}
               </span>
               {item.label}
               {item.shortcut && <span className="shortcut">{item.shortcut}</span>}
               {hasSub && (
                 <span className="menu-chevron">
-                  <Icon name="chevronRight" size={12} strokeWidth={2.2} />
+                  <Icon name="chevronRight" size={12} />
                 </span>
               )}
             </button>

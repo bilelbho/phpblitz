@@ -192,7 +192,7 @@ export function RecentFiles({ ws, onClose }: { ws: Workspace; onClose: () => voi
                       ws.forgetRecent(p);
                     }}
                   >
-                    <Icon name="close" size={9} strokeWidth={2.5} />
+                    <Icon name="close" size={9} />
                   </button>
                 </div>
               );

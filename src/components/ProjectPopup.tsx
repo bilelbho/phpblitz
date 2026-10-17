@@ -111,14 +111,14 @@ export function ProjectPopup({ ws, anchor, onOpenFolder, onOpenPath, onCloseProj
               setRecent((r) => r.filter((x) => x !== p));
             }}
           >
-            <Icon name="close" size={9} strokeWidth={2.5} />
+            <Icon name="close" size={9} />
           </button>
         </div>
       ))}
 
       <div className="pp-sep" />
       <button type="button" className="pp-row pp-action" onClick={() => (onClose(), onCloseProject())}>
-        <Icon name="close" size={12} strokeWidth={2.2} /> Close Project
+        <Icon name="close" size={12} /> Close Project
       </button>
     </div>
   );

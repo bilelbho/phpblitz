@@ -108,14 +108,14 @@ function Inspections({ ws, path, editor }: { ws: Workspace; path: string; editor
       )}
       {list.length === 0 && (
         <span className="count" style={{ color: '#5fb865' }} title="No problems found">
-          <Icon name="check" size={14} strokeWidth={2.5} />
+          <Icon name="check" size={14} />
         </span>
       )}
       <button type="button" className="icon-btn small" aria-label="Previous problem" title="Previous Highlighted Error (Shift+F2)" onClick={() => jump('prev')} disabled={!list.length}>
-        <Icon name="chevronUp" size={12} strokeWidth={2.2} />
+        <Icon name="chevronUp" size={12} />
       </button>
       <button type="button" className="icon-btn small" aria-label="Next problem" title="Next Highlighted Error (F2)" onClick={() => jump('next')} disabled={!list.length}>
-        <Icon name="chevronDown" size={12} strokeWidth={2.2} />
+        <Icon name="chevronDown" size={12} />
       </button>
     </div>
   );

@@ -215,7 +215,7 @@ export function TableDialog({ ws, request, onClose }: { ws: Workspace; request: 
                 <div key={s.id}>
                   <div className="row" style={{ paddingLeft: 18 }} onClick={() => setOpen((o) => (o.has(s.id) ? new Set([...o].filter((x) => x !== s.id)) : new Set([...o, s.id])))}>
                     <span className={'chev' + (isOpen ? ' open' : '')}>
-                      <Icon name="chevronRight" size={11} strokeWidth={2.5} />
+                      <Icon name="chevronRight" size={11} />
                     </span>
                     <Icon name="folder" size={15} className="db-ic db-folder" />
                     <span className="name">{s.label}</span>
@@ -347,7 +347,7 @@ export function TableDialog({ ws, request, onClose }: { ws: Workspace; request: 
 
       <div className="td-preview-head">
         <button type="button" className="link-btn td-preview-toggle" onClick={() => setPreviewOpen(!previewOpen)}>
-          <Icon name={previewOpen ? 'chevronDown' : 'chevronRight'} size={11} strokeWidth={2.4} /> Preview
+          <Icon name={previewOpen ? 'chevronDown' : 'chevronRight'} size={11} /> Preview
         </button>
         <span className="muted">{runnable.length ? `${runnable.length} statement${runnable.length === 1 ? '' : 's'}${driver === 'postgres' ? ', run in one transaction' : ''}` : 'No changes'}</span>
         <span className="grow" />

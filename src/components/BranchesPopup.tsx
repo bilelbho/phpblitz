@@ -192,7 +192,7 @@ export function BranchesPopup({ ws, anchor, onClose }: { ws: Workspace; anchor: 
               <span className={'bp-label' + (r.branch?.current ? ' current' : '')}>{r.label}</span>
               {r.detail && <span className="bp-detail">{r.detail}</span>}
               {r.shortcut && <span className="shortcut">{r.shortcut}</span>}
-              {r.branch && <Icon name="chevronRight" size={11} strokeWidth={2.4} />}
+              {r.branch && <Icon name="chevronRight" size={11} />}
             </button>
           ),
         )}

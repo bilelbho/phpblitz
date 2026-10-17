@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
 import type { Backend } from './backend/types';
 import { DiskBackend } from './backend/disk';
 import { SampleBackend } from './backend/sample';
@@ -10,6 +10,9 @@ import { Welcome } from './components/Welcome';
 import { WorkspaceView } from './components/lazy';
 import { projectStorage } from './projectStorage';
 import { perf } from './perf';
+
+/** The welcome window's size (as in tauri.conf.json). */
+const WELCOME_SIZE = { width: 820, height: 620 };
 
 export default function App() {
   const [backend, setBackend] = useState<Backend | null>(null);
@@ -42,7 +45,27 @@ export default function App() {
     if (isTauri) getCurrentWindow().setTitle(title).catch(() => {});
   }, [backend, fullPath]);
 
-  if (!backend) return <Welcome onOpenFolder={openFolder} onOpenPath={openPath} onOpenSample={openSample} />;
+  // Like PhpStorm: a small centered welcome window, maximized once a project is open.
+  const hasProject = !!backend;
+  useEffect(() => {
+    if (!isTauri) return;
+    const win = getCurrentWindow();
+    const apply = hasProject
+      ? async () => {
+          await win.setMinSize(new LogicalSize(900, 600));
+          await win.maximize();
+        }
+      : async () => {
+          await win.unmaximize();
+          await win.setMinSize(new LogicalSize(640, 480));
+          await win.setSize(new LogicalSize(WELCOME_SIZE.width, WELCOME_SIZE.height));
+          await win.center();
+        };
+    apply().catch(() => {});
+  }, [hasProject]);
+
+  // The demo project is only for the browser preview (npm run dev), where folders cannot be opened.
+  if (!backend) return <Welcome onOpenFolder={openFolder} onOpenPath={openPath} onOpenSample={isTauri ? undefined : openSample} />;
   return (
     <WorkspaceView
       key={`${backend.kind}:${backend.root}`}

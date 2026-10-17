@@ -171,7 +171,7 @@ export function SearchEverywhere({ ws, initialTab, onClose, actions }: Props) {
           ))}
           <span className="grow" />
           <button type="button" className="icon-btn" aria-label="Close search" onClick={onClose}>
-            <Icon name="close" size={12} strokeWidth={2.5} />
+            <Icon name="close" size={12} />
           </button>
         </div>
         <div className="search-field">

@@ -142,7 +142,7 @@ function InterpreterStatus({ info }: { info: { state: string; info?: PhpInfo; er
   return (
     <span className="php-status">
       <span className="ok">
-        <Icon name="check" size={13} strokeWidth={2.4} /> PHP {i.version}
+        <Icon name="check" size={13} /> PHP {i.version}
       </span>
       <span className={i.xdebug ? 'ok' : 'muted'}>Debugger: {i.xdebug ? `Xdebug ${i.xdebug}${i.xdebugMode ? ` (mode: ${i.xdebugMode})` : ''}` : 'Not installed'}</span>
     </span>
@@ -494,7 +494,7 @@ function InterpreterForm({ ws, value: i, onChange }: { ws: Workspace; value: Int
         {info.state === 'ok' && (
           <>
             <span className="ok">
-              <Icon name="check" size={13} strokeWidth={2.4} /> PHP version: {info.info!.version}
+              <Icon name="check" size={13} /> PHP version: {info.info!.version}
             </span>
             <span className={info.info!.xdebug ? 'ok' : 'muted'}>Debugger: {info.info!.xdebug ? `Xdebug ${info.info!.xdebug}` : 'Not installed'}</span>
           </>

@@ -21,11 +21,13 @@ interface Props {
   onEdit?: (cell: Cell, value: string | null) => void;
   rowState?: (row: number) => RowState;
   onDeleteRows?: (rows: number[]) => void;
+  /** Adds a new row with this row's values (Ctrl+D). */
+  onCloneRow?: (row: number) => void;
 }
 
 const NUMERIC = /^(int|integer|bigint|smallint|tinyint|mediumint|decimal|numeric|real|double|float|money|serial|bigserial)/i;
 
-export function DataGrid({ columns, meta, rows, firstRow = 1, sort, onSort, edits, onEdit, rowState, onDeleteRows }: Props) {
+export function DataGrid({ columns, meta, rows, firstRow = 1, sort, onSort, edits, onEdit, rowState, onDeleteRows, onCloneRow }: Props) {
   const [sel, setSel] = useState<Cell | null>(rows.length && columns.length ? { r: 0, c: 0 } : null);
   const [editing, setEditing] = useState<{ cell: Cell; value: string } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
@@ -85,6 +87,9 @@ export function DataGrid({ columns, meta, rows, firstRow = 1, sort, onSort, edit
     } else if (ctrl && e.altKey && e.key.toLowerCase() === 'n' && editable) {
       e.preventDefault();
       onEdit!(sel, null);
+    } else if (e.key.toLowerCase() === 'd' && ctrl && onCloneRow) {
+      e.preventDefault();
+      onCloneRow(sel.r);
     } else if (e.key === 'Delete' && onDeleteRows && ctrl) {
       e.preventDefault();
       onDeleteRows([sel.r]);
@@ -110,6 +115,7 @@ export function DataGrid({ columns, meta, rows, firstRow = 1, sort, onSort, edit
               { kind: 'sep' as const },
               { label: 'Edit', shortcut: 'Enter', icon: 'pencil' as const, run: () => startEdit(cell) },
               { label: 'Set NULL', shortcut: 'Ctrl+Alt+N', run: () => onEdit!(cell, null) },
+              ...(onCloneRow ? [{ label: 'Clone Row', shortcut: 'Ctrl+D', run: () => onCloneRow(cell.r) }] : []),
               ...(onDeleteRows ? [{ label: 'Delete Row', shortcut: 'Ctrl+Delete', run: () => onDeleteRows([cell.r]) }] : []),
             ]
           : []),

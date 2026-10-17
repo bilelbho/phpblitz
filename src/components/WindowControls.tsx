@@ -9,13 +9,13 @@ export function WindowControls() {
   return (
     <div style={{ display: 'flex', alignSelf: 'stretch' }}>
       <button type="button" className="win-btn" aria-label="Minimize" onClick={() => win.minimize()}>
-        <Icon name="winMin" size={14} strokeWidth={1.4} />
+        <Icon name="winMin" size={14} />
       </button>
       <button type="button" className="win-btn" aria-label="Maximize" onClick={() => win.toggleMaximize()}>
-        <Icon name="winMax" size={12} strokeWidth={1.4} />
+        <Icon name="winMax" size={12} />
       </button>
       <button type="button" className="win-btn close" aria-label="Close" onClick={() => win.close()}>
-        <Icon name="winClose" size={14} strokeWidth={1.4} />
+        <Icon name="winClose" size={14} />
       </button>
     </div>
   );

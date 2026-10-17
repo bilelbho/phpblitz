@@ -74,6 +74,7 @@ pub fn run() {
             db::db_test,
             db::db_disconnect,
             db::db_query,
+            db::db_execute,
             db::db_set_password,
             db::db_has_password,
             xdebug::xdebug_listen,

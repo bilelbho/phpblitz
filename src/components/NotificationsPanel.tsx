@@ -16,7 +16,7 @@ export function NotificationsPanel({ ws }: { ws: Workspace }) {
               <div className="card-body">{n.body}</div>
             </div>
             <button type="button" className="icon-btn small" aria-label={`Dismiss: ${n.title}`} onClick={() => ws.dismissNotice(n.id)}>
-              <Icon name="close" size={10} strokeWidth={2.5} />
+              <Icon name="close" size={10} />
             </button>
           </div>
           {n.action && (

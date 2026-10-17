@@ -336,6 +336,55 @@ pub async fn db_query(state: State<'_, DbState>, id: String, sql: String, limit:
     .map_err(|e| e.to_string())?
 }
 
+/// One statement of a batch; `expect_row`: an UPDATE or DELETE of one row seen in the table editor,
+/// which must change a row (none changed: someone else changed or deleted it meanwhile).
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Statement {
+    sql: String,
+    #[serde(default)]
+    expect_row: bool,
+}
+
+/// Runs statements in one transaction: all of them, or none if one fails. Returns the rows each
+/// one changed; an error says which statement failed.
+fn execute_all(conn: &mut Conn, statements: &[Statement]) -> Result<Vec<u64>, String> {
+    let begin = if matches!(conn, Conn::Mysql(_)) { "START TRANSACTION" } else { "BEGIN" };
+    run(conn, begin, 1)?;
+    let mut changed = Vec::with_capacity(statements.len());
+    for (i, st) in statements.iter().enumerate() {
+        let failure = match run(conn, &st.sql, 1) {
+            Ok(r) if st.expect_row && r.affected == Some(0) => Some("no row matched: it was changed or deleted since the page was loaded".to_string()),
+            Ok(r) => {
+                changed.push(r.affected.unwrap_or(0));
+                None
+            }
+            Err(e) => Some(e),
+        };
+        if let Some(e) = failure {
+            let _ = run(conn, "ROLLBACK", 1);
+            return Err(format!("Statement {} of {} failed, nothing was saved: {e}\n\n{}", i + 1, statements.len(), st.sql));
+        }
+    }
+    if let Err(e) = run(conn, "COMMIT", 1) {
+        let _ = run(conn, "ROLLBACK", 1);
+        return Err(format!("Commit failed, nothing was saved: {e}"));
+    }
+    Ok(changed)
+}
+
+/// The table editor's Submit: its pending changes as one transaction.
+#[tauri::command]
+pub async fn db_execute(state: State<'_, DbState>, id: String, statements: Vec<Statement>) -> Result<Vec<u64>, String> {
+    let conn = conn_of(&state, &id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut conn = conn.lock().map_err(|e| e.to_string())?;
+        execute_all(&mut conn, &statements)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Saves (or with `None`, forgets) a data source's password in the OS credential store.
 #[tauri::command]
 pub async fn db_set_password(id: String, password: Option<String>) -> Result<(), String> {
@@ -362,6 +411,32 @@ pub async fn db_has_password(id: String) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Submit: everything in one transaction; a failing statement or a row that is gone undoes all.
+    #[test]
+    fn executes_a_batch_as_one_transaction() {
+        let mut conn = Conn::Sqlite(rusqlite::Connection::open_in_memory().unwrap());
+        run(&mut conn, "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL); INSERT INTO t VALUES (1, 'a'), (2, 'b')", 10).unwrap();
+        let st = |sql: &str, expect_row: bool| Statement { sql: sql.into(), expect_row };
+        let names = |conn: &mut Conn| run(conn, "SELECT name FROM t ORDER BY id", 10).unwrap().rows.into_iter().map(|r| r[0].clone().unwrap()).collect::<Vec<_>>();
+
+        let changed = execute_all(&mut conn, &[st("UPDATE t SET name = 'A' WHERE id = 1", true), st("INSERT INTO t (name) VALUES ('c')", false)]).unwrap();
+        assert_eq!(changed, vec![1, 1]);
+        assert_eq!(names(&mut conn), ["A", "b", "c"]);
+
+        // The second statement fails (NOT NULL): the first is rolled back too.
+        let err = execute_all(&mut conn, &[st("UPDATE t SET name = 'B' WHERE id = 2", true), st("INSERT INTO t (name) VALUES (NULL)", false)]).unwrap_err();
+        assert!(err.starts_with("Statement 2 of 2 failed, nothing was saved"), "{err}");
+        assert_eq!(names(&mut conn), ["A", "b", "c"]);
+
+        // A row deleted meanwhile: the update matches nothing, so nothing is saved.
+        let err = execute_all(&mut conn, &[st("DELETE FROM t WHERE id = 3", true), st("UPDATE t SET name = 'x' WHERE id = 99", true)]).unwrap_err();
+        assert!(err.contains("no row matched"), "{err}");
+        assert_eq!(names(&mut conn), ["A", "b", "c"]);
+
+        // The connection is usable afterwards (no transaction left open).
+        assert_eq!(execute_all(&mut conn, &[st("DELETE FROM t WHERE id = 3", true)]).unwrap(), vec![1]);
+    }
 
     /// Regression: connecting ran the version query (and dropped replaced connections) on the
     /// async runtime, which panics with the blocking postgres driver and aborted the app.

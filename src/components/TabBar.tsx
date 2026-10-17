@@ -216,7 +216,7 @@ export function TabBar({ ws }: { ws: Workspace }) {
                 </button>
                 {opts.closeButton !== 'none' && (
                   <button type="button" className="icon-btn small tab-close" aria-label={`Close ${name}`} title={dirty ? 'Unsaved changes. Close' : 'Close (Ctrl+F4)'} onClick={() => ws.closeTab(t.id)}>
-                    <Icon name="close" size={10} strokeWidth={2.5} />
+                    <Icon name="close" size={10} />
                   </button>
                 )}
               </div>
@@ -231,7 +231,7 @@ export function TabBar({ ws }: { ws: Workspace }) {
           title={hidden.size ? `${hidden.size} more tab${hidden.size === 1 ? '' : 's'}` : 'All tabs'}
           onClick={(e) => setList(list ? null : (e.currentTarget as HTMLElement).getBoundingClientRect())}
         >
-          <Icon name="chevronDown" size={13} strokeWidth={2.2} />
+          <Icon name="chevronDown" size={13} />
           {hidden.size > 0 && <span className="tabs-more">{hidden.size}</span>}
         </button>
         <button
@@ -244,7 +244,7 @@ export function TabBar({ ws }: { ws: Workspace }) {
             setMenu({ x: r.right - 220, y: r.bottom + 4, items: closeMenuItems(null) });
           }}
         >
-          <Icon name="more" size={13} strokeWidth={3} />
+          <Icon name="more" size={13} />
         </button>
       </div>
       {list && (
@@ -341,7 +341,7 @@ function TabList({ anchor, tabs, ws, color, onPick, onClose }: { anchor: DOMRect
                 ws.closeTab(t.id);
               }}
             >
-              <Icon name="close" size={9} strokeWidth={2.5} />
+              <Icon name="close" size={9} />
             </button>
           </div>
         );

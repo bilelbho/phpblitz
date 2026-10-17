@@ -5,7 +5,7 @@ import type { TabSettings, UiSettings, UiTheme } from '../settings';
 import { MAX_ZOOM, MIN_ZOOM } from '../uiSettings';
 
 // Our own names (the ids are kept so saved settings still match).
-const THEMES: { id: UiTheme; label: string }[] = [
+export const THEMES: { id: UiTheme; label: string }[] = [
   { id: 'islands-dark', label: 'Blitz Dark' },
   { id: 'islands-light', label: 'Blitz Light' },
   { id: 'islands-darcula', label: 'Blitz Classic' },
