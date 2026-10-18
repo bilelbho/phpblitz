@@ -5,7 +5,9 @@ import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
 import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
 import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
 import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
-import { inferType, structureOf } from './php';
+import { structureOf } from './php';
+import { chainType, parseChain } from './completion/phpTypes';
+import './completion/laravel';
 import { symbols } from './symbols';
 import { isLspActive, usageCount } from './lsp/monacoBridge';
 import { getSettings } from './settings';
@@ -102,40 +104,53 @@ monaco.editor.addKeybindingRules([
 
 const { CompletionItemKind, CompletionItemInsertTextRule } = monaco.languages;
 
-// Member completion after `->` and `::`, using the project class index.
+// Member completion after `->`, `?->` and `::`: the class of the expression before it (variables,
+// chains of calls and properties, `new`, function calls, `self` / `static` / `parent`), its own and
+// inherited members, `@method` / `@property` docblock members and `@mixin` classes included.
 monaco.languages.registerCompletionItemProvider('php', {
   triggerCharacters: ['>', ':'],
   async provideCompletionItems(model, position) {
     if (isLspActive()) return { suggestions: [] };
-    const prefix = model.getLineContent(position.lineNumber).slice(0, position.column - 1);
-    const m = prefix.match(/(\$this->\w+|\$\w+|\b[A-Z]\w*)\s*(->|::)(\w*)$/);
-    if (!m) return { suggestions: [] };
-    const [, target, op, typed] = m;
+    const offset = model.getOffsetAt(position);
+    // The code before the cursor, from a little before the statement (chains can span lines).
     const src = model.getValue();
-    const type = target.startsWith('$') ? inferType(src, target) : target === 'self' || target === 'static' ? inferType(src, '$this') : target;
-    if (!type) return { suggestions: [] };
+    const before = src.slice(Math.max(0, offset - 4000), offset);
+    const m = before.match(/(\??->|::)\s*(\w*)$/);
+    if (!m) return { suggestions: [] };
+    const [, op, typed] = m;
+    const receiverText = before.slice(0, before.length - m[0].length);
+    const chain = parseChain(receiverText, op === '::' ? '::' : '->');
+    if (!chain) return { suggestions: [] };
+    const type = await chainType(chain, src, offset);
+    if (!type.cls) return { suggestions: [] };
+    const info = await symbols.classInfo(type.cls);
+    if (!info) return { suggestions: [] };
 
     const isStatic = op === '::';
-    const ownClass = structureOf(src).find((s) => s.depth === 0)?.name;
-    const canSeePrivate = target === '$this' || type === ownClass;
+    const base = chain.base;
+    const fromInside = chain.steps.length === 0 && ((base.kind === 'var' && base.name === '$this') || (base.kind === 'class' && /^(self|static|parent)$/i.test(base.name)));
+    const own = structureOf(src).find((s) => s.depth === 0)?.name;
+    const canSeePrivate = fromInside || info.name === own;
     const range = new monaco.Range(position.lineNumber, position.column - typed.length, position.lineNumber, position.column);
 
-    const info = await symbols.classInfo(type, src);
-    const suggestions = (info?.allMembers ?? [])
-      .filter((s) => (isStatic ? s.isStatic || s.kind === 'const' || s.kind === 'method' : s.kind !== 'const'))
-      .filter((s) => canSeePrivate || s.visibility === 'public')
-      .filter((s) => s.name !== '__construct')
+    const suggestions: monaco.languages.CompletionItem[] = info.allMembers
+      .filter((s) => (isStatic ? s.isStatic || s.kind === 'const' || s.kind === 'method' : s.kind !== 'const' && !(s.kind === 'property' && s.isStatic)))
+      .filter((s) => canSeePrivate || s.visibility === 'public' || (s.visibility === 'protected' && fromInside))
+      .filter((s) => s.name !== '__construct' || (isStatic && base.kind === 'class' && /^parent$/i.test(base.name)))
       .map((s, i) => {
         const isMethod = s.kind === 'method';
+        const returns = s.ty && s.ty !== 'static' ? s.ty.split('\\').pop() : s.detail;
         return {
-          label: { label: s.name, detail: isMethod ? `(${s.params ?? ''})` : '', description: s.detail || undefined },
+          label: { label: s.name, detail: isMethod ? `(${s.params ?? ''})` : '', description: returns || undefined },
           kind: isMethod ? CompletionItemKind.Method : s.kind === 'const' ? CompletionItemKind.Constant : CompletionItemKind.Property,
           insertText: isMethod ? `${s.name}($0)` : isStatic && s.kind === 'property' ? `$${s.name}` : s.name,
           insertTextRules: isMethod ? CompletionItemInsertTextRule.InsertAsSnippet : undefined,
+          // The class's own members first, then inherited and mixin ones (allMembers keeps that order).
           sortText: String(i).padStart(4, '0'),
           range,
         };
       });
+    if (isStatic) suggestions.push({ label: 'class', kind: CompletionItemKind.Keyword, insertText: 'class', sortText: '9999', range });
     return { suggestions };
   },
 });

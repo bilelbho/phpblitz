@@ -16,6 +16,8 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(lsp::LspState::default())
         .manage(mago::MagoState::default())
         .manage(index::IndexState::default())
@@ -38,6 +40,7 @@ pub fn run() {
             process::find_executable,
             process::reveal_in_explorer,
             process::open_external,
+            process::updater_supported,
             lsp::lsp_start,
             lsp::lsp_send,
             lsp::lsp_stop,
@@ -47,6 +50,7 @@ pub fn run() {
             index::index_save,
             index::index_kinds,
             index::index_class,
+            index::index_function,
             index::index_search,
             index::index_usages,
             index::index_locate,

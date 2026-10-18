@@ -134,6 +134,21 @@ export function AppearancePage({ value: ui, onChange, highlight, onEditorScheme 
           <Check label="Display icons in menu items" checked={ui.menuIcons} onChange={(v) => onChange({ menuIcons: v })} hit={hit} />
         </div>
       </div>
+      <div className="settings-grid" style={{ marginTop: 8 }}>
+        <label htmlFor="ui-main-menu" className={hit('Main menu')}>
+          Main menu:
+        </label>
+        <Select
+          id="ui-main-menu"
+          value={ui.mainMenu}
+          options={[
+            { id: 'merged', label: 'Merge with main toolbar' },
+            { id: 'separate', label: 'Show above main toolbar' },
+            { id: 'hamburger', label: 'Hide under hamburger button' },
+          ]}
+          onChange={(mainMenu) => onChange({ mainMenu })}
+        />
+      </div>
 
       <h3 className="settings-section">Tree Views</h3>
       <div className="settings-columns">
@@ -146,6 +161,15 @@ export function AppearancePage({ value: ui, onChange, highlight, onEditorScheme 
         <Check label="Show tool window bars" checked={ui.toolWindowBars} onChange={(v) => onChange({ toolWindowBars: v })} help="The icon strips at the window's sides. Alt+1, Alt+9… still open tool windows." hit={hit} />
         <Check label="Show tool window names" checked={ui.toolWindowNames} disabled={!ui.toolWindowBars} onChange={(v) => onChange({ toolWindowNames: v })} hit={hit} />
       </div>
+
+      <h3 className="settings-section">Updates</h3>
+      <Check
+        label="Check for updates automatically"
+        checked={ui.checkUpdates}
+        onChange={(v) => onChange({ checkUpdates: v })}
+        help="Downloads new versions from GitHub Releases in the background, then asks to restart. Help ▸ Check for Updates checks now."
+        hit={hit}
+      />
     </>
   );
 }

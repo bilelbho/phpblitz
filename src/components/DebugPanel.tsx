@@ -11,8 +11,10 @@ import { copyText } from '../editorMenu';
 import { ContextMenu, type ContextItem } from './ContextMenu';
 import { Icon, type IconName } from './Icon';
 import { VarNode } from './VarNode';
+import { useHideTool } from './toolHide';
 
 export function DebugPanel({ ws }: { ws: Workspace }) {
+  const hide = useHideTool(() => ws.setBottomOpen(false));
   const debug = useDebug();
   const s = debug.active;
   const [view, setView] = useState<'variables' | 'console'>('variables');
@@ -39,7 +41,7 @@ export function DebugPanel({ ws }: { ws: Workspace }) {
           </span>
         ))}
         <span className="grow" />
-        <button type="button" className="icon-btn small" aria-label="Hide tool window" title="Hide" onClick={() => ws.setBottomOpen(false)}>
+        <button type="button" className="icon-btn small" aria-label="Hide tool window" title="Hide" onClick={hide}>
           <Icon name="minus" size={14} />
         </button>
       </div>

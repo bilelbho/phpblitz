@@ -10,6 +10,7 @@ import { Welcome } from './components/Welcome';
 import { WorkspaceView } from './components/lazy';
 import { projectStorage } from './projectStorage';
 import { perf } from './perf';
+import { startUpdateChecks } from './updater';
 
 /** The welcome window's size (as in tauri.conf.json). */
 const WELCOME_SIZE = { width: 820, height: 620 };
@@ -38,6 +39,7 @@ export default function App() {
   }, []);
 
   useApplyUiSettings();
+  useEffect(startUpdateChecks, []);
   const fullPath = useSettings().ui.fullPathInTitle;
   useEffect(() => {
     const title = backend ? `${fullPath && backend.kind === 'disk' ? backend.root : backend.name} – PHPBlitz` : 'PHPBlitz';

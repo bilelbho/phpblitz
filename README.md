@@ -2,7 +2,12 @@
   <img src="app-icon.svg" alt="PHPBlitz" width="96">
 </p>
 
-<h1 align="center">PHPBlitz</h1>
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/wordmark-dark.svg">
+    <img src=".github/assets/wordmark-light.svg" alt="PHPBlitz" width="260">
+  </picture>
+</h1>
 
 <p align="center">
   <b>A fast, open source PHP IDE.</b><br>
@@ -97,8 +102,10 @@ PHPBlitz keeps per-project files in a `.blitz` folder in your project:
 
 - Opening a project reads and parses its files; it never runs them. Your code runs only when you
   start it (tests, the debugger, the terminal, Composer).
-- No telemetry and no account: PHPBlitz contacts nothing on its own. The network is used only for
-  what you start, like Git push and pull or a database connection.
+- No telemetry and no account. The only thing PHPBlitz fetches on its own is the update check
+  (`latest.json` from this repository's GitHub Releases), which you can turn off in Settings ▸
+  Appearance & Behavior ▸ Appearance. Otherwise the network is used only for what you start, like
+  Git push and pull or a database connection.
 - Database passwords are kept in your system's credential store, not in files.
 
 More in [SECURITY.md](SECURITY.md).

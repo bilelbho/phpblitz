@@ -1,6 +1,6 @@
 [package]
 name = "phpblitz"
-version = "0.1.5"
+version = "0.1.6"
 description = "A fast, open source PHP IDE"
 authors = ["The PHPBlitz Authors"]
 license = "Apache-2.0"
@@ -68,6 +68,18 @@ keyring = { version = "3", features = ["windows-native", "apple-native"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", features = ["linux-native-sync-persistent", "crypto-rust"] }
 
+# Auto-update from GitHub Releases, and the restart after installing one.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
+
 # Dependencies (Mago, Tauri) stay optimized in debug builds, so `tauri dev` analysis is fast.
 [profile.dev.package."*"]
 opt-level = 2
+
+# Release builds: optimized as one unit (smaller, a little faster), symbols stripped. Panics still
+# unwind, so a panic in a background task (Mago on an odd file) stays an error instead of a crash.
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

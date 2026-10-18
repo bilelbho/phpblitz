@@ -1,16 +1,29 @@
 import { FileIcon } from './FileIcon';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualRows } from './useVirtualRows';
-import type { BottomTab, Workspace } from '../useWorkspace';
+import { toolOfTab, type BottomTab, type Workspace } from '../useWorkspace';
 import { baseName, relativePath, type Problem } from '../backend/types';
 import { Icon, Play } from './Icon';
 import { FindResults } from './FindInFiles';
 import { DebugPanel, GitToolWindow, TerminalView, TodoToolWindow } from './lazy';
 import { isTauri } from '../platform';
+import { useHideTool } from './toolHide';
 
 const SEVERITY_COLOR = { error: 'var(--red)', warning: 'var(--orange)', info: 'var(--muted)' } as const;
 
-export function BottomPanel({ ws, height }: { ws: Workspace; height: number }) {
+/**
+ * The bottom tool windows. In the bottom panel it shows the current tab (tab); with `tab`,
+ * that tool window alone, for a side column it was dragged to (`height` is then left to the column).
+ */
+export function BottomPanel({ ws, height, tab: only }: { ws: Workspace; height?: number; tab?: BottomTab }) {
+  const tab = only ?? ws.bottomTab;
+  const hide = useHideTool(() => ws.setBottomOpen(false));
+  const place = only ? 'island side' : 'island bottom';
+  /** In the bottom panel: the tabs whose tool window wasn't dragged to a side. */
+  const inBottom = (t: BottomTab) => {
+    const tool = toolOfTab(t);
+    return !tool || ws.toolLayout.bottom.includes(tool);
+  };
   const problems = ws.activePath ? ws.problems[ws.activePath] ?? [] : [];
   const outdatedCount = ws.outdated ? Object.keys(ws.outdated).length : 0;
   const tabs: { id: BottomTab; label: string; count?: string }[] = [
@@ -21,34 +34,34 @@ export function BottomPanel({ ws, height }: { ws: Workspace; height: number }) {
     ...(ws.usages ? [{ id: 'usages' as const, label: `Usages of ${ws.usages.name}`, count: ws.usages.loading ? '…' : String(ws.usages.items.length) }] : []),
   ];
 
-  if (ws.bottomTab === 'debug') {
+  if (tab === 'debug') {
     return (
-      <section className="island bottom" style={{ height }} aria-label="Debug">
+      <section className={place} style={{ height }} aria-label="Debug">
         <DebugPanel ws={ws} />
       </section>
     );
   }
 
-  if (ws.bottomTab === 'todo') {
+  if (tab === 'todo') {
     return (
-      <section className="island bottom" style={{ height }} aria-label="TODO">
+      <section className={place} style={{ height }} aria-label="TODO">
         <TodoToolWindow ws={ws} />
       </section>
     );
   }
 
-  if (ws.bottomTab === 'git') {
+  if (tab === 'git') {
     return (
-      <section className="island bottom" style={{ height }} aria-label="Git">
+      <section className={place} style={{ height }} aria-label="Git">
         <GitToolWindow ws={ws} />
       </section>
     );
   }
 
   // Terminal is a tool window of its own, like in PhpStorm (not a tab next to Problems).
-  if (ws.bottomTab === 'terminal') {
+  if (tab === 'terminal') {
     return (
-      <section className="island bottom" style={{ height }} aria-label="Terminal">
+      <section className={place} style={{ height }} aria-label="Terminal">
         {isTauri && ws.backend.kind === 'disk' ? (
           <TerminalView ws={ws} />
         ) : (
@@ -56,7 +69,7 @@ export function BottomPanel({ ws, height }: { ws: Workspace; height: number }) {
             <div className="tw-head">
               <span className="tw-title">Terminal</span>
               <span className="grow" />
-              <button type="button" className="icon-btn small" aria-label="Hide tool window" title="Hide" onClick={() => ws.setBottomOpen(false)}>
+              <button type="button" className="icon-btn small" aria-label="Hide tool window" title="Hide" onClick={hide}>
                 <Icon name="minus" size={14} />
               </button>
             </div>
@@ -70,15 +83,15 @@ export function BottomPanel({ ws, height }: { ws: Workspace; height: number }) {
   }
 
   return (
-    <section className="island bottom" style={{ height }} aria-label="Tool window">
+    <section className={place} style={{ height }} aria-label={(only && tabs.find((t) => t.id === only)?.label) || 'Tool window'}>
       <div className="tw-head" role="tablist">
-        {tabs.map((t) => (
+        {tabs.filter((t) => (only ? t.id === only : inBottom(t.id))).map((t) => (
           <button
             key={t.id}
             type="button"
             role="tab"
-            aria-selected={ws.bottomTab === t.id}
-            className={'tw-tab' + (ws.bottomTab === t.id ? ' active' : '')}
+            aria-selected={tab === t.id}
+            className={'tw-tab' + (tab === t.id ? ' active' : '')}
             onClick={() => ws.showBottom(t.id)}
           >
             {t.label}
@@ -86,16 +99,16 @@ export function BottomPanel({ ws, height }: { ws: Workspace; height: number }) {
           </button>
         ))}
         <span className="grow" />
-        <button type="button" className="icon-btn small" aria-label="Hide tool window" title="Hide" onClick={() => ws.setBottomOpen(false)}>
+        <button type="button" className="icon-btn small" aria-label="Hide tool window" title="Hide" onClick={hide}>
           <Icon name="minus" size={14} />
         </button>
       </div>
       <div className="panel-body">
-        {ws.bottomTab === 'problems' && <Problems ws={ws} />}
-        {ws.bottomTab === 'usages' && <Usages ws={ws} />}
-        {ws.bottomTab === 'find' && <FindResults ws={ws} />}
-        {ws.bottomTab === 'tests' && <Tests ws={ws} />}
-        {ws.bottomTab === 'composer' && (
+        {tab === 'problems' && <Problems ws={ws} />}
+        {tab === 'usages' && <Usages ws={ws} />}
+        {tab === 'find' && <FindResults ws={ws} />}
+        {tab === 'tests' && <Tests ws={ws} />}
+        {tab === 'composer' && (
           <>
             {ws.packages.map((p) => {
               const latest = ws.outdated?.[p.name];

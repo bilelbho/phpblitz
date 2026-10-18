@@ -73,6 +73,7 @@ import {
 } from '@tabler/icons-react';
 import type { ComponentType } from 'react';
 import { STROKE } from './FileIcon';
+import appIcon from '../../app-icon.svg';
 
 /** Our names for the icons, so the rest of the app doesn't depend on Tabler's. */
 const ICONS = {
@@ -171,13 +172,9 @@ export function Play({ size = 16 }: { size?: number }) {
   );
 }
 
+/** The PHPBlitz logo: app-icon.svg, the same artwork as the app icons (src-tauri/icons). */
 export function Logo({ size = 22 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="1" y="1" width="22" height="22" rx="6" fill="#2b2d30" />
-      <path d="M13.5 3.5 6.5 13.5h5l-1 7 7-10h-5z" fill="#f2a93b" />
-    </svg>
-  );
+  return <img src={appIcon} width={size} height={size} alt="" aria-hidden="true" draggable={false} style={{ display: 'block' }} />;
 }
 
 /** JetBrains-style symbol icon (class, method, field…): a tinted circle with a colored letter. */

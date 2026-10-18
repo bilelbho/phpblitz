@@ -19,6 +19,8 @@
     "core:window:allow-center",
     "core:window:allow-internal-toggle-maximize",
     "core:window:allow-close",
-    "dialog:default"
+    "dialog:default",
+    "updater:default",
+    "process:allow-restart"
   ]
 }

@@ -12,6 +12,7 @@ import { useSettings } from '../settings';
 import { projectTodos, todosInText, type TodoItem } from '../todo';
 import { FileIcon } from './FileIcon';
 import { Icon } from './Icon';
+import { useHideTool } from './toolHide';
 
 type Row =
   | { kind: 'root'; key: string; depth: number; label: string }
@@ -21,6 +22,7 @@ type Row =
 const keyOf = (t: TodoItem) => `${t.path}:${t.line}`;
 
 export function TodoToolWindow({ ws }: { ws: Workspace }) {
+  const hide = useHideTool(() => ws.setBottomOpen(false));
   const [view, setView] = useState<'project' | 'file'>('project');
   const [projectItems, setProjectItems] = useState<TodoItem[] | null>(null);
   const [error, setError] = useState('');
@@ -129,7 +131,7 @@ export function TodoToolWindow({ ws }: { ws: Workspace }) {
         <button type="button" className="icon-btn small" title="Refresh" aria-label="Refresh" onClick={() => void refresh()}>
           <Icon name="refresh" size={13} />
         </button>
-        <button type="button" className="icon-btn small" aria-label="Hide tool window" title="Hide" onClick={() => ws.setBottomOpen(false)}>
+        <button type="button" className="icon-btn small" aria-label="Hide tool window" title="Hide" onClick={hide}>
           <Icon name="minus" size={14} />
         </button>
       </div>

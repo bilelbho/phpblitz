@@ -144,3 +144,27 @@ pub fn find_executable_blocking(names: Vec<String>) -> Option<String> {
     }
     None
 }
+
+/// Whether this copy can install updates itself. Everything can (the Windows installers, the macOS
+/// app, the AppImage, and .deb / .rpm through a password prompt) except the portable Windows zip,
+/// which is replaced by hand.
+#[tauri::command]
+pub fn updater_supported() -> bool {
+    #[cfg(target_os = "windows")]
+    return !portable();
+    #[cfg(not(target_os = "windows"))]
+    return true;
+}
+
+/// The portable zip: no uninstaller next to the exe (the NSIS installer writes uninstall.exe) and
+/// not under Program Files (where the MSI installs).
+#[cfg(target_os = "windows")]
+fn portable() -> bool {
+    let Ok(exe) = std::env::current_exe() else { return true };
+    let Some(dir) = exe.parent() else { return true };
+    if dir.join("uninstall.exe").exists() {
+        return false;
+    }
+    let program_files = [std::env::var_os("ProgramFiles"), std::env::var_os("ProgramW6432")];
+    !program_files.iter().flatten().any(|pf| dir.starts_with(pf))
+}

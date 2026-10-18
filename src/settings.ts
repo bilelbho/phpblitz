@@ -56,6 +56,9 @@ export interface EditorSettings {
   gutterChanges: boolean;
 }
 
+/** View ▸ Appearance ▸ Main Menu. */
+export type MainMenuMode = 'hamburger' | 'merged' | 'separate';
+
 export type UiTheme = 'islands-dark' | 'islands-light' | 'islands-darcula' | 'high-contrast';
 
 /** Appearance & Behavior ▸ Appearance. */
@@ -78,6 +81,9 @@ export interface UiSettings {
   smallerIndents: boolean;
   toolWindowBars: boolean;
   toolWindowNames: boolean;
+  /** Look for new versions in the background and download them. */
+  checkUpdates: boolean;
+  mainMenu: MainMenuMode;
 }
 
 /** Editor ▸ General ▸ Editor Tabs. */
@@ -142,6 +148,8 @@ export const DEFAULT_SETTINGS: Settings = {
     smallerIndents: false,
     toolWindowBars: true,
     toolWindowNames: false,
+    checkUpdates: true,
+    mainMenu: 'merged',
   },
   tabs: {
     placement: 'top',

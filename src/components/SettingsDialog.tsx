@@ -41,7 +41,7 @@ const PAGES: Page[] = [
     label: 'Appearance',
     group: 'Appearance & Behavior',
     section: 'ui',
-    keywords: 'theme blitz dark light classic high contrast sync os zoom font size scrollbars compact mode full path window header project colors toolbar smooth scrolling menu icons tree indent guides smaller indents tool window bars names',
+    keywords: 'theme blitz dark light classic high contrast sync os zoom font size scrollbars compact mode full path window header project colors toolbar smooth scrolling menu icons tree indent guides smaller indents tool window bars names updates check automatically new version main menu bar hamburger merge toolbar',
   },
   {
     id: 'editor-general',

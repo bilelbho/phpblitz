@@ -24,9 +24,15 @@ An IDE opens projects that may come from anywhere, so these are the rules PHPBli
   own Git hooks, as with any Git client.
 - **Programs come from your PATH.** PHP, Git, Composer and language servers are the ones installed
   on your machine; PHPBlitz doesn't download programs.
-- **No telemetry, no account.** PHPBlitz doesn't contact any server on its own. It uses the
-  network only for what you start: Git push and pull, Composer, a database connection, a link you
-  open.
+- **No telemetry, no account.** The one request PHPBlitz makes on its own is the update check:
+  a few seconds after startup and every six hours it downloads `latest.json` from this repository's
+  GitHub Releases, a plain HTTPS request with nothing about you or your projects in it. Turn it off
+  in Settings ▸ Appearance & Behavior ▸ Appearance ▸ Updates. Otherwise the network is used only
+  for what you start: Git push and pull, Composer, a database connection, a link you open.
+- **Updates are signed.** An update is installed only if its signature matches the PHPBlitz update
+  key, whose public half is built into the app (`plugins.updater.pubkey` in `tauri.conf.json`), and
+  the signature names the version it was made for, so an old release can't be passed off as a new
+  one. The signing key is kept outside the repository and used only by the release builds.
 - **Passwords stay in your system's credential store** (Windows Credential Manager, the Secret
   Service on Linux: GNOME Keyring or KWallet), never in project files. `.blitz/workspace.json`
   holds your data sources' host and user name, and is git-ignored.
@@ -40,7 +46,8 @@ An IDE opens projects that may come from anywhere, so these are the rules PHPBli
 
 ## Known limits
 
-- **The apps aren't signed by a certificate yet.** Windows SmartScreen may warn that the app is
+- **The installers aren't signed by a code-signing certificate yet** (Windows signing through
+  SignPath is being set up). Windows SmartScreen may warn that the app is
   from an unknown publisher, and macOS asks you to allow it in System Settings ▸ Privacy &
   Security (the Mac app is signed ad hoc, not notarized). Compare the file's checksum with
   `SHA256SUMS.txt` on the release page:

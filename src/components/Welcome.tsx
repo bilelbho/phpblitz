@@ -15,6 +15,7 @@ import { ContextMenu, type ContextItem } from './ContextMenu';
 import { THEMES } from './SettingsAppearance';
 import { WindowControls } from './WindowControls';
 import { AboutDialog } from './lazy';
+import { checkForUpdates, RELEASES_URL, restartToUpdate, useUpdateState } from '../updater';
 
 interface Props {
   onOpenFolder: () => void;
@@ -66,6 +67,7 @@ export function Welcome({ onOpenFolder, onOpenPath, onOpenSample }: Props) {
             </button>
           ))}
           <span className="grow" />
+          <UpdateNote />
           <button
             type="button"
             className="icon-btn welcome-gear"
@@ -84,8 +86,10 @@ export function Welcome({ onOpenFolder, onOpenPath, onOpenSample }: Props) {
       {gear && (
         <ContextMenu
           x={gear.x}
-          y={gear.y - 64}
+          y={gear.y - 100}
           items={[
+            { label: 'Check for Updates', disabled: !isTauri, run: () => void checkForUpdates({ manual: true }) },
+            { kind: 'sep' },
             { label: 'About PHPBlitz', run: () => openAppDialog('about') },
             { label: 'Open Source Licenses', run: () => openAppDialog('licenses') },
           ]}
@@ -95,6 +99,35 @@ export function Welcome({ onOpenFolder, onOpenPath, onOpenSample }: Props) {
       {appDialog && <AboutDialog view={appDialog} onClose={() => openAppDialog(null)} />}
     </div>
   );
+}
+
+/** The update state, above the gear: downloading, ready to install, or the result of a check. */
+function UpdateNote() {
+  const update = useUpdateState();
+  if (update.kind === 'downloading')
+    return <div className="welcome-update muted">Downloading PHPBlitz {update.version}{update.percent !== null ? ` (${update.percent}%)` : ''}…</div>;
+  if (update.kind === 'ready')
+    return (
+      <div className="welcome-update">
+        <span>PHPBlitz {update.version} is ready.</span>
+        <button type="button" className="btn primary small" onClick={() => void restartToUpdate().catch(() => {})}>
+          Restart and Update
+        </button>
+      </div>
+    );
+  if (update.kind === 'available')
+    return (
+      <div className="welcome-update">
+        <span>PHPBlitz {update.version} is available.</span>
+        <button type="button" className="btn small" onClick={() => void invoke('open_external', { url: RELEASES_URL }).catch(() => {})}>
+          Download
+        </button>
+      </div>
+    );
+  if (update.manual && update.kind === 'checking') return <div className="welcome-update muted">Checking for updates…</div>;
+  if (update.manual && update.kind === 'none') return <div className="welcome-update muted">PHPBlitz is up to date.</div>;
+  if (update.manual && update.kind === 'error') return <div className="welcome-update error-text" title={update.message}>Could not check for updates.</div>;
+  return null;
 }
 
 interface Recent {

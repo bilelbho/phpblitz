@@ -10,6 +10,7 @@ import { ContextMenu, type ContextItem } from './ContextMenu';
 import { Icon } from './Icon';
 import { useTabDrag } from './useTabDrag';
 import { terminalStartDir } from '../terminal/startDir';
+import { useHideTool } from './toolHide';
 
 
 type Zone = 'left' | 'right' | 'top' | 'bottom';
@@ -21,6 +22,7 @@ interface Split {
 }
 
 export function TerminalView({ ws }: { ws: Workspace }) {
+  const hide = useHideTool(() => ws.setBottomOpen(false));
   const { sessions, activeId } = useTerminals();
   useSettings(); // re-render tab labels when "use application title" changes
   const strip = useRef<HTMLDivElement>(null);
@@ -241,7 +243,7 @@ export function TerminalView({ ws }: { ws: Workspace }) {
         <button type="button" className="icon-btn small" aria-label="Options" title="Options" aria-haspopup="menu" onClick={optionsMenu}>
           <Icon name="more" size={14} />
         </button>
-        <button type="button" className="icon-btn small" aria-label="Hide tool window" title="Hide" onClick={() => ws.setBottomOpen(false)}>
+        <button type="button" className="icon-btn small" aria-label="Hide tool window" title="Hide" onClick={hide}>
           <Icon name="minus" size={14} />
         </button>
       </div>

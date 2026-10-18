@@ -2,7 +2,8 @@
 #
 # Pushing a tag like v0.2.0 runs Build (Windows), Build (macOS) and Build (Linux); each attaches its
 # files to a draft release. When the last one finishes, this publishes the draft: titled
-# "PHPBlitz 0.2.0", marked Latest, with the commit messages since the previous version as notes.
+# "PHPBlitz 0.2.0", marked Latest, with the commit messages since the previous version as notes,
+# and latest.json, the manifest installed copies check for updates.
 
 name: Publish release
 
@@ -62,9 +63,14 @@ jobs:
           } > notes.md
           cat notes.md
 
-          # Checksums of every file, so downloads can be verified (see SECURITY.md).
           mkdir -p assets
           gh release download "$TAG" --dir assets --skip-existing
+
+          # The update manifest, from the .sig files the builds attached.
+          node scripts/updater-manifest.mjs assets "$TAG" "$GITHUB_REPOSITORY" notes.md
+          if [ -f assets/latest.json ]; then gh release upload "$TAG" assets/latest.json --clobber; fi
+
+          # Checksums of every file, so downloads can be verified (see SECURITY.md).
           (cd assets && rm -f SHA256SUMS.txt && sha256sum -- * > SHA256SUMS.txt && cat SHA256SUMS.txt)
           gh release upload "$TAG" assets/SHA256SUMS.txt --clobber
 

@@ -6,6 +6,8 @@ export type ContextItem =
   | {
       kind?: 'item';
       label: string;
+      /** Underlined letter; pressing it while the menu is open picks the item (main menu). */
+      mnemonic?: string;
       shortcut?: string;
       icon?: IconName;
       /** Shows a check mark (toggle options). */
@@ -25,13 +27,18 @@ interface Props {
   y: number;
   items: ContextItem[];
   onClose: () => void;
+  /** Main menu: Left / Right past the menu's edge moves to the neighbouring menu. */
+  onNavigate?: (step: -1 | 1) => void;
+  /** Clicks in this element don't close the menu (the menu bar handles them). */
+  ignoreClicksIn?: string;
 }
 
 /** JetBrains-style popup menu with submenus, opened at a screen position. */
-export function ContextMenu({ x, y, items, onClose }: Props) {
+export function ContextMenu({ x, y, items, onClose, onNavigate, ignoreClicksIn }: Props) {
   useEffect(() => {
     const outside = (e: MouseEvent) => {
-      if (!(e.target as HTMLElement).closest?.('.ctx-menu')) onClose();
+      const target = e.target as HTMLElement;
+      if (!target.closest?.('.ctx-menu') && !(ignoreClicksIn && target.closest?.(ignoreClicksIn))) onClose();
     };
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -50,9 +57,9 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
       window.removeEventListener('blur', onClose);
       window.removeEventListener('resize', onClose);
     };
-  }, [onClose]);
+  }, [onClose, ignoreClicksIn]);
 
-  return <MenuList x={x} y={y} items={items} onClose={onClose} autoFocus />;
+  return <MenuList x={x} y={y} items={items} onClose={onClose} onNavigate={onNavigate} autoFocus />;
 }
 
 interface ListProps {
@@ -63,10 +70,11 @@ interface ListProps {
   items: ContextItem[];
   onClose: () => void;
   onBack?: () => void;
+  onNavigate?: (step: -1 | 1) => void;
   autoFocus?: boolean;
 }
 
-function MenuList({ x, y, flipX, items, onClose, onBack, autoFocus }: ListProps) {
+function MenuList({ x, y, flipX, items, onClose, onBack, onNavigate, autoFocus }: ListProps) {
   const el = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ left: x, top: y, ready: false });
   const [openSub, setOpenSub] = useState<{ index: number; x: number; y: number; flipX: number } | null>(null);
@@ -82,8 +90,12 @@ function MenuList({ x, y, flipX, items, onClose, onBack, autoFocus }: ListProps)
     if (left + w > window.innerWidth - 4) left = flipX !== undefined ? flipX - w : window.innerWidth - w - 4;
     const top = Math.max(4, Math.min(y, window.innerHeight - h - 4));
     setPos({ left: Math.max(4, left), top, ready: true });
-    if (autoFocus) m.querySelector<HTMLButtonElement>('.menu-item:not(:disabled)')?.focus();
-  }, [x, y, flipX, autoFocus]);
+  }, [x, y, flipX]);
+
+  // Once shown: a hidden (not yet placed) menu can't take focus.
+  useEffect(() => {
+    if (pos.ready && autoFocus) el.current?.querySelector<HTMLButtonElement>('.menu-item:not(:disabled)')?.focus();
+  }, [pos.ready, autoFocus]);
 
   const rows = () => [...(el.current?.querySelectorAll<HTMLButtonElement>(':scope > .menu-item:not(:disabled)') ?? [])];
 
@@ -100,6 +112,18 @@ function MenuList({ x, y, flipX, items, onClose, onBack, autoFocus }: ListProps)
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     const list = rows();
+    // A mnemonic letter: the item underlining it.
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const index = items.findIndex((it) => it.kind !== 'sep' && !it.disabled && it.mnemonic?.toLowerCase() === e.key.toLowerCase());
+      const row = list.find((r) => Number(r.dataset.index) === index);
+      if (row) {
+        e.preventDefault();
+        e.stopPropagation();
+        row.focus();
+        row.click();
+        return;
+      }
+    }
     const i = list.indexOf(document.activeElement as HTMLButtonElement);
     if (i < 0 && !['ArrowDown', 'ArrowUp'].includes(e.key)) return;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -114,11 +138,19 @@ function MenuList({ x, y, flipX, items, onClose, onBack, autoFocus }: ListProps)
         e.preventDefault();
         e.stopPropagation();
         openSubmenu(index, list[i], true);
+      } else if (onNavigate) {
+        e.preventDefault();
+        e.stopPropagation();
+        onNavigate(1);
       }
     } else if (e.key === 'ArrowLeft' && onBack) {
       e.preventDefault();
       e.stopPropagation();
       onBack();
+    } else if (e.key === 'ArrowLeft' && onNavigate) {
+      e.preventDefault();
+      e.stopPropagation();
+      onNavigate(-1);
     }
   };
 
@@ -162,7 +194,13 @@ function MenuList({ x, y, flipX, items, onClose, onBack, autoFocus }: ListProps)
               <span className="menu-icon">
                 {item.checked ? <Icon name="check" size={14} /> : item.icon && <Icon name={item.icon} size={15} />}
               </span>
-              {item.label}
+              {item.mnemonic ? (
+                <span>
+                  <Mnemonic label={item.label} letter={item.mnemonic} />
+                </span>
+              ) : (
+                item.label
+              )}
               {item.shortcut && <span className="shortcut">{item.shortcut}</span>}
               {hasSub && (
                 <span className="menu-chevron">
@@ -192,6 +230,20 @@ function MenuList({ x, y, flipX, items, onClose, onBack, autoFocus }: ListProps)
           </div>
         );
       })()}
+    </>
+  );
+}
+
+/** A label with its mnemonic letter underlined (the first one, matching case first). */
+export function Mnemonic({ label, letter }: { label: string; letter: string }) {
+  let i = label.indexOf(letter);
+  if (i < 0) i = label.toLowerCase().indexOf(letter.toLowerCase());
+  if (i < 0) return <>{label}</>;
+  return (
+    <>
+      {label.slice(0, i)}
+      <span className="mnemonic">{label[i]}</span>
+      {label.slice(i + 1)}
     </>
   );
 }

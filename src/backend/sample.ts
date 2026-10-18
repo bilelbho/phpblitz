@@ -135,12 +135,79 @@ final class InvoiceService
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', fn () => view('welcome'));
+Route::get('/', fn () => view('welcome'))->name('home');
 
-Route::middleware('auth')->group(function () {
-    Route::get('/users/{user}', [UserController::class, 'show']);
-    Route::post('/users/{user}/invoice', [UserController::class, 'invoice']);
+Route::middleware('auth')->name('users.')->group(function () {
+    Route::get('/users/{user}', [UserController::class, 'show'])->name('show');
+    Route::post('/users/{user}/invoice', [UserController::class, 'invoice'])->name('invoice');
 });
+`,
+  artisan: String.raw`#!/usr/bin/env php
+<?php
+
+// Laravel's command line: php artisan serve, php artisan migrate, ...
+`,
+  'config/app.php': String.raw`<?php
+
+return [
+    'name' => env('APP_NAME', 'Acme Shop'),
+    'env' => env('APP_ENV', 'production'),
+    'debug' => (bool) env('APP_DEBUG', false),
+    'url' => env('APP_URL', 'http://localhost'),
+    'timezone' => 'UTC',
+    'locale' => 'en',
+];
+`,
+  'config/services.php': String.raw`<?php
+
+return [
+    'stripe' => [
+        'key' => env('STRIPE_KEY'),
+        'secret' => env('STRIPE_SECRET'),
+    ],
+];
+`,
+  'resources/views/layouts/app.blade.php': String.raw`<!doctype html>
+<html lang="{{ app()->getLocale() }}">
+<head>
+    <title>{{ config('app.name') }}</title>
+</head>
+<body>
+    @yield('content')
+</body>
+</html>
+`,
+  'resources/views/welcome.blade.php': String.raw`@extends('layouts.app')
+
+@section('content')
+    <h1>{{ __('messages.welcome') }}</h1>
+    <a href="{{ route('home') }}">Home</a>
+@endsection
+`,
+  'resources/views/users/show.blade.php': String.raw`@extends('layouts.app')
+
+@section('content')
+    <h1>{{ $user->name }}</h1>
+@endsection
+`,
+  'lang/en/messages.php': String.raw`<?php
+
+return [
+    'welcome' => 'Welcome to Acme Shop',
+    'invoice' => [
+        'created' => 'Invoice created',
+    ],
+];
+`,
+  '.env': String.raw`APP_NAME="Acme Shop"
+APP_ENV=local
+APP_DEBUG=true
+APP_URL=http://localhost:8000
+
+DB_CONNECTION=sqlite
+
+STRIPE_KEY=pk_test_sample
+STRIPE_SECRET=sk_test_sample
 `,
   'tests/Feature/InvoiceTest.php': String.raw`<?php
 

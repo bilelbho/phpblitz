@@ -24,6 +24,15 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     steps:
+      # The runner's disk is small: the debug build for the tests plus the release build (with LTO)
+      # filled it in 0.1.6. Remove preinstalled toolchains PHPBlitz doesn't use (about 20 GB).
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/share/swift
+          sudo docker image prune --all --force > /dev/null || true
+          df -h /
+
       - uses: actions/checkout@v4
 
       # WebKitGTK and friends for Tauri; OpenSSL for the database drivers' TLS;
@@ -52,13 +61,33 @@ jobs:
       - name: Type-check
         run: npx tsc --noEmit
 
+      # Without debug info the test build is a fraction of the size; it's removed before the
+      # release build, which compiles everything again anyway.
       - name: Rust tests
         working-directory: src-tauri
-        run: cargo test --locked
+        env:
+          CARGO_PROFILE_TEST_DEBUG: 0
+          CARGO_PROFILE_DEV_DEBUG: 0
+        run: |
+          cargo test --locked
+          rm -rf target/debug
+          df -h /
 
       # beforeBuildCommand (npm run build) builds the front end first.
       - name: Build packages
         run: npx tauri build --bundles deb,rpm,appimage
+
+      - name: Sign the update files
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then echo 'No TAURI_SIGNING_PRIVATE_KEY secret: update files not signed.'; exit 0; fi
+          version=${GITHUB_REF_NAME#v}
+          for f in src-tauri/target/release/bundle/appimage/*.AppImage src-tauri/target/release/bundle/deb/*.deb src-tauri/target/release/bundle/rpm/*.rpm; do
+            npx tauri signer sign --app-version "$version" "$f"
+          done
 
       - uses: actions/upload-artifact@v4
         with:
@@ -76,5 +105,8 @@ jobs:
           draft: true
           files: |
             src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/deb/*.sig
             src-tauri/target/release/bundle/rpm/*.rpm
+            src-tauri/target/release/bundle/rpm/*.sig
             src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/appimage/*.sig

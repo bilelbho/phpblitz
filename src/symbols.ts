@@ -17,6 +17,19 @@ export interface IndexMember {
   line: number;
   visibility: 'public' | 'protected' | 'private';
   isStatic: boolean;
+  /** The class a method returns or a property holds, fully qualified, or "static" (desktop index). */
+  ty?: string | null;
+  /** For collections (`User[]`, `Collection<int, User>`): the element class. */
+  elem?: string | null;
+}
+
+export interface IndexFunction {
+  name: string;
+  fqn: string;
+  params: string;
+  detail: string;
+  ty?: string | null;
+  elem?: string | null;
 }
 
 export interface IndexClass {
@@ -174,6 +187,13 @@ class Symbols {
     const c = phpIndex.find(name);
     if (!c) return null;
     return { name: c.name, fqn: c.fqn, kind: c.kind, line: c.line, path: c.path, extends: c.extendsName, members: c.members.map(fromJsMember), allMembers: phpIndex.membersOf(name).map(fromJsMember) };
+  }
+
+  /** A function called as `name()` in `src` (its namespace, else the global one), for its return type. */
+  async functionInfo(name: string, src?: string): Promise<IndexFunction | null> {
+    if (!this.rust) return null;
+    const namespace = src?.match(/^\s*namespace\s+([\w\\]+)\s*;/m)?.[1] ?? null;
+    return invoke<IndexFunction | null>('index_function', { name, namespace }).catch(() => null);
   }
 
   /** "N usages" (by name), batched into one request per frame. */

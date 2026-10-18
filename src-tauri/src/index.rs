@@ -18,6 +18,11 @@ use mago_codex::metadata::CodebaseMetadata;
 use mago_codex::metadata::function_like::FunctionLikeKind;
 use mago_codex::symbol::SymbolKind;
 use mago_codex::ttype::TType;
+use mago_codex::ttype::atomic::TAtomic;
+use mago_codex::ttype::atomic::array::TArray;
+use mago_codex::ttype::atomic::object::TObject;
+use mago_codex::ttype::atomic::reference::TReference;
+use mago_codex::ttype::union::TUnion;
 use mago_codex::visibility::Visibility;
 use mago_database::file::{File, FileType};
 use mago_names::resolver::NameResolver;
@@ -31,7 +36,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 /// Bump when what is stored per file changes: old caches are then ignored.
 /// The cache's format: bump when FileSymbols or the encoding changes (an old cache is then rebuilt).
-const CACHE_VERSION: u32 = 3;
+const CACHE_VERSION: u32 = 4;
 const CACHE_MAGIC: &[u8; 8] = b"BLITZIDX";
 /// Never indexed (dependencies of JS tooling, caches, build output).
 const SKIPPED_DIRS: [&str; 9] = [".git", ".idea", ".svn", "node_modules", "storage", "var", "dist", "target", ".blitz"];
@@ -53,6 +58,13 @@ pub struct Member {
     pub line: u32,
     pub visibility: String,
     pub is_static: bool,
+    /// The class a method returns or a property holds, fully qualified (docblocks included), or
+    /// "static" for `static` / `$this`. For completion after `->`.
+    #[serde(default)]
+    pub ty: Option<String>,
+    /// For collections (`User[]`, `list<User>`, `Collection<int, User>`): the element class.
+    #[serde(default)]
+    pub elem: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -73,6 +85,9 @@ pub struct ClassEntry {
     pub implements: Vec<String>,
     #[serde(default)]
     pub traits: Vec<String>,
+    /// `@mixin` classes: their members are reachable too (Laravel models and their query builder).
+    #[serde(default)]
+    pub mixins: Vec<String>,
     pub members: Vec<Member>,
 }
 
@@ -84,6 +99,11 @@ pub struct FunctionEntry {
     pub line: u32,
     pub params: String,
     pub detail: String,
+    /// The class the function returns and, for collections, their element class (see Member).
+    #[serde(default)]
+    pub ty: Option<String>,
+    #[serde(default)]
+    pub elem: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -138,16 +158,56 @@ pub fn scan(path: &str, contents: &[u8]) -> FileSymbols {
             continue;
         }
         let fqn = f.original_name.to_string();
+        let (ty, elem) = class_types(&f.return_type_metadata, &|w| original_name(&codebase, &casing, w));
         out.functions.push(FunctionEntry {
             name: fqn.rsplit('\\').next().unwrap_or(&fqn).to_string(),
             line: line(f.name_span.unwrap_or(f.span).start.offset),
             params: params_of(src, f),
             detail: written(src, &f.return_type_declaration_metadata),
+            ty,
+            elem,
             fqn,
         });
     }
     out.functions.sort_by_key(|f| f.line);
     out
+}
+
+/// A class name with the casing it was written with (Mago keys names in lower case).
+fn original_name(codebase: &CodebaseMetadata, casing: &HashMap<String, String>, w: &mago_word::Word) -> String {
+    codebase
+        .class_likes
+        .get(w)
+        .map(|c| c.original_name.to_string())
+        .or_else(|| casing.get(&w.to_string().to_lowercase()).cloned())
+        .unwrap_or_else(|| w.to_string())
+}
+
+/// The first class in a type: "static" for `static` / `$this`, else its fully qualified name.
+fn first_class(t: &TUnion, original: &dyn Fn(&mago_word::Word) -> String) -> Option<String> {
+    t.types.iter().find_map(|a| match a {
+        TAtomic::Object(TObject::Named(n)) => Some(if n.is_static || n.is_this { "static".to_string() } else { original(&n.name) }),
+        TAtomic::Object(TObject::Enum(e)) => Some(original(&e.name)),
+        // Before the codebase is populated (this scan), class types are references by name.
+        TAtomic::Reference(TReference::Symbol { name, .. }) => Some(original(name)),
+        _ => None,
+    })
+}
+
+/// What completion needs from a type: the class it is (`ty`) and, for collections, the class of
+/// its elements (`elem`): `User[]`, `list<User>`, `iterable<User>`, `Collection<int, User>`.
+fn class_types(t: &Option<mago_codex::metadata::ttype::TypeMetadata>, original: &dyn Fn(&mago_word::Word) -> String) -> (Option<String>, Option<String>) {
+    let Some(t) = t else { return (None, None) };
+    let ty = first_class(&t.type_union, original);
+    let elem = t.type_union.types.iter().find_map(|a| match a {
+        TAtomic::Object(TObject::Named(n)) => n.type_parameters.as_ref().and_then(|ps| ps.last()).and_then(|v| first_class(v, original)),
+        TAtomic::Reference(TReference::Symbol { parameters, .. }) => parameters.as_ref().and_then(|ps| ps.last()).and_then(|v| first_class(v, original)),
+        TAtomic::Array(TArray::List(l)) => first_class(&l.element_type, original),
+        TAtomic::Array(TArray::Keyed(k)) => k.parameters.as_ref().and_then(|(_, v)| first_class(v, original)),
+        TAtomic::Iterable(i) => first_class(&i.value_type, original),
+        _ => None,
+    });
+    (ty, elem.filter(|e| e != "static"))
 }
 
 /// A declared type as written in the code (`?int`, `array`, `static`), from its span.
@@ -194,9 +254,16 @@ fn classes_of(src: &[u8], codebase: &CodebaseMetadata, line: &dyn Fn(u32) -> u32
             SymbolKind::Enum => "enum",
         };
         let mut members: Vec<Member> = Vec::new();
-        for method in class.methods.iter() {
+        let original = |w: &mago_word::Word| original_name(codebase, casing, w);
+        // Declared methods, then `@method` ones from the docblock (static or not).
+        let pseudo = class.pseudo_methods.iter().map(|m| (m, false)).chain(class.static_pseudo_methods.iter().map(|m| (m, true)));
+        for (method, docblock_static) in class.methods.iter().map(|m| (m, None)).chain(pseudo.map(|(m, st)| (m, Some(st)))) {
             let Some(f) = codebase.function_likes.get(&(class.name, *method)) else { continue };
+            if docblock_static.is_some() && members.iter().any(|m| m.kind == "method" && m.name.eq_ignore_ascii_case(&f.original_name.to_string())) {
+                continue;
+            }
             let meta = f.method_metadata.as_ref();
+            let (ty, elem) = class_types(&f.return_type_metadata, &original);
             members.push(Member {
                 kind: "method".into(),
                 name: f.original_name.to_string(),
@@ -204,19 +271,30 @@ fn classes_of(src: &[u8], codebase: &CodebaseMetadata, line: &dyn Fn(u32) -> u32
                 params: Some(params_of(src, f)),
                 line: line(f.name_span.unwrap_or(f.span).start.offset),
                 visibility: visibility(meta.map(|m| m.visibility).unwrap_or_default()).into(),
-                is_static: meta.is_some_and(|m| m.is_static),
+                is_static: docblock_static.unwrap_or_else(|| meta.is_some_and(|m| m.is_static)),
+                ty,
+                elem,
             });
         }
-        for p in class.properties.values() {
-            let Some(span) = p.name_span.or(p.span) else { continue };
+        // Declared properties, then `@property` ones from the docblock (Eloquent model columns).
+        let class_span = class.name_span.unwrap_or(class.span);
+        for p in class.properties.values().chain(class.magic_properties.values()) {
+            let span = p.name_span.or(p.span).unwrap_or(class_span);
+            let name = p.name.0.to_string().trim_start_matches('$').to_string();
+            if members.iter().any(|m| m.kind == "property" && m.name == name) {
+                continue;
+            }
+            let (ty, elem) = class_types(&p.type_metadata, &original);
             members.push(Member {
                 kind: "property".into(),
-                name: p.name.0.to_string().trim_start_matches('$').to_string(),
+                name,
                 detail: written(src, &p.type_declaration_metadata),
                 params: None,
                 line: line(span.start.offset),
                 visibility: visibility(p.read_visibility).into(),
                 is_static: p.flags.is_static(),
+                ty,
+                elem,
             });
         }
         for c in class.constants.values() {
@@ -228,10 +306,12 @@ fn classes_of(src: &[u8], codebase: &CodebaseMetadata, line: &dyn Fn(u32) -> u32
                 line: line(c.span.start.offset),
                 visibility: visibility(c.visibility).into(),
                 is_static: true,
+                ty: None,
+                elem: None,
             });
         }
         for c in class.enum_cases.values() {
-            members.push(Member { kind: "const".into(), name: c.name.to_string(), detail: String::new(), params: None, line: line(c.name_span.start.offset), visibility: "public".into(), is_static: true });
+            members.push(Member { kind: "const".into(), name: c.name.to_string(), detail: String::new(), params: None, line: line(c.name_span.start.offset), visibility: "public".into(), is_static: true, ty: Some(fqn.clone()), elem: None });
         }
         members.sort_by_key(|m| m.line);
         let original = |w: &mago_word::Word| {
@@ -246,6 +326,7 @@ fn classes_of(src: &[u8], codebase: &CodebaseMetadata, line: &dyn Fn(u32) -> u32
         implements.sort();
         let mut traits: Vec<String> = class.used_traits.iter().map(original).collect();
         traits.sort();
+        let mixins: Vec<String> = class.mixins.iter().filter_map(|m| first_class(&m.type_union, &|w| original_name(codebase, casing, w))).filter(|m| m != "static").collect();
         let offset = class.name_span.unwrap_or(class.span).start.offset;
         out.push((offset, ClassEntry {
             name: fqn.rsplit('\\').next().unwrap_or(&fqn).to_string(),
@@ -255,6 +336,7 @@ fn classes_of(src: &[u8], codebase: &CodebaseMetadata, line: &dyn Fn(u32) -> u32
             extends: class.direct_parent_class.as_ref().map(original),
             implements,
             traits,
+            mixins,
             members,
             fqn,
         }));
@@ -726,6 +808,14 @@ pub struct ClassInfo {
     all_members: Vec<Member>,
 }
 
+/// A function called as `name()` in `namespace`: its return type, for completion after `helper()->`.
+/// Like PHP, an unqualified name in a namespace falls back to the global function.
+#[tauri::command]
+pub fn index_function(state: tauri::State<'_, IndexState>, name: String, namespace: Option<String>) -> Result<Option<FunctionEntry>, String> {
+    let idx = state.index.read().map_err(|e| e.to_string())?;
+    Ok(idx.find_function(&name, namespace.as_deref()).map(|(_, f)| f.clone()))
+}
+
 /// A class with its members, inherited ones included. `name`: FQN, or a short name.
 #[tauri::command]
 pub async fn index_class(state: tauri::State<'_, IndexState>, name: String) -> Result<Option<ClassInfo>, String> {
@@ -747,7 +837,7 @@ pub async fn index_class(state: tauri::State<'_, IndexState>, name: String) -> R
                 }
             }
             // Parents after the class itself: interfaces first so the class's parent wins over them.
-            for p in c.implements.iter().chain(c.traits.iter()).chain(c.extends.iter()) {
+            for p in c.implements.iter().chain(c.traits.iter()).chain(c.extends.iter()).chain(c.mixins.iter()) {
                 if let Some((_, parent)) = idx.find(p) {
                     queue.push(parent.clone());
                 }
@@ -1209,6 +1299,63 @@ final class User extends Model implements HasName
 
 function helper(int $a, $b = 1): ?string { return null; }
 "#;
+
+    #[test]
+    fn records_member_types_for_completion() {
+        let src = r#"<?php
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
+
+/**
+ * @property int $id
+ * @property-read Team $team
+ * @method static Builder active()
+ * @mixin Builder
+ */
+class User extends Model
+{
+    public ?Team $owner = null;
+
+    public function team(): Team { return new Team(); }
+
+    public function rename(string $name): static { return $this; }
+
+    /** @return Collection<int, Post> */
+    public function posts(): Collection { return new Collection(); }
+
+    /** @return list<Post> */
+    public function drafts(): array { return []; }
+}
+
+enum Status: string { case Active = 'active'; }
+
+/** @return User|null */
+function current_user() { return null; }
+"#;
+        let s = scan("/p/app/Models/User.php", src.as_bytes());
+        let c = s.classes.iter().find(|c| c.name == "User").unwrap();
+        let m = |name: &str| c.members.iter().find(|m| m.name == name).unwrap_or_else(|| panic!("{name} in {:?}", c.members));
+        assert_eq!(m("team").ty.as_deref(), Some(r"App\Models\Team"));
+        assert_eq!(m("owner").ty.as_deref(), Some(r"App\Models\Team"), "nullable property");
+        assert_eq!(m("rename").ty.as_deref(), Some("static"));
+        let posts = m("posts");
+        assert_eq!((posts.ty.as_deref(), posts.elem.as_deref()), (Some(r"Illuminate\Support\Collection"), Some(r"App\Models\Post")));
+        assert_eq!(m("drafts").elem.as_deref(), Some(r"App\Models\Post"), "list<Post>");
+        // Docblock members: @property, @property-read, static @method.
+        assert_eq!(m("id").kind, "property");
+        // Laravel style: the relation method and its dynamic property (@property-read) both exist.
+        assert!(c.members.iter().any(|x| x.kind == "property" && x.name == "team" && x.ty.as_deref() == Some(r"App\Models\Team")));
+        let active = m("active");
+        assert!(active.kind == "method" && active.is_static, "{active:?}");
+        assert_eq!(active.ty.as_deref(), Some(r"Illuminate\Database\Eloquent\Builder"));
+        assert_eq!(c.mixins, vec![r"Illuminate\Database\Eloquent\Builder".to_string()]);
+        let status = s.classes.iter().find(|c| c.name == "Status").unwrap();
+        assert_eq!(status.members[0].ty.as_deref(), Some(r"App\Models\Status"), "an enum case is its enum");
+        let f = s.functions.iter().find(|f| f.name == "current_user").unwrap();
+        assert_eq!(f.ty.as_deref(), Some(r"App\Models\User"), "@return on a function");
+    }
 
     #[test]
     fn scans_classes_members_and_functions() {

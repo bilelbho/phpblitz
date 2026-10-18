@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { invalidateLaravelFiles, setLaravelProject } from './completion/laravel';
+import { anchorOf, DEFAULT_LAYOUT, isBottomTool, loadToolLayout, moveTool as moveToolIn, saveToolLayout, type Anchor, type BottomTool, type SideAnchor, type SideTool, type Tool, type ToolLayout } from './toolLayout';
 import * as monaco from 'monaco-editor';
 import type { Backend, CommitOptions, Entry, GitInfo, Package, Problem, RunResult, TestResult } from './backend/types';
 import { baseName } from './backend/types';
@@ -54,7 +56,6 @@ export type Tab =
   | { id: string; kind: 'diff'; path: string; commit?: string };
 /** Left tool windows. Structure docks in the bottom half, the others in the top half. */
 export type LeftTool = 'project' | 'commit' | 'structure' | 'database';
-type LeftTopTool = Exclude<LeftTool, 'structure'>;
 export type RightTool = 'notifications' | 'ai' | 'endpoints' | 'composer';
 export type GitDialogRequest =
   | { kind: 'push' }
@@ -87,6 +88,14 @@ export interface UsagesPopupState extends Omit<UsageSearch, 'target'> {
 }
 
 export type BottomTab = 'problems' | 'terminal' | 'tests' | 'composer' | 'usages' | 'find' | 'git' | 'debug' | 'todo';
+
+/** The tool window a bottom tab belongs to (Find and Usages results always open in the bottom panel). */
+export function toolOfTab(tab: BottomTab): BottomTool | null {
+  if (tab === 'usages' || tab === 'find') return null;
+  return tab === 'composer' ? 'composerLog' : tab;
+}
+export const tabOfTool = (t: BottomTool): BottomTab => (t === 'composerLog' ? 'composer' : t);
+const ALL_TOOLS = Object.values(DEFAULT_LAYOUT).flat();
 
 export interface LspStatus {
   state: 'off' | 'starting' | 'ready' | 'missing' | 'stopped' | 'error';
@@ -242,9 +251,13 @@ export function useWorkspace(backend: Backend) {
   const dismissNotice = useCallback((id: number) => setNotices((list) => list.filter((n) => n.id !== id)), []);
 
   // ── Tool windows ──────────────────────────────────────────────
-  const [leftTop, setLeftTop] = useState<LeftTopTool | null>('project');
-  const [leftBottom, setLeftBottom] = useState<'structure' | null>(null);
-  const [rightTool, setRightTool] = useState<RightTool | null>(null);
+  // Side tool windows: where each lives (draggable between the strips) and which is open in each place.
+  const [toolLayout, setToolLayoutState] = useState<ToolLayout>(loadToolLayout);
+  const toolLayoutRef = useRef(toolLayout);
+  toolLayoutRef.current = toolLayout;
+  const [openTools, setOpenTools] = useState<Record<SideAnchor, Tool | null>>({ leftTop: 'project', leftBottom: null, rightTop: null, rightBottom: null });
+  /** A side tool window (Project, Commit…) dragged into the bottom panel and open there. */
+  const [bottomSideTool, setBottomSideTool] = useState<SideTool | null>(null);
   const [bottomTab, setBottomTab] = useState<BottomTab>('problems');
   const [bottomOpen, setBottomOpen] = useState(true);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -265,20 +278,71 @@ export function useWorkspace(backend: Backend) {
     setSearchTab(tab);
     setSearchOpen(true);
   }, []);
-  const toggleLeft = useCallback((t: LeftTool) => {
-    if (t === 'structure') setLeftBottom((cur) => (cur ? null : 'structure'));
-    else setLeftTop((cur) => (cur === t ? null : t));
+  // Which tool window is open where, for the callbacks below (they run outside renders).
+  const openRef = useRef({ openTools, bottomOpen, bottomTab, bottomSideTool });
+  openRef.current = { openTools, bottomOpen, bottomTab, bottomSideTool };
+  const toolOpenNow = (t: Tool): boolean => {
+    const { openTools: open, bottomOpen: bOpen, bottomTab: tab, bottomSideTool: bSide } = openRef.current;
+    const anchor = anchorOf(toolLayoutRef.current, t);
+    if (anchor !== 'bottom') return open[anchor] === t;
+    return bOpen && (isBottomTool(t) ? !bSide && toolOfTab(tab) === t : bSide === t);
+  };
+  const isToolOpen = toolOpenNow;
+  /** Opens a tool window where it lives, without closing it when it is already open. */
+  const showTool = useCallback((t: Tool) => {
+    const anchor = anchorOf(toolLayoutRef.current, t);
+    if (anchor === 'bottom') {
+      if (isBottomTool(t)) {
+        setBottomSideTool(null);
+        setBottomTab(tabOfTool(t));
+      } else setBottomSideTool(t);
+      setBottomOpen(true);
+    } else setOpenTools((o) => ({ ...o, [anchor]: t }));
   }, []);
-  /** Opens a left tool window without toggling it closed when it is already open. */
-  const showLeft = useCallback((t: LeftTool) => {
-    if (t === 'structure') setLeftBottom('structure');
-    else setLeftTop(t);
+  const hideTool = useCallback((t: Tool) => {
+    const anchor = anchorOf(toolLayoutRef.current, t);
+    if (anchor === 'bottom') setBottomOpen(false);
+    else setOpenTools((o) => (o[anchor] === t ? { ...o, [anchor]: null } : o));
   }, []);
-  const toggleRight = useCallback((t: RightTool) => setRightTool((cur) => (cur === t ? null : t)), []);
-  const showBottom = useCallback((t: BottomTab) => {
-    setBottomTab(t);
-    setBottomOpen(true);
-  }, []);
+  const toggleTool = useCallback((t: Tool) => (toolOpenNow(t) ? hideTool(t) : showTool(t)), [hideTool, showTool]);
+  /** Drops a tool window at `index` of `anchor`; it stays open (or closed) as it was. */
+  const placeTool = useCallback(
+    (t: Tool, anchor: Anchor, index: number) => {
+      const was = toolOpenNow(t);
+      if (was) hideTool(t);
+      const next = moveToolIn(toolLayoutRef.current, t, anchor, index);
+      toolLayoutRef.current = next;
+      setToolLayoutState(next);
+      saveToolLayout(next);
+      if (was) showTool(t);
+    },
+    [hideTool, showTool],
+  );
+  const resetToolLayout = useCallback(() => {
+    const open = ALL_TOOLS.filter(toolOpenNow);
+    setOpenTools({ leftTop: null, leftBottom: null, rightTop: null, rightBottom: null });
+    setBottomSideTool(null);
+    toolLayoutRef.current = DEFAULT_LAYOUT;
+    setToolLayoutState(DEFAULT_LAYOUT);
+    saveToolLayout(DEFAULT_LAYOUT);
+    open.forEach(showTool);
+  }, [showTool]);
+  // The names the rest of the app uses.
+  const toggleLeft = toggleTool as (t: LeftTool) => void;
+  const showLeft = showTool as (t: LeftTool) => void;
+  const toggleRight = toggleTool as (t: RightTool) => void;
+  const setRightTool = useCallback((t: RightTool | null) => (t ? showTool(t) : setOpenTools((o) => ({ ...o, rightTop: null, rightBottom: null }))), [showTool]);
+  /** Opens a bottom tool window (Problems, Terminal…), wherever it was dragged. */
+  const showBottom = useCallback(
+    (t: BottomTab) => {
+      const tool = toolOfTab(t);
+      if (tool && anchorOf(toolLayoutRef.current, tool) !== 'bottom') return showTool(tool);
+      setBottomSideTool(null);
+      setBottomTab(t);
+      setBottomOpen(true);
+    },
+    [showTool],
+  );
 
   // ── Editor tabs and documents ─────────────────────────────────
   const [tabs, setTabs] = useState<Tab[]>([]);
@@ -682,6 +746,11 @@ export function useWorkspace(backend: Backend) {
 
   // ── Indexing ──────────────────────────────────────────────────
   const [files, setFiles] = useState<string[]>([]);
+  // Laravel completion (route names, config keys, views…) reads the project's files.
+  useEffect(() => {
+    setLaravelProject({ root: backend.root, files, read: (path) => backend.readFile(path) });
+  }, [backend, files]);
+  useEffect(() => () => setLaravelProject(null), [backend]);
   const [indexStats, setIndexStats] = useState<{ files: number; classes: number; ms: number } | null>(null);
   const [routes, setRoutes] = useState<Route[]>([]);
   const [indexVersion, bumpIndex] = useReducer((x: number) => x + 1, 0);
@@ -735,14 +804,12 @@ export function useWorkspace(backend: Backend) {
   const [gitLogRequest, setGitLogRequest] = useState<{ path?: string; hash?: string; file?: string; console?: boolean; nonce?: number; reload?: number }>({});
   const showHistory = useCallback((path: string) => {
     setGitLogRequest({ path, nonce: Date.now() });
-    setBottomTab('git');
-    setBottomOpen(true);
+    showBottom('git');
   }, []);
   /** A commit in the Git log; `file`: highlighted among its changed files (from an annotation). */
   const showCommit = useCallback((hash: string, file?: string) => {
     setGitLogRequest({ hash, file, nonce: Date.now() });
-    setBottomTab('git');
-    setBottomOpen(true);
+    showBottom('git');
   }, []);
 
   /** Git dialogs (Push, New Branch, Stash…), opened from the branches popup, the Log and shortcuts. */
@@ -787,6 +854,7 @@ export function useWorkspace(backend: Backend) {
         return;
       }
       savedText.current[path] = text;
+      invalidateLaravelFiles([path]);
       lspRef.current?.didSave(path, text);
       setDirty((d) => {
         const next = new Set(d);
@@ -1064,6 +1132,7 @@ export function useWorkspace(backend: Backend) {
   const handleFsChanges = useCallback(
     async (changes: { kind: 'file' | 'git' | 'vendor'; path: string; exists: boolean; isDir: boolean }[]) => {
       const files = changes.filter((c) => c.kind === 'file');
+      invalidateLaravelFiles(files.map((c) => c.path));
 
       // Project tree and the file list used by Search Everywhere.
       const parents = new Set(files.map((c) => c.path.slice(0, c.path.lastIndexOf('/'))));
@@ -1449,8 +1518,7 @@ export function useWorkspace(backend: Backend) {
   // ── Mago project analysis ─────────────────────────────────────
   /** `composer install` in the terminal; vendor/ appearing re-analyzes the project. */
   const composerInstall = useCallback(() => {
-    setBottomTab('terminal');
-    setBottomOpen(true);
+    showBottom('terminal');
     void terminals.run('composer install', backend.root);
   }, [backend]);
 
@@ -1528,8 +1596,7 @@ export function useWorkspace(backend: Backend) {
   useEffect(() => {
     debug.onStop = (path, line) => {
       openFile(path, { line });
-      setBottomTab('debug');
-      setBottomOpen(true);
+      showBottom('debug');
     };
     debug.onMessage = (title, body, tone) => notify({ title, body, tone });
   }, [openFile, notify]);
@@ -1831,8 +1898,8 @@ export function useWorkspace(backend: Backend) {
       const controller = `${backend.root}/app/Http/Controllers/UserController.php`;
       openFile(`${backend.root}/app/Models/User.php`);
       openFile(controller, { line: 22 });
-      setLeftBottom('structure');
-      setRightTool('notifications');
+      showTool('structure');
+      showTool('notifications');
       notify({
         title: 'Xdebug 3.3 detected',
         body: 'PHP is configured for step debugging on port 9003.',
@@ -1867,7 +1934,7 @@ export function useWorkspace(backend: Backend) {
     tabs, activeId, setActiveId, activeTab, activePath, loaded, dirty, openFile, openTable, openConsole, closeTab, closeTabs, moveTab,
     onEdit, save, saveActive, cursor, setCursor, goto, setGoto, breakpoints, toggleBreakpoint, structure, problems,
     // tool windows
-    leftTop, leftBottom, toggleLeft, showLeft, rightTool, setRightTool, toggleRight, bottomTab, bottomOpen, setBottomOpen, showBottom,
+    toolLayout, openTools, bottomSideTool, showTool, toggleTool, hideTool, isToolOpen, placeTool, resetToolLayout, toggleLeft, showLeft, setRightTool, toggleRight, bottomTab, bottomOpen, setBottomOpen, showBottom,
     searchOpen, setSearchOpen, searchTab, openSearch, recentFiles, forgetRecent, editedFiles, recentOpen, setRecentOpen,
     settingsPage, openSettings: (page = 'terminal') => setSettingsPage(page), closeSettings: () => setSettingsPage(null),
     findInFiles, openFindInFiles, closeFindInFiles: () => setFindInFiles(null), findResults, setFindResults,
@@ -1882,8 +1949,7 @@ export function useWorkspace(backend: Backend) {
       setTerminalCwd(dir);
       // Desktop: a new shell tab in that folder (Project tree ▸ Open In ▸ Terminal).
       if (isTauri && backend.kind === 'disk') terminals.create({ cwd: dir });
-      setBottomTab('terminal');
-      setBottomOpen(true);
+      showBottom('terminal');
     },
     renameItem, deleteItems, fileClipboard, setFileClipboard, pasteInto, reloadItem,
     // misc

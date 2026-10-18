@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration "windows-release": what to sign in the zip the Windows build
+  uploads (the NSIS installer, the MSI and the portable zip). Paste it into the project's artifact
+  configuration on signpath.io; its editor checks it against the current schema.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file path="PHPBlitz_*_x64-setup.exe">
+      <authenticode-sign />
+    </pe-file>
+    <msi-file path="PHPBlitz_*_x64_en-US.msi">
+      <authenticode-sign />
+    </msi-file>
+    <zip-file path="PHPBlitz_*_windows-x64-portable.zip">
+      <pe-file path="PHPBlitz-*/PHPBlitz.exe">
+        <authenticode-sign />
+      </pe-file>
+    </zip-file>
+  </zip-file>
+</artifact-configuration>

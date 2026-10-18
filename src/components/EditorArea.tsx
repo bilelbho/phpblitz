@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ContextMenu, type ContextItem } from './ContextMenu';
 import { FileStructurePopup, FindBar, GotoLineDialog, type FindRequest } from './EditorPopups';
-import { setEditorCommands } from '../editorCommands';
+import { setEditorCommands, setMainEditor } from '../editorCommands';
+import { stringContext } from '../completion/laravel';
 import { buildEditorMenu, codeActionsForSelection, contextActionsMenu, copyText, generateMenu, hasMagoActionsAtCaret, markersAt, quickFixesFor, referenceAt } from '../editorMenu';
 import { EditorHover, type HoverRequest } from './EditorHover';
 import { MarkdownView } from './lazy';
@@ -567,29 +568,49 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       editor.trigger('phpblitz', id, {});
     };
     setEditorCommands(() => [
-      { label: 'Find…', shortcut: 'Ctrl+F', run: () => openFind(false) },
-      { label: 'Replace…', shortcut: 'Ctrl+R', run: () => openFind(true) },
+      { id: 'undo', label: 'Undo', shortcut: 'Ctrl+Z', run: trigger('undo') },
+      { id: 'redo', label: 'Redo', shortcut: 'Ctrl+Shift+Z', run: trigger('redo') },
+      { id: 'cut', label: 'Cut', shortcut: 'Ctrl+X', run: trigger('editor.action.clipboardCutAction') },
+      { id: 'copy', label: 'Copy', shortcut: 'Ctrl+C', run: trigger('editor.action.clipboardCopyAction') },
+      { id: 'paste', label: 'Paste', shortcut: 'Ctrl+V', run: trigger('editor.action.clipboardPasteAction') },
+      { id: 'selectAll', label: 'Select All', shortcut: 'Ctrl+A', run: trigger('editor.action.selectAll') },
+      { id: 'blockComment', label: 'Comment with Block Comment', shortcut: 'Ctrl+Shift+/', run: trigger('editor.action.blockComment') },
+      { id: 'find', label: 'Find…', shortcut: 'Ctrl+F', run: () => openFind(false) },
+      { id: 'replace', label: 'Replace…', shortcut: 'Ctrl+R', run: () => openFind(true) },
       { label: 'Find in Files…', shortcut: 'Ctrl+Shift+F', run: () => latest.current.ws.openFindInFiles('find', selectionText()) },
       { label: 'Replace in Files…', shortcut: 'Ctrl+Shift+R', run: () => latest.current.ws.openFindInFiles('replace', selectionText()) },
-      { label: 'Go to Line:Column…', shortcut: 'Ctrl+G', run: () => setPopup('goto') },
-      { label: 'File Structure', shortcut: 'Ctrl+F12', run: () => setPopup('structure') },
-      { label: 'Find Usages', shortcut: 'Alt+F7', run: trigger('phpblitz.findUsages') },
-      { label: 'Rename…', shortcut: 'Shift+F6', run: () => void startRename() },
-      { label: 'Show Context Actions', shortcut: 'Alt+Enter', run: () => popupActions('context') },
-      { label: 'Generate…', shortcut: 'Alt+Insert', run: () => popupActions('generate') },
-      { label: 'Reformat Code', shortcut: 'Ctrl+Alt+L', run: trigger('editor.action.formatDocument') },
-      { label: 'Go to Declaration', shortcut: 'Ctrl+B', run: trigger('editor.action.revealDefinition') },
-      { label: 'Copy Reference', shortcut: 'Ctrl+Alt+Shift+C', run: trigger('phpblitz.copyReference') },
-      { label: 'Collapse All', shortcut: 'Ctrl+Shift+NumPad -', run: trigger('editor.foldAll') },
-      { label: 'Expand All', shortcut: 'Ctrl+Shift+NumPad +', run: trigger('editor.unfoldAll') },
-      { label: 'Comment with Line Comment', shortcut: 'Ctrl+/', run: trigger('editor.action.commentLine') },
-      { label: 'Duplicate Line or Selection', shortcut: 'Ctrl+D', run: trigger('editor.action.copyLinesDownAction') },
-      { label: 'Toggle Bookmark', shortcut: 'F11', run: trigger('phpblitz.toggleBookmark') },
-      { label: 'Toggle Bookmark with Mnemonic…', shortcut: 'Ctrl+F11', run: trigger('phpblitz.mnemonicBookmark') },
-      { label: 'Show All Bookmarks', shortcut: 'Shift+F11', run: () => setPopup('bookmarks') },
-      { label: 'Soft-Wrap', shortcut: 'Alt+Z', run: toggleSoftWrap },
+      { id: 'gotoLine', label: 'Go to Line:Column…', shortcut: 'Ctrl+G', run: () => setPopup('goto') },
+      { id: 'fileStructure', label: 'File Structure', shortcut: 'Ctrl+F12', run: () => setPopup('structure') },
+      { id: 'findUsages', label: 'Find Usages', shortcut: 'Alt+F7', run: trigger('phpblitz.findUsages') },
+      { id: 'rename', label: 'Rename…', shortcut: 'Shift+F6', run: () => void startRename() },
+      { id: 'contextActions', label: 'Show Context Actions', shortcut: 'Alt+Enter', run: () => popupActions('context') },
+      { id: 'generate', label: 'Generate…', shortcut: 'Alt+Insert', run: () => popupActions('generate') },
+      { id: 'reformat', label: 'Reformat Code', shortcut: 'Ctrl+Alt+L', run: trigger('editor.action.formatDocument') },
+      { id: 'declaration', label: 'Go to Declaration', shortcut: 'Ctrl+B', run: trigger('editor.action.revealDefinition') },
+      { id: 'copyReference', label: 'Copy Reference', shortcut: 'Ctrl+Alt+Shift+C', run: trigger('phpblitz.copyReference') },
+      { id: 'foldAll', label: 'Collapse All', shortcut: 'Ctrl+Shift+NumPad -', run: trigger('editor.foldAll') },
+      { id: 'unfoldAll', label: 'Expand All', shortcut: 'Ctrl+Shift+NumPad +', run: trigger('editor.unfoldAll') },
+      { id: 'commentLine', label: 'Comment with Line Comment', shortcut: 'Ctrl+/', run: trigger('editor.action.commentLine') },
+      { id: 'duplicate', label: 'Duplicate Line or Selection', shortcut: 'Ctrl+D', run: trigger('editor.action.copyLinesDownAction') },
+      { id: 'toggleBookmark', label: 'Toggle Bookmark', shortcut: 'F11', run: trigger('phpblitz.toggleBookmark') },
+      { id: 'mnemonicBookmark', label: 'Toggle Bookmark with Mnemonic…', shortcut: 'Ctrl+F11', run: trigger('phpblitz.mnemonicBookmark') },
+      { id: 'bookmarks', label: 'Show All Bookmarks', shortcut: 'Shift+F11', run: () => setPopup('bookmarks') },
+      { id: 'softWrap', label: 'Soft-Wrap', shortcut: 'Alt+Z', run: toggleSoftWrap },
     ]);
-    editor.onDidDispose(() => setEditorCommands(null));
+    setMainEditor(editor);
+    // Typing in route('…'), config('…'), view('…'), env('…') or __('…') opens their completion, as
+    // PhpStorm does (Monaco only suggests in strings when asked).
+    editor.onDidChangeModelContent((e) => {
+      const typed = e.changes.length === 1 && e.changes[0].text.length <= 2 && !e.changes[0].text.includes('\n') && !e.isUndoing && !e.isRedoing;
+      const pos = editor.getPosition();
+      if (!typed || !pos) return;
+      const before = editor.getModel()!.getLineContent(pos.lineNumber).slice(0, pos.column - 1);
+      if (stringContext(before)) editor.trigger('phpblitz', 'editor.action.triggerSuggest', {});
+    });
+    editor.onDidDispose(() => {
+      setEditorCommands(null);
+      setMainEditor(null);
+    });
     editor.onMouseDown((e) => {
       // Right-click opens the gutter menu; it must not also toggle a breakpoint.
       if (!e.event.leftButton) return;

@@ -54,7 +54,20 @@ jobs:
 
       # beforeBuildCommand (npm run build) builds the front end first.
       - name: Build the universal app
-        run: npx tauri build --target universal-apple-darwin --bundles dmg
+        run: npx tauri build --target universal-apple-darwin --bundles app,dmg
+
+      # The updater installs the app from a .tar.gz of PHPBlitz.app, with its .sig.
+      - name: Sign the update file
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then echo 'No TAURI_SIGNING_PRIVATE_KEY secret: update files not signed.'; exit 0; fi
+          version=${GITHUB_REF_NAME#v}
+          cd src-tauri/target/universal-apple-darwin/release/bundle/macos
+          tar -czf "PHPBlitz_${version}_universal.app.tar.gz" PHPBlitz.app
+          npx tauri signer sign --app-version "$version" "PHPBlitz_${version}_universal.app.tar.gz"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -67,4 +80,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           draft: true
-          files: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          files: |
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/*.tar.gz
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/*.sig
