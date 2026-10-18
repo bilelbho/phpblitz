@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Backend, ChangeStatus, CommitOptions, Entry, GitInfo, Package, Problem, RunResult, TestResult } from './types';
+import { parseStatusV2, toChanges } from '../git/status';
+import type { Backend, CommitOptions, Entry, GitInfo, Package, Problem, RunResult } from './types';
 
 const PACKAGE_NAME = /^[\w.-]+\/[\w.-]+$/;
 
@@ -61,25 +62,14 @@ export class DiskBackend implements Backend {
   async gitInfo(): Promise<GitInfo | null> {
     let status: RunResult;
     try {
-      status = await this.proc('git', ['status', '--porcelain=v1', '-uall']);
+      // One call for the branch and the changes; -z keeps non-ASCII and quoted paths intact.
+      status = await this.proc('git', ['status', '--porcelain=v2', '--branch', '-z', '-uall']);
     } catch {
       return null;
     }
     if (status.code !== 0) return null;
-    const branch = (await this.proc('git', ['branch', '--show-current'])).stdout.trim() || 'HEAD';
-    const changes = status.stdout
-      .split('\n')
-      .filter((line) => line.length > 3)
-      .map((line) => {
-        const xy = line.slice(0, 2);
-        let path = line.slice(3).trim();
-        if (path.includes(' -> ')) path = path.split(' -> ')[1];
-        path = path.replace(/^"|"$/g, '');
-        const status: ChangeStatus =
-          xy === '??' ? 'U' : xy.includes('A') ? 'A' : xy.includes('D') ? 'D' : xy.includes('R') ? 'R' : 'M';
-        return { path: `${this.root}/${path}`, status };
-      });
-    return { branch, changes };
+    const parsed = parseStatusV2(status.stdout);
+    return { branch: parsed.branch, changes: toChanges(this.root, parsed) };
   }
 
   git(args: string[]): Promise<RunResult> {
@@ -169,20 +159,6 @@ export class DiskBackend implements Backend {
         severity: 'error',
       },
     ];
-  }
-
-  async runTests(): Promise<TestResult> {
-    const r = await this.proc('php', ['vendor/bin/phpunit', '--colors=never']).catch(
-      (e): RunResult => ({ code: -1, stdout: '', stderr: String(e) }),
-    );
-    const output = `${r.stdout}${r.stderr}`.trim();
-    const summary =
-      output
-        .split('\n')
-        .reverse()
-        .find((l) => /^(OK|FAILURES|ERRORS|Tests:|No tests)/.test(l.trim()))
-        ?.trim() ?? (r.code === 0 ? 'Tests passed' : 'Tests failed');
-    return { ok: r.code === 0, summary, output };
   }
 
   shell(line: string, cwd?: string) {

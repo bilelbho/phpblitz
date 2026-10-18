@@ -121,6 +121,29 @@ export class LspClient {
     this.notify('textDocument/didChange', { textDocument: { uri: pathToUri(path), version }, contentChanges: [{ text }] });
   }
 
+  /** Whether the server takes edits as ranges (TextDocumentSyncKind.Incremental). */
+  get incremental(): boolean {
+    const sync = this.capabilities.textDocumentSync;
+    return (typeof sync === 'number' ? sync : sync?.change) === 2;
+  }
+
+  /**
+   * An editor edit: only the changed ranges when the server takes them, so a keystroke in a big
+   * file doesn't send the whole file; else the full text (asked for only then).
+   * `changes`: Monaco's, 1-based, in the order they apply.
+   */
+  didEdit(path: string, changes: readonly { range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number }; text: string }[], fullText: () => string) {
+    if (!this.versions.has(path)) return;
+    if (!this.incremental) return this.didChange(path, fullText());
+    const version = this.versions.get(path)! + 1;
+    this.versions.set(path, version);
+    const contentChanges = changes.map((c) => ({
+      range: { start: { line: c.range.startLineNumber - 1, character: c.range.startColumn - 1 }, end: { line: c.range.endLineNumber - 1, character: c.range.endColumn - 1 } },
+      text: c.text,
+    }));
+    this.notify('textDocument/didChange', { textDocument: { uri: pathToUri(path), version }, contentChanges });
+  }
+
   didSave(path: string, text: string) {
     if (!this.versions.has(path)) return;
     this.notify('textDocument/didSave', { textDocument: { uri: pathToUri(path) }, text });

@@ -1,4 +1,4 @@
-// Recent Files (Ctrl+E), like PhpStorm's: tool windows with their shortcuts on the left, recently
+// Recent Files (Ctrl+E): tool windows with their shortcuts on the left, recently
 // opened files on the right (previous file preselected, so Ctrl+E, Enter switches back), typing
 // filters, Ctrl+E again shows edited files only, the selected file's path at the bottom.
 
@@ -30,6 +30,7 @@ export const TOOL_WINDOWS: ToolEntry[] = [
   { label: 'AI Assistant', icon: 'sparkle', run: (ws) => ws.setRightTool('ai') },
   { label: 'Endpoints', icon: 'route', run: (ws) => ws.setRightTool('endpoints') },
   { label: 'Composer', icon: 'box', run: (ws) => ws.setRightTool('composer') },
+  { label: 'npm', icon: 'npm', run: (ws) => ws.setRightTool('npm') },
   { label: 'Notifications', icon: 'bell', run: (ws) => ws.setRightTool('notifications') },
 ];
 
@@ -116,7 +117,7 @@ export function RecentFiles({ ws, onClose }: { ws: Workspace; onClose: () => voi
       e.preventDefault();
       setQuery((q) => q.slice(0, -1));
     } else if (e.key.length === 1 && !ctrl && !e.altKey) {
-      // Speed search, like PhpStorm: just type.
+      // Speed search: just type.
       e.preventDefault();
       setQuery((q) => q + e.key);
     }

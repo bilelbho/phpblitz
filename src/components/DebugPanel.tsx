@@ -1,4 +1,4 @@
-// The Debug tool window, like PhpStorm's: one tab per session, the stepping toolbar, then
+// The Debug tool window: one tab per session, the stepping toolbar, then
 // Threads & Variables (frames on the left; watches, variables and other contexts on the right)
 // and the Console (the script's output).
 
@@ -12,6 +12,7 @@ import { ContextMenu, type ContextItem } from './ContextMenu';
 import { Icon, type IconName } from './Icon';
 import { VarNode } from './VarNode';
 import { useHideTool } from './toolHide';
+import { getCursor } from '../cursorStore';
 
 export function DebugPanel({ ws }: { ws: Workspace }) {
   const hide = useHideTool(() => ws.setBottomOpen(false));
@@ -59,7 +60,7 @@ export function DebugPanel({ ws }: { ws: Workspace }) {
           label="Run to Cursor"
           keys="Alt+F9"
           disabled={s?.status !== 'break' || !ws.activePath}
-          onClick={() => ws.activePath && void debug.runToCursor(ws.activePath, ws.cursor.line)}
+          onClick={() => ws.activePath && void debug.runToCursor(ws.activePath, getCursor().line)}
         />
         <span className="strip-sep" />
         <ToolButton icon="mute" label={debug.muted ? 'Unmute Breakpoints' : 'Mute Breakpoints'} pressed={debug.muted} onClick={() => debug.setMuted(!debug.muted)} />

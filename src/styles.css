@@ -4,7 +4,7 @@
 @import '@fontsource/jetbrains-mono/400.css';
 @import '@fontsource/jetbrains-mono/700.css';
 
-/* JetBrains new UI, dark theme with "islands" */
+/* Blitz Dark: the default theme. Panels are rounded "islands" on a darker frame. */
 :root {
   --frame: #131416;
   --island: #1e1f22;
@@ -439,7 +439,7 @@ textarea:focus-visible {
   border-radius: 50%;
 }
 
-/* JetBrains-style symbol icon: tinted circle with a colored letter. */
+/* Symbol icon: a tinted circle with a colored letter. */
 .sym {
   width: 16px;
   height: 16px;
@@ -521,7 +521,7 @@ textarea:focus-visible {
 }
 .topbar::before {
   display: none;
-  /* Project color glow, like JetBrains' colored main toolbar. */
+  /* Project color glow on the main toolbar. */
   content: '';
   position: absolute;
   inset: 0;
@@ -551,7 +551,7 @@ textarea:focus-visible {
   color: var(--muted);
   display: inline-flex;
 }
-/* A narrow window: names shorten with "…" (after the main menu has folded), like PhpStorm. */
+/* A narrow window: names shorten with "…" (after the main menu has folded). */
 .topbar .widget {
   flex: 0 1 auto;
   min-width: 0;
@@ -1690,7 +1690,7 @@ button.item:hover {
 }
 
 
-/* -- Context menu (editor right-click, PhpStorm style) --- */
+/* -- Context menu (editor right-click) ------------------ */
 
 .ctx-menu {
   min-width: 260px;
@@ -1750,27 +1750,27 @@ button.item:hover {
   background: transparent;
   padding-top: 12vh;
 }
-.jb-dialog {
+.pb-dialog {
   width: 360px;
   background: var(--popup);
   border: 1px solid var(--line-strong);
   border-radius: 10px;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
 }
-.jb-dialog-title {
+.pb-dialog-title {
   padding: 12px 16px 4px;
   font-weight: 600;
 }
-.jb-dialog-body {
+.pb-dialog-body {
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 8px 16px 4px;
 }
-.jb-dialog-body label {
+.pb-dialog-body label {
   color: var(--text);
 }
-.jb-dialog-buttons {
+.pb-dialog-buttons {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
@@ -1781,7 +1781,7 @@ button.item:hover {
   border-color: #db5c5c;
   box-shadow: 0 0 0 1px #db5c5c;
 }
-.jb-popup {
+.pb-popup {
   width: 480px;
   max-width: calc(100vw - 32px);
   background: var(--popup);
@@ -1790,12 +1790,12 @@ button.item:hover {
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
   overflow: hidden;
 }
-.jb-popup-title {
+.pb-popup-title {
   padding: 9px 14px 7px;
   font-weight: 600;
   color: var(--text);
 }
-.jb-popup-list {
+.pb-popup-list {
   max-height: 420px;
   overflow: auto;
   padding: 0 6px 6px;
@@ -1858,7 +1858,7 @@ button.item:hover {
   border-radius: 2px;
 }
 
-/* -- Monaco widgets restyled as JetBrains popups --------- */
+/* -- Monaco widgets restyled as our popups -------------- */
 
 .monaco-editor .suggest-widget,
 .monaco-editor .monaco-hover,
@@ -1884,7 +1884,7 @@ button.item:hover {
   padding: 2px 4px;
   font-family: var(--sans);
 }
-/* Rename: JetBrains renames in place with the name outlined in blue. */
+/* Rename: in place, with the name outlined in blue. */
 .monaco-editor .rename-box {
   background: var(--island) !important;
   border: 0 !important;
@@ -1905,7 +1905,7 @@ button.item:hover {
 
 /* -- Find in Files --------------------------------------- */
 
-.jb-popup.fif {
+.pb-popup.fif {
   width: 920px;
   height: min(78vh, 720px);
   display: flex;
@@ -2052,7 +2052,7 @@ select.field.select {
 }
 
 
-/* Cut (Ctrl+X) files are dimmed until pasted, like in PhpStorm. */
+/* Cut (Ctrl+X) files are dimmed until pasted. */
 .project-tree .row.cut .name,
 .project-tree .row.cut .badge,
 .project-tree .row.cut .folder-icon {
@@ -2502,7 +2502,7 @@ select.field.select {
   font-size: 12px;
 }
 
-/* Code vision ("no usages") and inlay hints, like PhpStorm's. */
+/* Code vision ("no usages") and inlay hints. */
 .monaco-editor .codelens-decoration {
   color: var(--vscode-editorCodeLens-foreground, #8c8f94);
 }
@@ -3761,7 +3761,7 @@ table.grid tr.row-deleted td {
 
 /* -- UI themes (Settings > Appearance & Behavior > Appearance) -- */
 
-:root[data-ui-theme='islands-light'] {
+:root[data-ui-theme='blitz-light'] {
   --icon: #6c707e;
   --folder: #6c707e;
   --frame: #e8e9ed;
@@ -3797,7 +3797,7 @@ table.grid tr.row-deleted td {
   --ov: 0, 0, 0;
   color-scheme: light;
 }
-:root[data-ui-theme='islands-darcula'] {
+:root[data-ui-theme='blitz-classic'] {
   --icon: #afb1b3;
   --folder: #8f9bb3;
   --frame: #1f1f1f;
@@ -3849,12 +3849,12 @@ table.grid tr.row-deleted td {
   --gutter-text: #8c8c8c;
 }
 /* Light: brighter selection text, softer shadows. */
-:root[data-ui-theme='islands-light'] .row.selected,
-:root[data-ui-theme='islands-light'] .bp-row.active,
-:root[data-ui-theme='islands-light'] .rf-file.selected,
-:root[data-ui-theme='islands-light'] .rf-tool.selected,
-:root[data-ui-theme='islands-light'] .intention-item.selected,
-:root[data-ui-theme='islands-light'] .log-row.selected {
+:root[data-ui-theme='blitz-light'] .row.selected,
+:root[data-ui-theme='blitz-light'] .bp-row.active,
+:root[data-ui-theme='blitz-light'] .rf-file.selected,
+:root[data-ui-theme='blitz-light'] .rf-tool.selected,
+:root[data-ui-theme='blitz-light'] .intention-item.selected,
+:root[data-ui-theme='blitz-light'] .log-row.selected {
   color: var(--text-strong);
 }
 
@@ -4003,13 +4003,13 @@ body {
 }
 
 /* Project color: a glow from the top-left corner over the main toolbar and down the tool window bar,
-   like PhpStorm's project colors (the islands sit on top of it). */
+   in the project's color (the panels sit on top of it). */
 .app {
   background:
     radial-gradient(ellipse 1000px 620px at 0 0, color-mix(in srgb, var(--project-color, transparent) 62%, transparent), transparent 70%),
     radial-gradient(ellipse 200px 1000px at 0 0, color-mix(in srgb, var(--project-color, transparent) 38%, transparent), transparent 92%);
 }
-:root[data-ui-theme='islands-light'] .app {
+:root[data-ui-theme='blitz-light'] .app {
   background:
     radial-gradient(ellipse 900px 560px at 0 0, color-mix(in srgb, var(--project-color, transparent) 30%, transparent), transparent 72%),
     radial-gradient(ellipse 160px 900px at 0 0, color-mix(in srgb, var(--project-color, transparent) 16%, transparent), transparent 90%);
@@ -4858,7 +4858,7 @@ body {
   max-width: 240px;
 }
 
-/* Database tool window (PhpStorm's look). */
+/* Database tool window. */
 .db-toolbar {
   gap: 1px;
 }
@@ -5063,7 +5063,7 @@ body {
   opacity: 0.8;
 }
 
-/* Show Usages popup (Ctrl+Alt+F7 / "N usages"), like PhpStorm's. */
+/* Show Usages popup (Ctrl+Alt+F7 / "N usages"). */
 .usages-popup {
   position: fixed;
   z-index: 70;
@@ -5314,8 +5314,8 @@ body {
   background: var(--selection, rgba(53, 116, 240, 0.3));
 }
 
-/* Annotate with Git Blame: "10/12/2026 Martin" before the line number, in the UI font like
-   PhpStorm (the number keeps the editor font). The text comes from a per-label ::before rule. */
+/* Annotate with Git Blame: "10/12/2026 Martin" before the line number, in the UI font
+   (the number keeps the editor font). The text comes from a per-label ::before rule. */
 .monaco-editor .line-numbers.blame-ln {
   cursor: pointer;
 }
@@ -5367,7 +5367,7 @@ body {
   font-size: 11.5px;
 }
 
-/* A breakpoint covers its line number, like PhpStorm (click the number to toggle one). */
+/* A breakpoint covers its line number (click the number to toggle one). */
 .monaco-editor .line-numbers {
   cursor: pointer;
 }
@@ -5532,6 +5532,20 @@ body {
   font-weight: 600;
   color: var(--text-strong);
 }
+.about-authors {
+  margin-top: 8px;
+  font-size: 12.5px;
+}
+.about-authors-title {
+  color: var(--muted-2);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+}
+.about-author {
+  color: var(--text-strong);
+}
 .about-small {
   font-size: 11.5px;
   line-height: 17px;
@@ -5615,4 +5629,515 @@ body {
   padding: 0 4px;
   color: var(--muted);
   font-size: 12px;
+}
+
+/* npm tool window */
+.npm-panel .list-item {
+  min-height: 28px;
+}
+.npm-head {
+  cursor: default;
+  gap: 6px;
+}
+.npm-head > svg {
+  flex: none;
+}
+.npm-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.npm-where {
+  font-size: 12px;
+}
+.npm-install {
+  height: 22px;
+  padding: 0 8px;
+}
+.npm-script {
+  padding-left: 34px;
+  cursor: default;
+}
+.npm-script-name {
+  flex: none;
+}
+.npm-command {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.npm-script .icon-btn,
+.npm-open {
+  visibility: hidden;
+}
+.npm-head:hover .npm-open,
+.npm-open:focus-visible,
+.npm-script:hover .icon-btn,
+.npm-script:focus-within .icon-btn {
+  visibility: visible;
+}
+
+/* New Project dialog */
+.modal-backdrop.np-backdrop {
+  align-items: center;
+  padding-top: 0;
+}
+.pb-dialog.np-dialog {
+  width: min(900px, calc(100vw - 32px));
+  height: min(640px, calc(100vh - 32px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  text-align: left;
+}
+.np-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  margin-top: 8px;
+}
+.np-types {
+  flex: none;
+  width: 220px;
+  overflow-y: auto;
+  padding: 6px;
+  border-right: 1px solid var(--line);
+}
+.np-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 4px;
+  color: var(--muted-2);
+  font-size: 12.5px;
+}
+.np-group::before,
+.np-group::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--line);
+}
+.np-type {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 5px;
+  text-align: left;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.np-type:hover:not(:disabled) {
+  background: var(--hover-soft);
+}
+.np-type.selected {
+  background: var(--select);
+}
+.np-type:disabled:not(.selected) {
+  opacity: 0.55;
+}
+.np-type-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--icon);
+}
+.np-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 10px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.np-heading {
+  font-weight: 600;
+}
+.np-row {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+.np-row .welcome-folder .field {
+  min-width: 0;
+}
+.np-select {
+  justify-self: start;
+  min-width: 240px;
+  max-width: 100%;
+}
+.np-segmented {
+  justify-self: start;
+}
+.np-segmented .segment {
+  height: 26px;
+  padding: 0 16px;
+}
+.np-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.np-hint {
+  font-size: 12px;
+}
+.np-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.np-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  color: var(--muted-2);
+  font-size: 10px;
+  cursor: help;
+}
+.np-section {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.np-section legend {
+  padding: 0 0 6px;
+  color: var(--text);
+}
+.np-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 6px 16px;
+  padding-left: 4px;
+}
+.np-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 4px;
+}
+.np-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 12px;
+}
+.np-note {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.np-note .error-text {
+  white-space: normal;
+}
+.np-bolt {
+  color: #e8a33d;
+  margin-right: 6px;
+}
+.np-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.np-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.np-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted-2);
+}
+.np-step.running,
+.np-step.done {
+  color: var(--text);
+}
+.np-step.done .np-mark {
+  color: #5fb865;
+}
+.np-step.failed {
+  color: #db5c5c;
+}
+.np-mark {
+  width: 14px;
+  text-align: center;
+}
+.np-mark.spin {
+  animation: np-spin 1s linear infinite;
+}
+@keyframes np-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.np-log {
+  flex: 1 1 auto;
+  min-height: 120px;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--input);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+  .np-types {
+    width: 170px;
+  }
+  .np-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
+
+/* Test runner: gutter icons (▶ test, ▶▶ class; a badge with the last result) */
+.monaco-editor .test-glyph {
+  cursor: pointer;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 14px 14px;
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'16'%20height%3D'16'%20viewBox%3D'0%200%2016%2016'%3E%3Cpath%20d%3D'M4%202.5v11l9-5.5z'%20fill%3D'%235fb865'%2F%3E%3C%2Fsvg%3E");
+}
+.monaco-editor .test-glyph.test-class {
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'16'%20height%3D'16'%20viewBox%3D'0%200%2016%2016'%3E%3Cpath%20d%3D'M1.5%203v10l6-5z'%20fill%3D'%235fb865'%2F%3E%3Cpath%20d%3D'M7.5%203v10l6-5z'%20fill%3D'%235fb865'%2F%3E%3C%2Fsvg%3E");
+}
+.monaco-editor .test-glyph.test-passed {
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'16'%20height%3D'16'%20viewBox%3D'0%200%2016%2016'%3E%3Cpath%20d%3D'M4%202.5v11l9-5.5z'%20fill%3D'%235fb865'%2F%3E%3Ccircle%20cx%3D'11.5'%20cy%3D'11.5'%20r%3D'4'%20fill%3D'%235fb865'%20stroke%3D'%231e1f22'%20stroke-width%3D'1'%2F%3E%3Cpath%20d%3D'M9.6%2011.6l1.3%201.3%202.4-2.6'%20fill%3D'none'%20stroke%3D'%23fff'%20stroke-width%3D'1.3'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%2F%3E%3C%2Fsvg%3E");
+}
+.monaco-editor .test-glyph.test-class.test-passed {
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'16'%20height%3D'16'%20viewBox%3D'0%200%2016%2016'%3E%3Cpath%20d%3D'M1.5%203v10l6-5z'%20fill%3D'%235fb865'%2F%3E%3Cpath%20d%3D'M7.5%203v10l6-5z'%20fill%3D'%235fb865'%2F%3E%3Ccircle%20cx%3D'11.5'%20cy%3D'11.5'%20r%3D'4'%20fill%3D'%235fb865'%20stroke%3D'%231e1f22'%20stroke-width%3D'1'%2F%3E%3Cpath%20d%3D'M9.6%2011.6l1.3%201.3%202.4-2.6'%20fill%3D'none'%20stroke%3D'%23fff'%20stroke-width%3D'1.3'%20stroke-linecap%3D'round'%20stroke-linejoin%3D'round'%2F%3E%3C%2Fsvg%3E");
+}
+.monaco-editor .test-glyph.test-failed {
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'16'%20height%3D'16'%20viewBox%3D'0%200%2016%2016'%3E%3Cpath%20d%3D'M4%202.5v11l9-5.5z'%20fill%3D'%23db5c5c'%2F%3E%3Ccircle%20cx%3D'11.5'%20cy%3D'11.5'%20r%3D'4'%20fill%3D'%23db5c5c'%20stroke%3D'%231e1f22'%20stroke-width%3D'1'%2F%3E%3Cpath%20d%3D'M11.5%209.4v2.6'%20stroke%3D'%23fff'%20stroke-width%3D'1.4'%20stroke-linecap%3D'round'%2F%3E%3Ccircle%20cx%3D'11.5'%20cy%3D'13.6'%20r%3D'0.8'%20fill%3D'%23fff'%2F%3E%3C%2Fsvg%3E");
+}
+.monaco-editor .test-glyph.test-class.test-failed {
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'16'%20height%3D'16'%20viewBox%3D'0%200%2016%2016'%3E%3Cpath%20d%3D'M1.5%203v10l6-5z'%20fill%3D'%23db5c5c'%2F%3E%3Cpath%20d%3D'M7.5%203v10l6-5z'%20fill%3D'%23db5c5c'%2F%3E%3Ccircle%20cx%3D'11.5'%20cy%3D'11.5'%20r%3D'4'%20fill%3D'%23db5c5c'%20stroke%3D'%231e1f22'%20stroke-width%3D'1'%2F%3E%3Cpath%20d%3D'M11.5%209.4v2.6'%20stroke%3D'%23fff'%20stroke-width%3D'1.4'%20stroke-linecap%3D'round'%2F%3E%3Ccircle%20cx%3D'11.5'%20cy%3D'13.6'%20r%3D'0.8'%20fill%3D'%23fff'%2F%3E%3C%2Fsvg%3E");
+}
+.monaco-editor .test-glyph.test-ignored {
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'16'%20height%3D'16'%20viewBox%3D'0%200%2016%2016'%3E%3Cpath%20d%3D'M4%202.5v11l9-5.5z'%20fill%3D'%235fb865'%2F%3E%3Ccircle%20cx%3D'11.5'%20cy%3D'11.5'%20r%3D'4'%20fill%3D'%23868a91'%20stroke%3D'%231e1f22'%20stroke-width%3D'1'%2F%3E%3Cpath%20d%3D'M9.8%2011.5h3.4'%20stroke%3D'%23fff'%20stroke-width%3D'1.4'%20stroke-linecap%3D'round'%2F%3E%3C%2Fsvg%3E");
+}
+.monaco-editor .test-glyph.test-class.test-ignored {
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20width%3D'16'%20height%3D'16'%20viewBox%3D'0%200%2016%2016'%3E%3Cpath%20d%3D'M1.5%203v10l6-5z'%20fill%3D'%235fb865'%2F%3E%3Cpath%20d%3D'M7.5%203v10l6-5z'%20fill%3D'%235fb865'%2F%3E%3Ccircle%20cx%3D'11.5'%20cy%3D'11.5'%20r%3D'4'%20fill%3D'%23868a91'%20stroke%3D'%231e1f22'%20stroke-width%3D'1'%2F%3E%3Cpath%20d%3D'M9.8%2011.5h3.4'%20stroke%3D'%23fff'%20stroke-width%3D'1.4'%20stroke-linecap%3D'round'%2F%3E%3C%2Fsvg%3E");
+}
+.no-gutter-icons .monaco-editor .test-glyph,
+.no-gutter-run .monaco-editor .test-glyph {
+  display: none !important;
+}
+
+/* Test runner: the Run tool window */
+.test-results {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.tr-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  padding: 0 6px;
+  flex: none;
+  min-width: 0;
+}
+.tr-toolbar .strip-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 5px;
+}
+.tr-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+.tr-status.ok {
+  color: #5fb865;
+}
+.tr-status.bad {
+  color: #e06c6c;
+}
+.tr-progress {
+  height: 2px;
+  flex: none;
+  background: var(--line);
+}
+.tr-progress > span {
+  display: block;
+  height: 100%;
+  background: #5fb865;
+  transition: width 0.15s;
+}
+.tr-progress.bad > span {
+  background: #db5c5c;
+}
+.tr-empty {
+  padding: 16px;
+}
+.tr-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+.tr-tree {
+  width: 38%;
+  min-width: 220px;
+  max-width: 520px;
+  overflow: auto;
+  border-right: 1px solid var(--line);
+  padding: 2px 0;
+  outline: none;
+}
+.tr-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding-right: 8px;
+  white-space: nowrap;
+  cursor: default;
+}
+.tr-row:hover {
+  background: var(--hover-soft);
+}
+.tr-row.selected {
+  background: var(--select);
+}
+.tr-tree:focus .tr-row.selected {
+  background: var(--select-strong, var(--select));
+}
+.tr-twisty {
+  width: 14px;
+  display: inline-flex;
+  flex: none;
+  color: var(--icon);
+}
+.tr-icon {
+  display: inline-flex;
+  flex: none;
+}
+.tr-passed {
+  color: #5fb865;
+}
+.tr-failed,
+.tr-error {
+  color: #db5c5c;
+}
+.tr-ignored {
+  color: #868a91;
+}
+.tr-running {
+  color: #548af7;
+  animation: np-spin 1s linear infinite;
+}
+.tr-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tr-time {
+  flex: none;
+  color: var(--muted-2);
+  font-size: 12px;
+}
+.tr-details {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: auto;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.tr-command {
+  color: var(--muted-2);
+  margin-bottom: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tr-failure + .tr-failure {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.tr-failure-name {
+  color: var(--text-strong);
+  margin-bottom: 2px;
+}
+.tr-fail-message {
+  color: #e06c6c;
+  white-space: pre-wrap;
+}
+.tr-diff {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 8px 0;
+}
+.tr-diff-label {
+  color: var(--muted-2);
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+.tr-diff pre {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+.tr-expected {
+  background: rgba(95, 184, 101, 0.12);
+}
+.tr-actual {
+  background: rgba(219, 92, 92, 0.12);
+}
+.tr-stack {
+  margin-top: 6px;
+}
+.tr-stack .link-btn {
+  font: inherit;
+  text-align: left;
+}
+.tr-output {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
 }

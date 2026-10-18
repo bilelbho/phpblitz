@@ -1,4 +1,4 @@
-// Database tool window, like PhpStorm's: data source → database → schemas → tables / views /
+// Database tool window: data source → database → schemas → tables / views /
 // sequences / routines → columns, keys, foreign keys, indexes, checks; Server Objects → roles.
 // Loaded as you expand; the eye button changes how it is grouped.
 
@@ -774,16 +774,16 @@ function PromptDialog({
   };
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="jb-dialog" role="dialog" aria-modal="true" aria-label={title} style={{ width: 460 }} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
-        <div className="jb-dialog-title">{title}</div>
-        <div className="jb-dialog-body">
+      <div className="pb-dialog" role="dialog" aria-modal="true" aria-label={title} style={{ width: 460 }} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+        <div className="pb-dialog-title">{title}</div>
+        <div className="pb-dialog-body">
           <label htmlFor="db-prompt">{label}</label>
           <div className="field">
             <input id="db-prompt" ref={input} value={text} spellCheck={false} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void ok()} />
           </div>
           <pre className="db-prompt-preview">{preview(text.trim() || value)}</pre>
         </div>
-        <div className="jb-dialog-buttons">
+        <div className="pb-dialog-buttons">
           <button type="button" className="btn primary" disabled={busy} onClick={() => void ok()}>
             {busy ? 'Running…' : 'Refactor'}
           </button>
@@ -796,7 +796,7 @@ function PromptDialog({
   );
 }
 
-/** The server rejected the (missing or wrong) password: ask for it right there, like PhpStorm. */
+/** The server rejected the (missing or wrong) password: ask for it right there. */
 function PasswordPrompt({ ds, error, onConnected, onProperties }: { ds: DataSource; error: string; onConnected: () => void; onProperties: () => void }) {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);

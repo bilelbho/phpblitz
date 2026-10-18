@@ -1,4 +1,4 @@
-// A table's data in an editor tab, like PhpStorm's table editor: pages, WHERE filter, sort by
+// A table's data in an editor tab: pages, WHERE filter, sort by
 // header, edit cells / add / delete rows, then Submit (Ctrl+Enter) or Revert.
 
 import { useCallback, useEffect, useState } from 'react';

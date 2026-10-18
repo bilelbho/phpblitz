@@ -152,7 +152,7 @@ export function parseIndexes(r: QueryResult): IndexInfo[] {
   return r.rows.map(([name, unique, primary, columns, definition]) => ({ name: name ?? '', unique: unique === '1', primary: primary === '1', columns: columns ?? '', definition: definition ?? undefined }));
 }
 
-/** PhpStorm-style short types: varchar(191), timestamp(0), timestamptz, int… */
+/** Short types: varchar(191), timestamp(0), timestamptz, int… */
 export function shortType(type: string): string {
   return type
     .replace(/^character varying/, 'varchar')

@@ -73,7 +73,7 @@ pub async fn run_shell(cwd: String, line: String) -> Result<RunResult, String> {
 }
 
 /// Shows a file in the system file manager (Explorer, Finder, …) with it selected.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reveal_in_explorer(path: String) -> Result<(), String> {
     let native = std::path::Path::new(&path);
     if !native.exists() {
@@ -93,7 +93,7 @@ pub fn reveal_in_explorer(path: String) -> Result<(), String> {
 }
 
 /// Opens an http(s) link in the default browser (links clicked in the terminal).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_external(url: String) -> Result<(), String> {
     let lower = url.to_ascii_lowercase();
     if !(lower.starts_with("http://") || lower.starts_with("https://")) || url.chars().any(|c| c.is_control() || c == '"') {
@@ -167,4 +167,175 @@ fn portable() -> bool {
     }
     let program_files = [std::env::var_os("ProgramFiles"), std::env::var_os("ProgramW6432")];
     !program_files.iter().flatten().any(|pf| dir.starts_with(pf))
+}
+
+/// Long-running tools whose output is shown as it comes (project generators): id → process id.
+#[derive(Default)]
+pub struct JobState {
+    jobs: std::sync::Mutex<std::collections::HashMap<u32, u32>>,
+}
+
+#[derive(Clone, Serialize)]
+struct JobOutput {
+    id: u32,
+    text: String,
+}
+
+/// Runs a command line through the system shell and streams stdout and stderr as `job-output`
+/// events, line by line; returns the exit code. Tools run without a terminal and without input,
+/// with the environment variables that make them pick defaults instead of asking (CI=1, …).
+#[tauri::command]
+pub async fn job_run(app: tauri::AppHandle, state: tauri::State<'_, JobState>, id: u32, cwd: String, line: String) -> Result<i32, String> {
+    #[cfg(windows)]
+    let mut cmd = {
+        use std::os::windows::process::CommandExt;
+        let mut c = Command::new("cmd");
+        c.raw_arg(format!("/C {line}"));
+        c
+    };
+    #[cfg(not(windows))]
+    let mut cmd = {
+        let mut c = Command::new("sh");
+        c.arg("-c").arg(&line);
+        c
+    };
+    cmd.env("CI", "1")
+        .env("COMPOSER_NO_INTERACTION", "1")
+        .env("NO_COLOR", "1")
+        .env("FORCE_COLOR", "0")
+        .env("npm_config_yes", "true")
+        .env("npm_config_fund", "false")
+        .env("npm_config_update_notifier", "false");
+    stream_job(app, &state, id, &cwd, cmd).await
+}
+
+/// Runs a program (no shell) and streams its output like `job_run`: test runs, whose output is
+/// read as it comes.
+#[tauri::command]
+pub async fn job_exec(app: tauri::AppHandle, state: tauri::State<'_, JobState>, id: u32, cwd: String, program: String, args: Vec<String>) -> Result<i32, String> {
+    let mut cmd = Command::new(&program);
+    cmd.args(&args);
+    stream_job(app, &state, id, &cwd, cmd).await
+}
+
+async fn stream_job(app: tauri::AppHandle, state: &JobState, id: u32, cwd: &str, mut cmd: Command) -> Result<i32, String> {
+    use std::io::BufRead;
+    use std::process::Stdio;
+    use tauri::Emitter;
+
+    #[cfg(not(windows))]
+    {
+        use std::os::unix::process::CommandExt;
+        // Its own process group, so stopping it stops the processes it started too.
+        cmd.process_group(0);
+    }
+    cmd.current_dir(cwd).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    hide_console(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| format!("Could not start the command: {e}"))?;
+    state.jobs.lock().map_err(|e| e.to_string())?.insert(id, child.id());
+
+    let pipes: Vec<Box<dyn std::io::Read + Send>> = [
+        child.stdout.take().map(|s| Box::new(s) as Box<dyn std::io::Read + Send>),
+        child.stderr.take().map(|s| Box::new(s) as Box<dyn std::io::Read + Send>),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let readers: Vec<_> = pipes
+        .into_iter()
+        .map(|pipe| {
+            let app = app.clone();
+            std::thread::spawn(move || {
+                let mut reader = std::io::BufReader::new(pipe);
+                let mut buf = Vec::new();
+                while reader.read_until(b'\n', &mut buf).is_ok_and(|n| n > 0) {
+                    let _ = app.emit("job-output", JobOutput { id, text: String::from_utf8_lossy(&buf).into_owned() });
+                    buf.clear();
+                }
+            })
+        })
+        .collect();
+    let status = tauri::async_runtime::spawn_blocking(move || child.wait()).await.map_err(|e| e.to_string())?;
+    for r in readers {
+        let _ = r.join();
+    }
+    if let Ok(mut jobs) = state.jobs.lock() {
+        jobs.remove(&id);
+    }
+    Ok(status.map_err(|e| e.to_string())?.code().unwrap_or(-1))
+}
+
+/// Stops a job started with `job_run`, with the processes it started.
+#[tauri::command(async)]
+pub fn job_kill(state: tauri::State<'_, JobState>, id: u32) -> Result<(), String> {
+    let Some(pid) = state.jobs.lock().map_err(|e| e.to_string())?.get(&id).copied() else {
+        return Ok(());
+    };
+    #[cfg(windows)]
+    let mut cmd = {
+        let mut c = Command::new("taskkill");
+        c.args(["/T", "/F", "/PID", &pid.to_string()]);
+        c
+    };
+    #[cfg(not(windows))]
+    let mut cmd = {
+        let mut c = Command::new("kill");
+        c.args(["-TERM", "--", &format!("-{pid}")]);
+        c
+    };
+    hide_console(&mut cmd);
+    cmd.output().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// A thread that owns a child's input (a language server's stdin, a terminal) and writes what is
+/// queued to it. Commands only queue bytes, so a slow reader never blocks them or holds a lock.
+/// The thread ends when the sender is dropped or a write fails.
+pub fn spawn_writer(mut writer: impl std::io::Write + Send + 'static) -> std::sync::mpsc::Sender<Vec<u8>> {
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    std::thread::spawn(move || {
+        for bytes in rx {
+            if writer.write_all(&bytes).and_then(|_| writer.flush()).is_err() {
+                break;
+            }
+        }
+    });
+    tx
+}
+
+#[cfg(test)]
+mod tests {
+    use super::spawn_writer;
+    use std::sync::{Arc, Mutex};
+
+    struct Shared(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for Shared {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            // A slow reader: queuing must not wait for it.
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn writer_thread_keeps_order_without_blocking_the_sender() {
+        let out = Arc::new(Mutex::new(Vec::new()));
+        let tx = spawn_writer(Shared(Arc::clone(&out)));
+        let started = std::time::Instant::now();
+        for chunk in ["one ", "two ", "three"] {
+            tx.send(chunk.as_bytes().to_vec()).unwrap();
+        }
+        assert!(started.elapsed() < std::time::Duration::from_millis(20), "sending queues, it doesn't write");
+        for _ in 0..100 {
+            if out.lock().unwrap().len() == 13 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(String::from_utf8(out.lock().unwrap().clone()).unwrap(), "one two three");
+    }
 }

@@ -1,4 +1,4 @@
-// Editor tabs, like PhpStorm's new UI: one row of rounded tabs with file-type icons and file
+// Editor tabs: one row of rounded tabs with file-type icons and file
 // colors; tabs that don't fit go to the ▾ list (the active one always stays visible); ⋮ and
 // right-click for Close Others / All / Unmodified…; the full path in a tooltip.
 

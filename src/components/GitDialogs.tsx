@@ -26,7 +26,7 @@ function Dialog({ title, width = 440, onClose, onSubmit, children, buttons }: { 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
-        className="jb-dialog"
+        className="pb-dialog"
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -39,9 +39,9 @@ function Dialog({ title, width = 440, onClose, onSubmit, children, buttons }: { 
           if (e.key === 'Enter' && onSubmit && (e.target as HTMLElement).tagName === 'INPUT' && (e.target as HTMLInputElement).type !== 'checkbox') onSubmit();
         }}
       >
-        <div className="jb-dialog-title">{title}</div>
-        <div className="jb-dialog-body">{children}</div>
-        <div className="jb-dialog-buttons">{buttons}</div>
+        <div className="pb-dialog-title">{title}</div>
+        <div className="pb-dialog-body">{children}</div>
+        <div className="pb-dialog-buttons">{buttons}</div>
       </div>
     </div>
   );

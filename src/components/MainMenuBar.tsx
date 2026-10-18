@@ -1,4 +1,4 @@
-// The main menu as a menu bar, like PhpStorm's: merged into the main toolbar (every menu that fits,
+// The main menu as a menu bar: merged into the main toolbar (every menu that fits,
 // then a › that shows the rest) or as a full row above it. Clicking a title opens its menu; while one is
 // open, hovering another title or pressing Left / Right moves to it; Alt+<underlined letter> opens
 // a menu from anywhere.

@@ -1,4 +1,4 @@
-// Rendered documentation comments (PhpStorm's "Render documentation comments" / reader mode):
+// Rendered documentation comments ("Render documentation comments" / reader mode):
 // each /** … */ block is hidden and replaced by a view zone showing it formatted, with a pencil in
 // the gutter to edit it (Ctrl+Alt+Q toggles the block at the caret).
 

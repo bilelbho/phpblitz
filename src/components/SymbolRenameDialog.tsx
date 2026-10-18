@@ -1,4 +1,4 @@
-// Refactor ▸ Rename (Shift+F6), like PhpStorm's dialog: the new name, what will change, and the
+// Refactor ▸ Rename (Shift+F6): the new name, what will change, and the
 // choices (dynamic usages, renaming the class file).
 
 import { useEffect, useRef, useState } from 'react';
@@ -14,11 +14,11 @@ export function SymbolRenameDialog({ ws, plan, onClose }: { ws: Workspace; plan:
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => input.current?.select(), []);
 
-  const valid = validName(name) && name !== plan.oldName;
+  const valid = validName(name, plan.script) && name !== plan.oldName;
   const files = new Set([...plan.declarations, ...plan.usages, ...(dynamic ? plan.dynamic : [])].map((e) => e.path));
   const count = plan.usages.length + (dynamic ? plan.dynamic.length : 0);
   const extraDeclarations = plan.declarations.length - 1;
-  const what = plan.kind === 'variable' ? `variable $${plan.oldName}` : plan.kind === 'method' || plan.kind === 'function' ? `${plan.kind} ${plan.oldName}()` : `${plan.kind} ${plan.oldName}`;
+  const what = plan.kind === 'variable' && !plan.script ? `variable ${plan.oldName}` : plan.kind === 'method' || plan.kind === 'function' ? `${plan.kind} ${plan.oldName}()` : `${plan.kind} ${plan.oldName}`;
 
   const run = async () => {
     if (!valid || busy) return;
@@ -38,7 +38,7 @@ export function SymbolRenameDialog({ ws, plan, onClose }: { ws: Workspace; plan:
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
-        className="jb-dialog"
+        className="pb-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="rename-title"
@@ -51,14 +51,14 @@ export function SymbolRenameDialog({ ws, plan, onClose }: { ws: Workspace; plan:
           e.stopPropagation();
         }}
       >
-        <div className="jb-dialog-title" id="rename-title">
+        <div className="pb-dialog-title" id="rename-title">
           Rename
         </div>
-        <div className="jb-dialog-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="pb-dialog-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <label htmlFor="rename-to">
             Rename {what} and its usages to:
           </label>
-          <div className={'field' + (name && !validName(name) ? ' invalid' : '')}>
+          <div className={'field' + (name && !validName(name, plan.script) ? ' invalid' : '')}>
             {plan.kind === 'variable' || plan.kind === 'property' ? <span className="muted" style={{ paddingLeft: 6 }}>$</span> : null}
             <input id="rename-to" ref={input} value={name} spellCheck={false} onChange={(e) => setName(e.target.value.replace(/^\$/, ''))} />
           </div>
@@ -79,7 +79,7 @@ export function SymbolRenameDialog({ ws, plan, onClose }: { ws: Workspace; plan:
             </label>
           )}
         </div>
-        <div className="jb-dialog-buttons">
+        <div className="pb-dialog-buttons">
           <button type="button" className="btn" onClick={onClose}>
             Cancel
           </button>

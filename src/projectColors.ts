@@ -1,7 +1,7 @@
 import { useEffect, useReducer } from 'react';
 
 // Project colors: each project gets one (picked from its name, or chosen in the project popup),
-// shown on its badge and as a glow over the main toolbar and tool window bars, like PhpStorm's.
+// shown on its badge and as a glow over the main toolbar and tool window bars.
 
 export const PROJECT_PALETTE = ['#3d7a4b', '#3574f0', '#9b5fc0', '#c2803a', '#2a8f96', '#c25863', '#5b7cc2', '#7d8f2e', '#b0569b', '#4f8a8b'];
 

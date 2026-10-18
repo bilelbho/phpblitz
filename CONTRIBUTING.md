@@ -36,5 +36,7 @@ Security problems go through a private report instead: see [SECURITY.md](SECURIT
   other JetBrains products included), and don't paste code whose license you don't know.
 - **Your contribution is Apache 2.0.** By sending a pull request, you agree that it's licensed
   under the [Apache License 2.0](LICENSE), like the rest of PHPBlitz, and that you have the right
-  to contribute it.
-- **No telemetry.** PHPBlitz never contacts a server on its own; changes must keep it that way.
+  to contribute it. Add your name or GitHub handle to [AUTHORS](AUTHORS) in your first pull
+  request: the About dialog lists everyone there.
+- **No telemetry.** The only thing PHPBlitz fetches on its own is the update check (which can be
+  turned off); changes must keep it that way.

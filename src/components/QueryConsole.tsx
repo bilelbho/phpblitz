@@ -189,7 +189,7 @@ export function QueryConsole({ ws, source, name }: { ws: Workspace; source: stri
       const st = statementAt(model.getValue(), model.getOffsetAt(editor.getPosition()!));
       if (!st) return;
       sql = st.sql;
-      // Show what runs, like PhpStorm's statement highlight.
+      // Show what runs: the statement is highlighted.
       const range = monaco.Range.fromPositions(model.getPositionAt(st.start), model.getPositionAt(st.end));
       const flash = editor.createDecorationsCollection([{ range, options: { className: 'sql-running' } }]);
       setTimeout(() => flash.clear(), 600);

@@ -1,10 +1,10 @@
-// Where each tool window lives, like PhpStorm's tool window bars: four side places (left top, left
+// Where each tool window lives on the tool window bars: four side places (left top, left
 // bottom, right top, right bottom) and the bottom panel, each an ordered list of tools. Dragging an
 // icon between the strips moves the tool; the layout is kept for every project (Window ▸ Layouts
 // restores it).
 
 /** Tool windows that open in a side column by default. */
-export type SideTool = 'project' | 'commit' | 'database' | 'structure' | 'notifications' | 'ai' | 'endpoints' | 'composer';
+export type SideTool = 'project' | 'commit' | 'database' | 'structure' | 'notifications' | 'ai' | 'endpoints' | 'composer' | 'npm';
 /** Tool windows that open in the bottom panel by default ('composerLog' is the bottom "Composer" tab). */
 export type BottomTool = 'tests' | 'debug' | 'terminal' | 'problems' | 'composerLog' | 'git' | 'todo';
 export type Tool = SideTool | BottomTool;
@@ -27,7 +27,7 @@ export const ANCHOR_LABELS: Record<Anchor, string> = {
 export const DEFAULT_LAYOUT: ToolLayout = {
   leftTop: ['project', 'commit', 'database'],
   leftBottom: ['structure'],
-  rightTop: ['notifications', 'ai', 'endpoints', 'composer'],
+  rightTop: ['notifications', 'ai', 'endpoints', 'composer', 'npm'],
   rightBottom: [],
   bottom: ['tests', 'debug', 'terminal', 'problems', 'composerLog', 'git', 'todo'],
 };

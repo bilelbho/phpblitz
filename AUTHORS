@@ -1,0 +1,11 @@
+# The PHPBlitz Authors
+#
+# "The PHPBlitz Authors" in the copyright notices means the people listed under "Contributors".
+# One per line: a name or GitHub handle, then " — " and what they did. Add yourself in your
+# first pull request. The About dialog (Help ▸ About PHPBlitz) shows this file.
+
+## Contributors
+bilelbho — creator and maintainer
+
+## AI assistance
+Claude (Anthropic) — AI pair programmer: code, tests and reviews, under the maintainer's direction

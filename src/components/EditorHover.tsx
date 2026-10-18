@@ -1,4 +1,4 @@
-// PhpStorm's editor popup on hover, F2 (next problem) and Ctrl+Q: the problem with its first quick
+// The editor popup on hover, F2 (next problem) and Ctrl+Q: the problem with its first quick
 // fix on top ("More actions…" opens Alt+Enter), the language server's documentation below.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -9,6 +9,7 @@ import { debug } from '../debug/manager';
 import type { Property } from '../debug/dbgp';
 import { VarNode } from './VarNode';
 import { hoverAt } from '../lsp/monacoBridge';
+import { isScriptModel, scriptHover } from '../jsProjects';
 import { renderMarkdown } from '../editor/markdown';
 import { copyText } from '../editorMenu';
 import { ContextMenu, type ContextItem } from './ContextMenu';
@@ -64,7 +65,7 @@ export function EditorHover({ editor, ws, path, request, onMoreActions, onClose,
     if (marker) quickFixesFor(editor, ws, path, marker).then((fixes) => live && setProblem({ marker, fixes }));
     const expression = !request.docOnly && debug.active?.status === 'break' ? variableAt(model.getLineContent(pos.lineNumber), pos.column) : '';
     const valueLookup = expression ? debug.hoverValue(expression).then((p) => (p ? { ...p, name: expression, fullname: expression } : null)) : Promise.resolve(null);
-    const docLookup = hoverAt(model, pos)
+    const docLookup = (isScriptModel(model) ? scriptHover(model, pos) : hoverAt(model, pos))
       .then((md) => (md ? renderMarkdown(md) : null))
       .catch(() => null);
     void Promise.all([docLookup, valueLookup]).then(([html, val]) => {
@@ -89,7 +90,7 @@ export function EditorHover({ editor, ws, path, request, onMoreActions, onClose,
     setPlace({ left: Math.max(8, Math.min(request.x, window.innerWidth - r.width - 8)), top: Math.max(8, top) });
   }, [request, problem, doc, value]);
 
-  // Keyboard popups close like PhpStorm's: Escape, typing or moving the caret.
+  // Keyboard popups close: Escape, typing or moving the caret.
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {

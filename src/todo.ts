@@ -1,4 +1,4 @@
-// TODO comments, like PhpStorm's TODO tool window: `todo` and `fixme` (any case, as a word) inside a
+// TODO comments, for the TODO tool window: `todo` and `fixme` (any case, as a word) inside a
 // comment: //, #, /* … */, docblock lines, <!-- -->, {{-- --}}.
 
 import type { Workspace } from './useWorkspace';

@@ -69,7 +69,7 @@ class DbStore {
   state: Record<string, SourceState> = {};
   /**
    * Passwords typed this session, by data source. Used when connecting, so a password that is not
-   * saved in the OS credential store still works until PHPBlitz closes (like PhpStorm).
+   * saved in the OS credential store still works until PHPBlitz closes.
    */
   private passwords = new Map<string, string>();
   private listeners = new Set<() => void>();
@@ -301,7 +301,7 @@ class DbStore {
     return this.state[id]?.details[colKey(schema, table)];
   }
 
-  // ── Query consoles (several per data source, like PhpStorm) ──
+  // ── Query consoles (several per data source) ──
 
   private consolesKey(id: string) {
     return `phpblitz.consoles:${this.root}:${id}`;

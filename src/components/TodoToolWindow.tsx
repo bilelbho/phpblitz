@@ -1,4 +1,4 @@
-// PhpStorm's TODO tool window: every `todo` / `fixme` comment in the project (or the current file),
+// The TODO tool window: every `todo` / `fixme` comment in the project (or the current file),
 // grouped by folder and file, with the selected one's code in a preview on the right.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';

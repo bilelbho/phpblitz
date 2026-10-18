@@ -1,6 +1,6 @@
 // .env files (Laravel, Symfony, Docker): `KEY=value`, comments, `export`, quoted values with
 // escapes and ${VAR} references. A value is one string whatever it contains (digits in a secret are
-// not numbers), like PhpStorm's .env support.
+// not numbers).
 
 import * as monaco from 'monaco-editor';
 

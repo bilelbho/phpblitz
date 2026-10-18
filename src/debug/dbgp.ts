@@ -224,7 +224,7 @@ export function parseProperty(n: XmlNode): Property {
   };
 }
 
-/** How PhpStorm shows a value: "text", 42, true, null, array(3), {App\Models\User}. */
+/** How a value is shown: "text", 42, true, null, array(3), {App\Models\User}. */
 export function displayValue(p: Property): string {
   switch (p.type) {
     case 'string':

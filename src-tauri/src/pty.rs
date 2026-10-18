@@ -6,7 +6,7 @@
 //! split across reads, and xterm.js decodes the stream itself).
 
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::Read;
 #[cfg(windows)]
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -19,7 +19,8 @@ use tauri::{AppHandle, Emitter, State};
 
 struct Session {
     master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
+    /// Queue to the writer thread that owns the terminal's input.
+    input: std::sync::mpsc::Sender<Vec<u8>>,
     child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
 }
 
@@ -149,7 +150,7 @@ fn with_integration(shell: &str, args: Vec<String>, cmd: &mut CommandBuilder) ->
 }
 
 /// Starts a shell in a pseudo-terminal and returns the session id.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pty_spawn(
     app: AppHandle,
     state: State<'_, PtyState>,
@@ -199,26 +200,27 @@ pub fn pty_spawn(
         let _ = app.emit("pty-exit", Exit { id, code });
     });
 
-    state.sessions.lock().map_err(|e| e.to_string())?.insert(id, Session { master: pair.master, writer, child });
+    state.sessions.lock().map_err(|e| e.to_string())?.insert(id, Session { master: pair.master, input: crate::process::spawn_writer(writer), child });
     Ok(id)
 }
 
-/// Keyboard input (and pasted text) for a session.
-#[tauri::command]
+/// Keyboard input (and pasted text) for a session, queued for its writer thread: a big paste
+/// never blocks the UI.
+#[tauri::command(async)]
 pub fn pty_write(state: State<'_, PtyState>, id: u32, data: String) -> Result<(), String> {
-    let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
-    let s = sessions.get_mut(&id).ok_or("The terminal session has ended")?;
-    s.writer.write_all(data.as_bytes()).and_then(|_| s.writer.flush()).map_err(|e| e.to_string())
+    let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+    let s = sessions.get(&id).ok_or("The terminal session has ended")?;
+    s.input.send(data.into_bytes()).map_err(|_| "The terminal session has ended".to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pty_resize(state: State<'_, PtyState>, id: u32, cols: u16, rows: u16) -> Result<(), String> {
     let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
     let s = sessions.get(&id).ok_or("The terminal session has ended")?;
     s.master.resize(PtySize { rows: rows.max(2), cols: cols.max(10), pixel_width: 0, pixel_height: 0 }).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pty_kill(state: State<'_, PtyState>, id: u32) -> Result<(), String> {
     if let Some(s) = state.sessions.lock().map_err(|e| e.to_string())?.remove(&id) {
         let _ = s.child.lock().map(|mut c| c.kill());

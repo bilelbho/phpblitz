@@ -105,7 +105,7 @@ export function DataSourceDialog({ ws, source, onClose }: { ws: Workspace; sourc
   return (
     <div className="modal-backdrop settings-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
-        className="jb-dialog ds-dialog"
+        className="pb-dialog ds-dialog"
         role="dialog"
         aria-modal="true"
         aria-label="Data Source"
@@ -221,7 +221,7 @@ export function DataSourceDialog({ ws, source, onClose }: { ws: Workspace; sourc
             {!isTauri && <span className="muted">Connections need the desktop app.</span>}
           </div>
         </div>
-        <div className="jb-dialog-buttons settings-buttons">
+        <div className="pb-dialog-buttons settings-buttons">
           <button type="button" className="btn primary" disabled={!valid} onClick={save}>
             OK
           </button>

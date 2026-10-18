@@ -66,19 +66,6 @@ export interface Problem {
   }[];
 }
 
-export interface TestCase {
-  name: string;
-  ms: string;
-  ok: boolean;
-}
-
-export interface TestResult {
-  ok: boolean;
-  summary: string;
-  output: string;
-  tests?: TestCase[];
-}
-
 export interface Backend {
   readonly kind: 'disk' | 'sample';
   /** Absolute project root, forward slashes, no trailing slash. */
@@ -116,7 +103,6 @@ export interface Backend {
   updatePackage(name: string | null): Promise<void>;
 
   lint(path: string, content: string): Promise<Problem[]>;
-  runTests(): Promise<TestResult>;
   /** Runs a command line; `cwd` defaults to the project root. */
   shell(line: string, cwd?: string): Promise<RunResult>;
   phpVersion(): Promise<string | null>;

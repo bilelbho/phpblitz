@@ -97,14 +97,66 @@ pub async fn read_file(path: String) -> Result<String, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Saves a file atomically (see [`write_atomic`]), off the async workers.
 #[tauri::command]
 pub async fn write_file(path: String, content: String) -> Result<(), String> {
-    fs::write(&path, content).map_err(|e| e.to_string())
+    blocking(move || write_atomic(Path::new(&path), content.as_bytes()).map_err(|e| e.to_string())).await
+}
+
+/// Runs blocking file work on a blocking thread, so the async workers stay free for the UI.
+async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work).await.map_err(|e| e.to_string())?
+}
+
+static TEMP_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Replaces a file's content without a moment where it is half written: a crash or power loss
+/// mid-save leaves the old content or the new one, never a truncated file. The new content goes
+/// to a temp file in the same folder (a unique name, flushed to disk), which is then renamed over
+/// the original. A symlink keeps pointing where it did: the file it points to is replaced. On
+/// Unix the original's permissions are kept.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let is_link = fs::symlink_metadata(path).map(|m| m.file_type().is_symlink()).unwrap_or(false);
+    let target = if is_link { fs::canonicalize(path)? } else { path.to_path_buf() };
+    let dir = target.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let name = target.file_name().map_or_else(|| "file".into(), |n| n.to_string_lossy().into_owned());
+    let n = TEMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = dir.join(format!(".{name}.{}.{n}.blitz-tmp", std::process::id()));
+
+    let written = (|| {
+        let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        #[cfg(unix)]
+        if let Ok(meta) = fs::metadata(&target) {
+            fs::set_permissions(&tmp, meta.permissions())?;
+        }
+        Ok(())
+    })();
+    let result = written.and_then(|()| fs::rename(&tmp, &target));
+    match result {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = fs::remove_file(&tmp);
+            // Windows refuses to replace a file another program holds open (some editors,
+            // indexers, antivirus scans): save in place rather than not at all.
+            if cfg!(windows) && e.kind() == std::io::ErrorKind::PermissionDenied && target.is_file() {
+                return fs::write(&target, bytes);
+            }
+            Err(e)
+        }
+    }
 }
 
 /// Creates a new file; fails instead of overwriting an existing one.
 #[tauri::command]
 pub async fn create_file(path: String, content: String) -> Result<(), String> {
+    blocking(move || create_file_blocking(&path, &content)).await
+}
+
+fn create_file_blocking(path: &str, content: &str) -> Result<(), String> {
+    let path = path.to_string();
     let p = Path::new(&path);
     if let Some(parent) = p.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -123,12 +175,16 @@ fn file_name(p: &Path) -> String {
 /// Renames or moves a file or folder; never replaces something that already exists.
 #[tauri::command]
 pub async fn rename_path(from: String, to: String) -> Result<(), String> {
-    let (src, dst) = (Path::new(&from), Path::new(&to));
+    blocking(move || rename_blocking(&from, &to)).await
+}
+
+fn rename_blocking(from: &str, to: &str) -> Result<(), String> {
+    let (src, dst) = (Path::new(from), Path::new(to));
     if !src.exists() {
         return Err(format!("{} no longer exists", file_name(src)));
     }
     // A case-only rename (User.php → user.php) is the same file on Windows: allow it.
-    let same_file = from.eq_ignore_ascii_case(&to);
+    let same_file = from.eq_ignore_ascii_case(to);
     if dst.exists() && !same_file {
         return Err(format!("{} already exists", file_name(dst)));
     }
@@ -223,9 +279,55 @@ mod tests {
 /// Creates a directory (and missing parents); fails if something already has that name.
 #[tauri::command]
 pub async fn create_dir(path: String) -> Result<(), String> {
-    let p = Path::new(&path);
-    if p.exists() {
-        return Err(format!("{} already exists", p.file_name().map_or(path.clone(), |n| n.to_string_lossy().into_owned())));
+    blocking(move || {
+        let p = Path::new(&path);
+        if p.exists() {
+            return Err(format!("{} already exists", p.file_name().map_or(path.clone(), |n| n.to_string_lossy().into_owned())));
+        }
+        fs::create_dir_all(p).map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[cfg(test)]
+mod atomic_tests {
+    use super::write_atomic;
+    use std::fs;
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("phpblitz-atomic-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
     }
-    fs::create_dir_all(p).map_err(|e| e.to_string())
+
+    #[test]
+    fn replaces_the_content_and_leaves_no_temp_file() {
+        let dir = temp_dir("replace");
+        let file = dir.join("User.php");
+        fs::write(&file, "<?php // old, longer content than the new one").unwrap();
+        write_atomic(&file, b"<?php // new").unwrap();
+        assert_eq!(fs::read_to_string(&file).unwrap(), "<?php // new");
+        write_atomic(&dir.join("Created.php"), b"x").unwrap();
+        let names: Vec<String> = fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        assert_eq!(names.len(), 2, "only the two files, no temp file: {names:?}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn keeps_permissions_and_symlinks() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_dir("unix");
+        let real = dir.join("script.sh");
+        fs::write(&real, "#!/bin/sh\necho old\n").unwrap();
+        fs::set_permissions(&real, fs::Permissions::from_mode(0o755)).unwrap();
+        let link = dir.join("link.sh");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        write_atomic(&link, b"#!/bin/sh\necho new\n").unwrap();
+        assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink(), "the link stays a link");
+        assert_eq!(fs::read_to_string(&real).unwrap(), "#!/bin/sh\necho new\n");
+        assert_eq!(fs::metadata(&real).unwrap().permissions().mode() & 0o777, 0o755);
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

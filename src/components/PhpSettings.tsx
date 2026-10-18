@@ -1,4 +1,4 @@
-// Settings ▸ PHP, like PhpStorm's: language level, CLI interpreter (with the CLI Interpreters
+// Settings ▸ PHP: language level, CLI interpreter (with the CLI Interpreters
 // dialog: local, Docker, Docker Compose, SSH), and the Include Path / PHP Runtime / Composer Files tabs.
 
 import { useEffect, useMemo, useState } from 'react';
@@ -313,7 +313,7 @@ function CliInterpreters({ ws, selected, onClose }: { ws: Workspace; selected: s
   return (
     <div className="modal-backdrop settings-backdrop" style={{ zIndex: 90 }} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
-        className="jb-dialog cli-dialog"
+        className="pb-dialog cli-dialog"
         role="dialog"
         aria-modal="true"
         aria-label="CLI Interpreters"
@@ -357,7 +357,7 @@ function CliInterpreters({ ws, selected, onClose }: { ws: Workspace; selected: s
           </div>
           <div className="cli-form">{current ? <InterpreterForm key={current.id} ws={ws} value={current} onChange={update} /> : <div className="muted cli-empty">Add an interpreter with +</div>}</div>
         </div>
-        <div className="jb-dialog-buttons settings-buttons">
+        <div className="pb-dialog-buttons settings-buttons">
           <button
             type="button"
             className="btn primary"
@@ -642,7 +642,7 @@ function RemoteInterpreterDialog({ ws, onClose }: { ws: Workspace; onClose: (cre
   return (
     <div className="modal-backdrop" style={{ zIndex: 95 }} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
-        className="jb-dialog"
+        className="pb-dialog"
         role="dialog"
         aria-modal="true"
         aria-label="Configure Remote PHP Interpreter"
@@ -654,8 +654,8 @@ function RemoteInterpreterDialog({ ws, onClose }: { ws: Workspace; onClose: (cre
           }
         }}
       >
-        <div className="jb-dialog-title">Configure Remote PHP Interpreter</div>
-        <div className="jb-dialog-body">
+        <div className="pb-dialog-title">Configure Remote PHP Interpreter</div>
+        <div className="pb-dialog-body">
           <div className="settings-row" role="radiogroup" aria-label="Kind">
             {(
               [
@@ -699,7 +699,7 @@ function RemoteInterpreterDialog({ ws, onClose }: { ws: Workspace; onClose: (cre
           </div>
           {!isTauri && <span className="muted">Docker and SSH need the desktop app.</span>}
         </div>
-        <div className="jb-dialog-buttons">
+        <div className="pb-dialog-buttons">
           <button type="button" className="btn primary" disabled={!valid} onClick={create}>
             OK
           </button>

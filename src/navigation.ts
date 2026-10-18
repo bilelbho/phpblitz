@@ -6,6 +6,7 @@ import * as monaco from 'monaco-editor';
 import { invoke } from '@tauri-apps/api/core';
 import { inferType, structureOf } from './php';
 import { isLspActive } from './lsp/monacoBridge';
+import { uriToPath } from './lsp/client';
 import { resolveName, symbols } from './symbols';
 
 export type Target =
@@ -142,9 +143,8 @@ monaco.editor.registerEditorOpener({
         ? { line: selectionOrPosition.startLineNumber, col: selectionOrPosition.startColumn }
         : { line: selectionOrPosition.lineNumber, col: selectionOrPosition.column }
       : { line: 1, col: 1 };
-    let path = decodeURIComponent(resource.path);
-    if (/^\/[A-Za-z]:/.test(path)) path = path.slice(1);
-    opener(path, pos.line, pos.col);
+    // Monaco writes the drive in lower case (file:///c%3A/...); PHPBlitz paths keep C:.
+    opener(uriToPath(resource.toString()), pos.line, pos.col);
     return true;
   },
 });

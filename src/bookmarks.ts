@@ -1,4 +1,4 @@
-// Bookmarks, like PhpStorm's: F11 toggles one on the caret line, Ctrl+F11 adds one with a
+// Bookmarks: F11 toggles one on the caret line, Ctrl+F11 adds one with a
 // mnemonic (0-9, A-Z) that Ctrl+<digit> jumps to, Shift+F11 lists them all. Kept per project.
 
 import { useSyncExternalStore } from 'react';

@@ -121,7 +121,7 @@ fn read_frames(stream: TcpStream, mut on_xml: impl FnMut(String)) {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn xdebug_listen(app: AppHandle, state: State<'_, XdebugState>, port: u16) -> Result<u16, String> {
     let emit: Emit = Arc::new(move |e: Event| {
         let _ = app.emit("xdebug", e);
@@ -129,19 +129,21 @@ pub fn xdebug_listen(app: AppHandle, state: State<'_, XdebugState>, port: u16) -
     state.listen(port, emit)
 }
 
-#[tauri::command]
-pub fn xdebug_stop_listening(state: State<'_, XdebugState>) {
+#[tauri::command(async)]
+pub fn xdebug_stop_listening(state: State<'_, XdebugState>) -> Result<(), String> {
     state.stop_listening();
+    Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn xdebug_send(state: State<'_, XdebugState>, session: u32, command: String) -> Result<(), String> {
     state.send(session, &command)
 }
 
-#[tauri::command]
-pub fn xdebug_close(state: State<'_, XdebugState>, session: u32) {
+#[tauri::command(async)]
+pub fn xdebug_close(state: State<'_, XdebugState>, session: u32) -> Result<(), String> {
     state.close(session);
+    Ok(())
 }
 
 #[cfg(test)]

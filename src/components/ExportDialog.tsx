@@ -72,11 +72,11 @@ export function ExportDialog({ ws, scopes, fileName, options, onClose }: { ws: W
 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="jb-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title" style={{ width: 420 }} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
-        <div className="jb-dialog-title" id="export-title">
+      <div className="pb-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title" style={{ width: 420 }} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+        <div className="pb-dialog-title" id="export-title">
           Export Data
         </div>
-        <div className="jb-dialog-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="pb-dialog-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {scopes.length > 1 && (
             <fieldset className="export-group">
               <legend>Rows</legend>
@@ -105,7 +105,7 @@ export function ExportDialog({ ws, scopes, fileName, options, onClose }: { ws: W
           {busy && <span className="muted">{busy}</span>}
           {error && <span className="error-text">{error}</span>}
         </div>
-        <div className="jb-dialog-buttons">
+        <div className="pb-dialog-buttons">
           <button type="button" className="btn" onClick={onClose}>
             Cancel
           </button>

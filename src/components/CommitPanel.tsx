@@ -1,4 +1,4 @@
-// Commit tool window, like PhpStorm's: Changes and Unversioned Files groups (optionally by
+// Commit tool window: Changes and Unversioned Files groups (optionally by
 // directory), Ignored Files on request, diff / rollback / shelve, message history and commit options.
 
 import { FileIcon } from './FileIcon';
@@ -261,7 +261,7 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
       if (squash) await ws.runGit(`Squash into "${fixup.commit.subject}"`, () => ws.gitRepo.autosquash(fixup.commit.hash));
       setFixupOn(false);
       setFixup(null);
-      // Commit and Push…: the Push dialog shows what goes out, like PhpStorm.
+      // Commit and Push…: the Push dialog shows what goes out.
       if (push) ws.setGitDialog({ kind: 'push' });
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));

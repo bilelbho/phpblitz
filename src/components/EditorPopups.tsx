@@ -1,4 +1,4 @@
-// PhpStorm-style replacements for Monaco's VS Code popups:
+// replacements for Monaco's VS Code popups:
 // Go to Line:Column (Ctrl+G), the Find/Replace bar (Ctrl+F / Ctrl+R) and File Structure (Ctrl+F12).
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -34,11 +34,11 @@ export function GotoLineDialog({ editor, onClose }: { editor: Editor; onClose: (
 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="jb-dialog" role="dialog" aria-modal="true" aria-labelledby="goto-title" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
-        <div className="jb-dialog-title" id="goto-title">
+      <div className="pb-dialog" role="dialog" aria-modal="true" aria-labelledby="goto-title" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+        <div className="pb-dialog-title" id="goto-title">
           Go to Line:Column
         </div>
-        <div className="jb-dialog-body">
+        <div className="pb-dialog-body">
           <label htmlFor="goto-line">[Line] [:column]:</label>
           <div className={'field' + (valid ? '' : ' invalid')}>
             <input
@@ -54,7 +54,7 @@ export function GotoLineDialog({ editor, onClose }: { editor: Editor; onClose: (
             Lines 1–{lines}
           </span>
         </div>
-        <div className="jb-dialog-buttons">
+        <div className="pb-dialog-buttons">
           <button type="button" className="btn" onClick={onClose}>
             Cancel
           </button>
@@ -100,7 +100,7 @@ export function FindBar({
   const input = useRef<HTMLInputElement>(null);
   const decorations = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
 
-  // Ctrl+F again with a new selection: take it over, like PhpStorm.
+  // Ctrl+F again with a new selection: take it over.
   useEffect(() => {
     if (request.seed) setQuery(request.seed);
     if (request.replace) setShowReplace(true);
@@ -270,7 +270,7 @@ export function FileStructurePopup({ editor, fileName, symbols, onClose }: { edi
     return q ? symbols.filter((s) => s.name.toLowerCase().includes(q)) : symbols;
   }, [symbols, filter]);
 
-  // Start on the member the caret is in, like PhpStorm.
+  // Start on the member the caret is in.
   useLayoutEffect(() => {
     const i = [...shown].reverse().findIndex((s) => s.line <= caretLine);
     setSelected(filter || i < 0 ? 0 : shown.length - 1 - i);
@@ -293,7 +293,7 @@ export function FileStructurePopup({ editor, fileName, symbols, onClose }: { edi
   return (
     <div className="modal-backdrop clear" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
-        className="jb-popup"
+        className="pb-popup"
         role="dialog"
         aria-label="File structure"
         onKeyDown={(e) => {
@@ -307,7 +307,7 @@ export function FileStructurePopup({ editor, fileName, symbols, onClose }: { edi
           } else if (e.key === 'Enter') go(shown[selected]);
         }}
       >
-        <div className="jb-popup-title">{fileName}</div>
+        <div className="pb-popup-title">{fileName}</div>
         <div className="field" style={{ margin: '0 8px 6px' }}>
           <Icon name="search" size={13} />
           <label htmlFor="structure-filter" className="sr-only">
@@ -315,7 +315,7 @@ export function FileStructurePopup({ editor, fileName, symbols, onClose }: { edi
           </label>
           <input id="structure-filter" ref={input} value={filter} spellCheck={false} onChange={(e) => setFilter(e.target.value)} />
         </div>
-        <div className="jb-popup-list" ref={list}>
+        <div className="pb-popup-list" ref={list}>
           {shown.map((s, i) => {
             const [letter, color] = SYMBOL_KIND[s.kind];
             return (

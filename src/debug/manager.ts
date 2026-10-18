@@ -1,4 +1,4 @@
-// Step debugging with Xdebug, like PhpStorm: listen for connections (the phone icon), or debug a
+// Step debugging with Xdebug: listen for connections (the phone icon), or debug a
 // script through the project's PHP interpreter. Each connection is a session with its status,
 // stack, variables, watches and output. Breakpoints come from the editor and are kept in sync.
 
@@ -57,7 +57,7 @@ class DebugManager {
   sessions: DebugSession[] = [];
   activeId: number | null = null;
   watches: Watch[] = [];
-  /** Breakpoints muted (PhpStorm's "Mute Breakpoints"): sessions run without them. */
+  /** Breakpoints muted: sessions run without them. */
   muted = false;
 
   private root = '';
@@ -223,7 +223,7 @@ class DebugManager {
       s.output += text;
       this.changed();
     };
-    // Finished sessions are replaced by new ones, like PhpStorm reusing the tab.
+    // Finished sessions are replaced by new ones, reusing the tab.
     this.sessions = [...this.sessions.filter((x) => x.status !== 'stopped'), s];
     this.activeId = id;
     this.changed();
@@ -432,6 +432,17 @@ class DebugManager {
   }
 
   // ── Launching ────────────────────────────────────────────────
+
+  /**
+   * Something else launches PHP with Xdebug (the test runner): listen, and name the session that
+   * connects next. Returns the port, or null when listening failed.
+   */
+  async prepareLaunch(label: string): Promise<number | null> {
+    if (!(await this.startListening())) return null;
+    await this.refreshInterpreter();
+    this.pendingLabel = label;
+    return this.port;
+  }
 
   /**
    * Debug a PHP script with the project's interpreter: starts listening, then runs it with Xdebug on.

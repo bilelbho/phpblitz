@@ -1,6 +1,6 @@
 // The Terminal tool window: its own header with session tabs (drag to reorder, double-click to
-// rename), + and ▾, and the terminal below. Dragging a tab onto the terminal splits it, like
-// PhpStorm: the highlighted half is where that session goes.
+// rename), + and ▾, and the terminal below. Dragging a tab onto the terminal splits it: the
+// highlighted half is where that session goes.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Workspace } from '../useWorkspace';
@@ -39,7 +39,7 @@ export function TerminalView({ ws }: { ws: Workspace }) {
 
   useEffect(() => {
     terminals.shells().then(setShells);
-    // Opening the Terminal tool window with no tabs starts one, like PhpStorm.
+    // Opening the Terminal tool window with no tabs starts one.
     if (!terminals.sessions.length && !terminals.creating) terminals.create({ cwd: terminalStartDir(ws) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

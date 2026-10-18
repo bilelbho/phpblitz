@@ -1,4 +1,4 @@
-// Right-click in the editor's gutter (line numbers, icons, change markers), like PhpStorm's:
+// Right-click in the editor's gutter (line numbers, icons, change markers):
 // Git blame, bookmarks, soft wraps, and what the gutter shows.
 
 import type { ContextItem } from './components/ContextMenu';

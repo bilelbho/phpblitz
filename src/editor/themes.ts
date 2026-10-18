@@ -41,7 +41,7 @@ interface Palette {
 const strip = (c: string) => c.replace('#', '');
 
 export const SCHEMES = {
-  'islands-dark': {
+  'blitz-dark': {
     name: 'Blitz Dark',
     dark: true,
     bg: '#1E1F22',
@@ -74,7 +74,7 @@ export const SCHEMES = {
     error: '#F75464',
     warning: '#E5A33D',
   },
-  darcula: {
+  'classic-dark': {
     name: 'Classic Dark',
     dark: true,
     bg: '#2B2B2B',
@@ -314,12 +314,12 @@ const resolve = (scheme: string): string => (scheme === 'theme' ? editorSchemeOf
 
 export const themeId = (scheme: string) => {
   const id = resolve(scheme);
-  return `pb-${id in SCHEMES ? id : 'islands-dark'}`;
+  return `pb-${id in SCHEMES ? id : 'blitz-dark'}`;
 };
 
 export function schemeOf(scheme: string): Palette {
   const id = resolve(scheme);
-  return SCHEMES[(id in SCHEMES ? id : 'islands-dark') as SchemeId];
+  return SCHEMES[(id in SCHEMES ? id : 'blitz-dark') as SchemeId];
 }
 
 function define(id: SchemeId, p: Palette) {
@@ -399,7 +399,7 @@ function define(id: SchemeId, p: Palette) {
       'editorError.foreground': p.error,
       'editorWarning.foreground': p.warning,
       'editorOverviewRuler.border': '#00000000',
-      // Diff viewer, in JetBrains' green / red tones.
+      // Diff viewer: green / red tones.
       'diffEditor.insertedLineBackground': p.dark ? '#2a3d2c80' : '#e3f5e6',
       'diffEditor.insertedTextBackground': p.dark ? '#3c6a4380' : '#bde8c4',
       'diffEditor.removedLineBackground': p.dark ? '#4a2c2e80' : '#fbe4e4',

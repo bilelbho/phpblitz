@@ -19,6 +19,7 @@ import { NotificationsPanel } from './NotificationsPanel';
 import { AiPanel } from './AiPanel';
 import { EndpointsPanel } from './EndpointsPanel';
 import { ComposerPanel } from './ComposerPanel';
+import { NpmPanel } from './NpmPanel';
 import { StatusBar } from './StatusBar';
 import { SearchEverywhere, type SearchTab } from './SearchEverywhere';
 import { FindInFiles } from './FindInFiles';
@@ -226,6 +227,7 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
     ai: { label: 'AI Assistant', icon: 'sparkle', hint: 'mock replies' },
     endpoints: { label: 'Endpoints', icon: 'route', hint: `${ws.routes.length} routes` },
     composer: { label: 'Composer', icon: 'box', hint: 'composer.json', dot: !!ws.outdated && Object.keys(ws.outdated).length > 0 },
+    npm: { label: 'npm', icon: 'npm', hint: 'package.json scripts' },
     tests: { label: 'Run', icon: 'run' },
     debug: { label: 'Debug', icon: 'bug', dot: debugState.sessions.some((s) => s.status === 'break') },
     terminal: { label: 'Terminal', icon: 'terminal' },
@@ -307,7 +309,7 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
         </div>
       );
     return id === 'project' ? (
-      // The Project tool window draws its own PhpStorm-style header.
+      // The Project tool window draws its own header.
       <section key={id} className="island side" aria-label="Project" style={{ position: 'relative', ...style }}>
         <ProjectTree ws={ws} onHide={() => ws.hideTool('project')} />
       </section>
@@ -320,6 +322,7 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
         {id === 'ai' && <AiPanel ws={ws} />}
         {id === 'endpoints' && <EndpointsPanel ws={ws} />}
         {id === 'composer' && <ComposerPanel ws={ws} />}
+        {id === 'npm' && <NpmPanel ws={ws} />}
       </ToolWindow>
     );
   };

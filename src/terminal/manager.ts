@@ -33,7 +33,7 @@ export interface Session {
   opened: boolean;
 }
 
-// JetBrains' dark terminal palette.
+// The dark terminal palette.
 const THEME: ITheme = {
   background: '#1e1f22',
   foreground: '#bcbec4',
@@ -207,7 +207,7 @@ class TerminalManager {
   }
 
   /**
-   * Command blocks, like PhpStorm's terminal. The shell marks each prompt and the exit code of
+   * Command blocks. The shell marks each prompt and the exit code of
    * the last command (OSC 133, set up in src-tauri/src/shell/): a line separates commands and a
    * red bar marks the output of one that failed.
    */

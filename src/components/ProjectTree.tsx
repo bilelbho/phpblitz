@@ -1,4 +1,4 @@
-// The Project tool window, modeled on PhpStorm's: header with view switcher, New,
+// The Project tool window: header with view switcher, New,
 // Expand/Collapse and ⋮ options; a tree with selection, keyboard navigation and speed search.
 
 import { FileIcon } from './FileIcon';
@@ -149,7 +149,7 @@ export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void 
       setSpeed('');
       return;
     }
-    // File operations on the selected row, with PhpStorm's keys.
+    // File operations on the selected row, with their usual keys.
     if (row && !speed) {
       const k = e.key.toLowerCase();
       if (e.key === 'Delete') {
@@ -234,7 +234,7 @@ export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void 
         }
         return;
     }
-    // Any printable character starts or extends the speed search, like PhpStorm.
+    // Any printable character starts or extends the speed search.
     if (e.key.length === 1 && !ctrl && !e.altKey && (speed !== null || e.key !== ' ')) {
       e.preventDefault();
       const q = (speed ?? '') + e.key;
@@ -428,7 +428,7 @@ export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void 
     );
   };
 
-  /** Right-click ▸ Mark Directory As (and Unmark), like PhpStorm. */
+  /** Right-click ▸ Mark Directory As (and Unmark). */
   const markMenu = (path: string): ContextItem => {
     const current = marks.markOf(path);
     const kinds: DirMark[] = ['source', 'test', 'resource', 'excluded'];

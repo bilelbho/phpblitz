@@ -1,6 +1,6 @@
 // Mark Directory As (Project tree): Sources / Test Sources / Resource roots and Excluded folders,
-// and the file colors that follow from them (tests green, libraries like vendor/ brown), as in
-// PhpStorm. Defaults come from composer.json's autoload / autoload-dev; changes are kept per project.
+// and the file colors that follow from them (tests green, libraries like vendor/ brown).
+// Defaults come from composer.json's autoload / autoload-dev; changes are kept per project.
 
 import { useSyncExternalStore } from 'react';
 import { projectStorage } from './projectStorage';

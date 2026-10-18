@@ -8,15 +8,16 @@
 
 use serde::Serialize;
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read, Write};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::io::{BufRead, BufReader, Read};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, State};
 
 struct Server {
     child: Child,
-    stdin: ChildStdin,
+    /// Queue to the writer thread that owns the server's stdin.
+    input: std::sync::mpsc::Sender<Vec<u8>>,
 }
 
 #[derive(Default)]
@@ -83,7 +84,7 @@ fn read_messages(stdout: impl Read, mut on_message: impl FnMut(String)) {
 }
 
 /// Starts a language server and returns its id. Messages arrive as `lsp-message` events.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn lsp_start(
     app: AppHandle,
     state: State<'_, LspState>,
@@ -126,24 +127,22 @@ pub fn lsp_start(
         .servers
         .lock()
         .map_err(|e| e.to_string())?
-        .insert(id, Server { child, stdin });
+        .insert(id, Server { child, input: crate::process::spawn_writer(stdin) });
     Ok(id)
 }
 
-/// Sends one JSON-RPC message (already serialized) to a server.
-#[tauri::command]
+/// Sends one JSON-RPC message (already serialized) to a server: queued for its writer thread, so
+/// a server that is slow to read never blocks the UI or the other servers.
+#[tauri::command(async)]
 pub fn lsp_send(state: State<'_, LspState>, server: u32, message: String) -> Result<(), String> {
-    let mut servers = state.servers.lock().map_err(|e| e.to_string())?;
-    let s = servers.get_mut(&server).ok_or("language server is not running")?;
-    let frame = format!("Content-Length: {}\r\n\r\n", message.len());
-    s.stdin
-        .write_all(frame.as_bytes())
-        .and_then(|_| s.stdin.write_all(message.as_bytes()))
-        .and_then(|_| s.stdin.flush())
-        .map_err(|e| format!("Could not write to language server: {e}"))
+    let servers = state.servers.lock().map_err(|e| e.to_string())?;
+    let s = servers.get(&server).ok_or("language server is not running")?;
+    let mut frame = format!("Content-Length: {}\r\n\r\n", message.len()).into_bytes();
+    frame.extend_from_slice(message.as_bytes());
+    s.input.send(frame).map_err(|_| "Could not write to language server: it stopped reading".to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn lsp_stop(state: State<'_, LspState>, server: u32) -> Result<(), String> {
     if let Some(mut s) = state.servers.lock().map_err(|e| e.to_string())?.remove(&server) {
         let _ = s.child.kill();

@@ -1,4 +1,4 @@
-// The project widget's popup, like PhpStorm's: Open… / Clone Repository…, the open project with
+// The project widget's popup: Open… / Clone Repository…, the open project with
 // its color, path and branch, recent projects, project color and Close Project.
 
 import { useEffect, useRef, useState } from 'react';
@@ -166,7 +166,7 @@ function CloneDialog({ onClose, onCloned }: { onClose: () => void; onCloned: (pa
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose()}>
       <div
-        className="jb-dialog"
+        className="pb-dialog"
         role="dialog"
         aria-modal="true"
         aria-label="Clone Repository"
@@ -176,8 +176,8 @@ function CloneDialog({ onClose, onCloned }: { onClose: () => void; onCloned: (pa
           if (e.key === 'Enter') clone();
         }}
       >
-        <div className="jb-dialog-title">Clone Repository</div>
-        <div className="jb-dialog-body">
+        <div className="pb-dialog-title">Clone Repository</div>
+        <div className="pb-dialog-body">
           <label htmlFor="clone-url">URL:</label>
           <div className="field">
             <input
@@ -216,7 +216,7 @@ function CloneDialog({ onClose, onCloned }: { onClose: () => void; onCloned: (pa
           {target && <span className="muted" style={{ fontSize: 12 }}>Clones into {target.replace(/\//g, '\\')}</span>}
           {error && <div className="error-text" style={{ whiteSpace: 'pre-wrap' }}>{error}</div>}
         </div>
-        <div className="jb-dialog-buttons">
+        <div className="pb-dialog-buttons">
           <button type="button" className="btn" disabled={busy} onClick={onClose}>
             Cancel
           </button>

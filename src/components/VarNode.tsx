@@ -1,4 +1,4 @@
-// One variable in the debugger (Variables, Watches, the editor's hover), expandable like PhpStorm's.
+// One variable in the debugger (Variables, Watches, the editor's hover), expandable.
 
 import { useState } from 'react';
 import { useDebug } from '../debug/manager';

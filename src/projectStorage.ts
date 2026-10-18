@@ -1,4 +1,4 @@
-// Per-project state, kept in the project's .blitz folder (desktop app) like IntelliJ's .idea:
+// Per-project state, kept in the project's .blitz folder (desktop app) .idea:
 //
 //   .blitz/project.json    settings to share with the team: PHP settings, Excluded folders
 //   .blitz/workspace.json  this machine only (git-ignored): bookmarks, recent files, data sources,
@@ -8,7 +8,7 @@
 // open project to those files. State saved in localStorage by earlier versions moves over the first
 // time it is read. The browser and the sample project keep using localStorage.
 //
-// Paths inside the project are written as $PROJECT_DIR$/… (like PhpStorm), so the files still work
+// Paths inside the project are written as $PROJECT_DIR$/…, so the files still work
 // after the project folder is moved, and project.json reads the same on every machine.
 
 import { invoke } from '@tauri-apps/api/core';

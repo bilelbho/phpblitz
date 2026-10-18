@@ -1,4 +1,4 @@
-//! The project's `.blitz` folder, like IntelliJ's `.idea`:
+//! The project's `.blitz` folder:
 //!
 //! ```text
 //! .blitz/
@@ -32,11 +32,9 @@ pub fn cache_dir(root: &str) -> std::io::Result<PathBuf> {
     Ok(dir)
 }
 
-/// Writes a file atomically (write, then rename), so a crash never leaves half a file.
+/// Writes a file atomically, so a crash never leaves half a file (see [`crate::fs::write_atomic`]).
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, path)
+    crate::fs::write_atomic(path, bytes)
 }
 
 /// Only these files can be read and written by the UI.

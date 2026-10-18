@@ -8,6 +8,7 @@ import { BranchesPopup } from './BranchesPopup';
 import { ProjectPopup } from './ProjectPopup';
 import { projectInitials, useProjectColor } from '../projectColors';
 import { debug } from '../debug/manager';
+import { useTestRunner } from '../tests/runner';
 import { useSettings } from '../settings';
 import { hamburgerItems, mainMenu } from '../mainMenu';
 import { MainMenuBar } from './MainMenuBar';
@@ -23,6 +24,7 @@ interface Props {
 
 export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Props) {
   const { backend } = ws;
+  const runner = useTestRunner();
 
   const ui = useSettings().ui;
   const branchButton = useRef<HTMLButtonElement>(null);
@@ -43,7 +45,7 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
 
   const runMenu: MenuEntry[] = [
     { label: 'Run Tests', run: ws.runTests },
-    { label: 'Debug Tests', disabled: backend.kind !== 'disk', run: () => void debug.debugScript(`${backend.root}/vendor/bin/phpunit`) },
+    { label: 'Debug Tests', disabled: runner.running, run: () => ws.runTestScope({ kind: 'all' }, { debug: true }) },
     ...(ws.activePath?.endsWith('.php') ? [{ label: `Debug '${ws.activePath.split('/').pop()}'`, run: () => void debug.debugScript(ws.activePath!) }] : []),
     { label: 'Check Composer Updates', run: () => { ws.setRightTool('composer'); ws.checkOutdated(); } },
     { label: 'Open Terminal', run: () => ws.showBottom('terminal') },
@@ -129,7 +131,7 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
             <Icon name="chevronDown" size={12} />
           </span>
         </MenuButton>
-        <button type="button" className="top-icon" aria-label="Run tests" title="Run 'PHPUnit'" style={{ color: '#5fb865' }} onClick={ws.runTests} disabled={ws.tests.running}>
+        <button type="button" className="top-icon" aria-label="Run tests" title="Run 'PHPUnit'" style={{ color: '#5fb865' }} onClick={ws.runTests} disabled={runner.running}>
           <Play />
         </button>
         <button

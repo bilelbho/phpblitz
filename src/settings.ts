@@ -19,7 +19,7 @@ export interface TerminalSettings {
   closeOnExit: boolean;
   copyOnSelect: boolean;
   pasteOnMiddleClick: boolean;
-  /** Keys typed in the terminal go to the shell, not to PhpStorm-style shortcuts (Double Shift, Ctrl+N…). */
+  /** Keys typed in the terminal go to the shell, not to shortcuts (Double Shift, Ctrl+N…). */
   overrideIdeShortcuts: boolean;
   highlightLinks: boolean;
   cursorShape: 'block' | 'underline' | 'bar';
@@ -59,7 +59,7 @@ export interface EditorSettings {
 /** View ▸ Appearance ▸ Main Menu. */
 export type MainMenuMode = 'hamburger' | 'merged' | 'separate';
 
-export type UiTheme = 'islands-dark' | 'islands-light' | 'islands-darcula' | 'high-contrast';
+export type UiTheme = 'blitz-dark' | 'blitz-light' | 'blitz-classic' | 'high-contrast';
 
 /** Appearance & Behavior ▸ Appearance. */
 export interface UiSettings {
@@ -128,10 +128,10 @@ export interface Settings {
   debug: DebugSettings;
 }
 
-/** PhpStorm's defaults where it has one. */
+/** The defaults. */
 export const DEFAULT_SETTINGS: Settings = {
   ui: {
-    theme: 'islands-dark',
+    theme: 'blitz-dark',
     syncOs: false,
     zoom: 100,
     customFont: false,
@@ -221,10 +221,17 @@ const listeners = new Set<() => void>();
 function load(): Settings {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}');
-    // Settings saved before 0.1.3 had smooth scrolling on by default (it made scrolling lag): off once.
+    // Settings saved by early builds had smooth scrolling on by default (it made scrolling lag): off once.
     if (saved.ui && !saved.version) {
       saved.ui.smoothScrolling = false;
       saved.version = 2;
+      localStorage.setItem(KEY, JSON.stringify(saved));
+    }
+    // Theme ids renamed before the first public release (they used another product's theme names).
+    const renamed: Record<string, string> = { 'islands-dark': 'blitz-dark', 'islands-light': 'blitz-light', 'islands-darcula': 'blitz-classic', darcula: 'classic-dark' };
+    if (saved.ui?.theme in renamed || saved.editor?.scheme in renamed) {
+      if (saved.ui?.theme in renamed) saved.ui.theme = renamed[saved.ui.theme];
+      if (saved.editor?.scheme in renamed) saved.editor.scheme = renamed[saved.editor.scheme];
       localStorage.setItem(KEY, JSON.stringify(saved));
     }
     return {
@@ -281,7 +288,7 @@ export function parseEnv(text: string): [string, string][] {
 /** The UI theme in effect (Sync with OS picks light or dark from Windows). */
 export function effectiveTheme(ui: UiSettings): UiTheme {
   if (ui.syncOs && typeof window !== 'undefined' && window.matchMedia) {
-    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'islands-light' : 'islands-dark';
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'blitz-light' : 'blitz-dark';
   }
   return ui.theme;
 }
@@ -290,7 +297,7 @@ export function effectiveTheme(ui: UiSettings): UiTheme {
 export function editorSchemeOf(s: Settings): string {
   if (s.editor.scheme !== 'theme') return s.editor.scheme;
   const theme = effectiveTheme(s.ui);
-  return theme === 'islands-light' ? 'light' : theme === 'islands-darcula' ? 'darcula' : theme === 'high-contrast' ? 'high-contrast' : 'islands-dark';
+  return theme === 'blitz-light' ? 'light' : theme === 'blitz-classic' ? 'classic-dark' : theme === 'high-contrast' ? 'high-contrast' : 'blitz-dark';
 }
 
 /** Changes some editor settings right away (the gutter's right-click ▸ Appearance). */

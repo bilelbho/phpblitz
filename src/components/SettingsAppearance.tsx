@@ -6,9 +6,9 @@ import { MAX_ZOOM, MIN_ZOOM } from '../uiSettings';
 
 // Our own names (the ids are kept so saved settings still match).
 export const THEMES: { id: UiTheme; label: string }[] = [
-  { id: 'islands-dark', label: 'Blitz Dark' },
-  { id: 'islands-light', label: 'Blitz Light' },
-  { id: 'islands-darcula', label: 'Blitz Classic' },
+  { id: 'blitz-dark', label: 'Blitz Dark' },
+  { id: 'blitz-light', label: 'Blitz Light' },
+  { id: 'blitz-classic', label: 'Blitz Classic' },
   { id: 'high-contrast', label: 'High Contrast' },
 ];
 

@@ -2,6 +2,7 @@ mod blitz;
 mod db;
 mod fs;
 mod index;
+mod js;
 mod lsp;
 mod mago;
 mod process;
@@ -19,6 +20,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(lsp::LspState::default())
+        .manage(process::JobState::default())
         .manage(mago::MagoState::default())
         .manage(index::IndexState::default())
         .manage(watcher::WatchState::default())
@@ -41,12 +43,16 @@ pub fn run() {
             process::reveal_in_explorer,
             process::open_external,
             process::updater_supported,
+            process::job_run,
+            process::job_exec,
+            process::job_kill,
             lsp::lsp_start,
             lsp::lsp_send,
             lsp::lsp_stop,
             index::index_open,
             index::index_update,
             index::index_update_text,
+            index::index_file_structure,
             index::index_save,
             index::index_kinds,
             index::index_class,
@@ -56,6 +62,8 @@ pub fn run() {
             index::index_locate,
             index::index_declarations,
             index::index_find_usages,
+            js::js_read_sources,
+            js::js_type_files,
             blitz::blitz_read,
             blitz::blitz_write,
             mago::mago_open,

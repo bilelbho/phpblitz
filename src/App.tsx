@@ -47,7 +47,7 @@ export default function App() {
     if (isTauri) getCurrentWindow().setTitle(title).catch(() => {});
   }, [backend, fullPath]);
 
-  // Like PhpStorm: a small centered welcome window, maximized once a project is open.
+  // A small centered welcome window, maximized once a project is open.
   const hasProject = !!backend;
   useEffect(() => {
     if (!isTauri) return;

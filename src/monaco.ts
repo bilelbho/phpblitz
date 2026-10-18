@@ -29,7 +29,7 @@ import './editor/themes';
 import './editor/phpGrammar';
 import './editor/dotenv';
 
-// "N usages" on their own line above declarations, like JetBrains' code vision.
+// "N usages" on their own line above declarations (code vision).
 const hintsChanged = new monaco.Emitter<monaco.languages.CodeLensProvider>();
 export function refreshUsageHints() {
   hintsChanged.fire(usageLenses);
@@ -63,7 +63,7 @@ const usageLenses: monaco.languages.CodeLensProvider = {
         const text = lines[s.line - 1] ?? '';
         const column = s.kind === 'property' ? text.indexOf('$' + s.name) + 2 : text.search(new RegExp(String.raw`\b${s.name}\b`)) + 1;
         if (column <= 0) return [];
-        // Above the declaration's attributes (#[Route(...)]) and doc comment, like PhpStorm.
+        // Above the declaration's attributes (#[Route(...)]) and doc comment.
         let top = s.line;
         while (top > 1 && /^\s*#\[/.test(lines[top - 2])) top--;
         return [{ range: new monaco.Range(top, 1, top, 1), at: { line: s.line, column, name: s.name } }];
@@ -80,7 +80,7 @@ const usageLenses: monaco.languages.CodeLensProvider = {
 };
 monaco.languages.registerCodeLensProvider('php', usageLenses);
 
-// Remove VS Code keybindings whose popups we replace with PhpStorm ones (see EditorArea).
+// Remove Monaco keybindings whose popups we replace with our own (see EditorArea).
 const { KeyMod, KeyCode } = monaco;
 monaco.editor.addKeybindingRules([
   { keybinding: KeyCode.F1, command: '-editor.action.quickCommand' },
@@ -94,7 +94,7 @@ monaco.editor.addKeybindingRules([
   { keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.F12, command: '-editor.action.peekImplementation' },
   { keybinding: KeyMod.CtrlCmd | KeyCode.F12, command: '-editor.action.goToImplementation' },
   { keybinding: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyR, command: '-editor.action.refactor' },
-  // VS Code's problem peek ("1 of 1 problem"); F2 / Shift+F2 show PhpStorm's popup instead.
+  // VS Code's problem peek ("1 of 1 problem"); F2 / Shift+F2 show our popup instead.
   { keybinding: KeyMod.Alt | KeyCode.F8, command: '-editor.action.marker.next' },
   { keybinding: KeyMod.Shift | KeyMod.Alt | KeyCode.F8, command: '-editor.action.marker.prev' },
   { keybinding: KeyCode.F8, command: '-editor.action.marker.nextInFiles' },

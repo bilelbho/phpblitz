@@ -33,7 +33,7 @@ interface Props {
   ignoreClicksIn?: string;
 }
 
-/** JetBrains-style popup menu with submenus, opened at a screen position. */
+/** popup menu with submenus, opened at a screen position. */
 export function ContextMenu({ x, y, items, onClose, onNavigate, ignoreClicksIn }: Props) {
   useEffect(() => {
     const outside = (e: MouseEvent) => {

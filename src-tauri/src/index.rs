@@ -1,4 +1,4 @@
-//! The project's symbol index, like IntelliJ's stub index: every PHP file of the project and of
+//! The project's symbol index: every PHP file of the project and of
 //! `vendor` is parsed with Mago (parser, name resolver and scanner), and what it declares is kept:
 //! classes, interfaces, traits and enums with their members, functions, and the names each file
 //! refers to (for "N usages"). Built in parallel, cached on disk per file (by modification time
@@ -346,8 +346,8 @@ fn classes_of(src: &[u8], codebase: &CodebaseMetadata, line: &dyn Fn(u32) -> u32
     out.into_iter().map(|(_, c)| c).collect()
 }
 
-/// Names a file refers to, counted by name only (like the "N usages" estimate PhpStorm shows
-/// without a language server): members after `->`, `?->` and `::`, Laravel route actions
+/// Names a file refers to, counted by name only (for the "N usages" estimate shown without a
+/// language server): members after `->`, `?->` and `::`, Laravel route actions
 /// `[Controller::class, 'method']`, and class names in `new`, `::`, `instanceof`, `extends`,
 /// `implements`, type declarations and `use` imports.
 fn references(src: &[u8]) -> Vec<(String, u32)> {
@@ -401,9 +401,80 @@ struct ProjectIndex {
     refs: HashMap<String, u32>,
     /// Lower-case function FQN → (file, function index).
     functions: HashMap<String, (String, usize)>,
+    /// Search Everywhere's flat list of symbols: built on the first search after a change, then
+    /// reused for every keystroke.
+    search: std::sync::Mutex<Option<Arc<SearchTable>>>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum SearchKind {
+    Class,
+    Method,
+    Function,
+}
+
+/// One symbol Search Everywhere can find, with what scoring needs ready (the lower-case name).
+struct SearchEntry {
+    kind: SearchKind,
+    /// The name matched against the query: class, method or function name.
+    name: Box<str>,
+    lower: Box<str>,
+    /// As listed: `User`, `User::save()`, `helper()` (also the tie-breaker when sorting).
+    display: Box<str>,
+    /// Index into `SearchTable::paths`, then the class or function in that file, then the member.
+    file: u32,
+    item: u32,
+    member: u32,
+}
+
+struct SearchTable {
+    paths: Vec<String>,
+    vendor: Vec<bool>,
+    entries: Vec<SearchEntry>,
 }
 
 impl ProjectIndex {
+    /// The symbols Search Everywhere looks through (classes, public methods, functions).
+    fn search_table(&self) -> Arc<SearchTable> {
+        let mut cached = self.search.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(table) = cached.as_ref() {
+            return Arc::clone(table);
+        }
+        let vendor_prefix = format!("{}/vendor/", self.root);
+        let mut table = SearchTable { paths: Vec::with_capacity(self.files.len()), vendor: Vec::new(), entries: Vec::new() };
+        for (path, f) in &self.files {
+            let file = table.paths.len() as u32;
+            table.vendor.push(path.starts_with(&vendor_prefix));
+            table.paths.push(path.clone());
+            let entry = |kind, name: &str, display: String, item: usize, member: usize| SearchEntry {
+                kind,
+                name: name.into(),
+                lower: name.to_lowercase().into(),
+                display: display.into(),
+                file,
+                item: item as u32,
+                member: member as u32,
+            };
+            for (ci, c) in f.symbols.classes.iter().enumerate() {
+                table.entries.push(entry(SearchKind::Class, &c.name, c.name.clone(), ci, 0));
+                for (mi, m) in c.members.iter().enumerate().filter(|(_, m)| m.kind == "method" && m.visibility == "public") {
+                    table.entries.push(entry(SearchKind::Method, &m.name, format!("{}::{}()", c.name, m.name), ci, mi));
+                }
+            }
+            for (fi, fun) in f.symbols.functions.iter().enumerate() {
+                table.entries.push(entry(SearchKind::Function, &fun.name, format!("{}()", fun.name), fi, 0));
+            }
+        }
+        let table = Arc::new(table);
+        *cached = Some(Arc::clone(&table));
+        table
+    }
+
+    /// The index changed: the search table is built again on the next search.
+    fn changed(&mut self) {
+        *self.search.get_mut().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
     fn add_aggregates(&mut self, path: &str) {
         let Some(f) = self.files.get(path) else { return };
         for (i, c) in f.symbols.classes.iter().enumerate() {
@@ -441,6 +512,7 @@ impl ProjectIndex {
     }
 
     fn rebuild(&mut self) {
+        self.changed();
         self.by_fqn.clear();
         self.by_short.clear();
         self.refs.clear();
@@ -452,12 +524,14 @@ impl ProjectIndex {
     }
 
     fn set(&mut self, path: String, file: CachedFile) {
+        self.changed();
         self.remove_aggregates(&path);
         self.files.insert(path.clone(), file);
         self.add_aggregates(&path);
     }
 
     fn remove(&mut self, path: &str) {
+        self.changed();
         self.remove_aggregates(path);
         self.files.remove(path);
     }
@@ -556,7 +630,7 @@ pub struct IndexState {
     generation: Arc<std::sync::atomic::AtomicU64>,
 }
 
-/// The cache file: in the project's `.blitz/cache` (like IntelliJ's .idea), or in the app's cache
+/// The cache file: in the project's `.blitz/cache`, or in the app's cache
 /// folder when the project can't be written to.
 fn cache_path(app: &AppHandle, root: &str) -> Option<PathBuf> {
     use std::hash::{Hash, Hasher};
@@ -768,6 +842,20 @@ pub async fn index_update_text(state: tauri::State<'_, IndexState>, path: String
     .map_err(|e| e.to_string())?
 }
 
+/// One file's declarations, for the Structure panel and the breadcrumbs.
+#[derive(Serialize)]
+pub struct FileStructure {
+    classes: Vec<ClassEntry>,
+    functions: Vec<FunctionEntry>,
+}
+
+/// The Structure of an indexed file, exact from the parser (the UI's regex scan is the fallback).
+#[tauri::command(async)]
+pub fn index_file_structure(state: tauri::State<'_, IndexState>, path: String) -> Result<Option<FileStructure>, String> {
+    let idx = state.index.read().map_err(|e| e.to_string())?;
+    Ok(idx.files.get(&path).map(|f| FileStructure { classes: f.symbols.classes.clone(), functions: f.symbols.functions.clone() }))
+}
+
 /// Saves the index cache now (the UI calls it when a project closes).
 #[tauri::command]
 pub async fn index_save(app: AppHandle, state: tauri::State<'_, IndexState>) -> Result<(), String> {
@@ -810,7 +898,7 @@ pub struct ClassInfo {
 
 /// A function called as `name()` in `namespace`: its return type, for completion after `helper()->`.
 /// Like PHP, an unqualified name in a namespace falls back to the global function.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn index_function(state: tauri::State<'_, IndexState>, name: String, namespace: Option<String>) -> Result<Option<FunctionEntry>, String> {
     let idx = state.index.read().map_err(|e| e.to_string())?;
     Ok(idx.find_function(&name, namespace.as_deref()).map(|(_, f)| f.clone()))
@@ -823,23 +911,25 @@ pub async fn index_class(state: tauri::State<'_, IndexState>, name: String) -> R
     tauri::async_runtime::spawn_blocking(move || {
         let idx = index.read().map_err(|e| e.to_string())?;
         let Some((path, class)) = idx.find(&name) else { return Ok(None) };
+        // Walked by reference: a Laravel model reaches Eloquent's builders (hundreds of members)
+        // through @mixin, and only the members that are kept get copied.
         let mut all = Vec::new();
-        let mut seen: HashSet<(String, String)> = HashSet::new();
-        let mut queue = vec![class.clone()];
+        let mut seen: HashSet<(&str, String)> = HashSet::new();
+        let mut queue: Vec<&ClassEntry> = vec![class];
         let mut visited: HashSet<String> = HashSet::new();
         while let Some(c) = queue.pop() {
             if !visited.insert(c.fqn.to_lowercase()) || visited.len() > 32 {
                 continue;
             }
             for m in &c.members {
-                if seen.insert((m.kind.clone(), m.name.to_lowercase())) {
+                if seen.insert((m.kind.as_str(), m.name.to_lowercase())) {
                     all.push(m.clone());
                 }
             }
             // Parents after the class itself: interfaces first so the class's parent wins over them.
             for p in c.implements.iter().chain(c.traits.iter()).chain(c.extends.iter()).chain(c.mixins.iter()) {
                 if let Some((_, parent)) = idx.find(p) {
-                    queue.push(parent.clone());
+                    queue.push(parent);
                 }
             }
         }
@@ -863,25 +953,33 @@ pub struct SearchHit {
     vendor: bool,
 }
 
-/// How well `query` matches `name`, IntelliJ-style: prefix, camel humps, then substring. None: no match.
+/// How well `query` matches `name`: prefix, camel humps, then substring. None: no match.
+#[cfg(test)]
 fn score(name: &str, query: &str) -> Option<i32> {
+    score_with(name, &name.to_lowercase(), query, &query.to_lowercase())
+}
+
+/// [`score`] with both lower-case forms computed by the caller (once per name, once per query).
+fn score_with(name: &str, n: &str, query: &str, q: &str) -> Option<i32> {
     if query.is_empty() {
         return Some(0);
     }
-    let n = name.to_lowercase();
-    let q = query.to_lowercase();
+    // Every kind of match uses the query's characters in order: names without them are out.
+    let mut rest = n.chars();
+    if !q.chars().all(|qc| rest.any(|nc| nc == qc)) {
+        return None;
+    }
     if n == q {
         return Some(1000);
     }
-    if n.starts_with(&q) {
+    if n.starts_with(q) {
         return Some(800 - name.len() as i32);
     }
     // Camel humps: "UC" or "UsCon" matches "UserController".
-    let humps: Vec<(usize, char)> = name.char_indices().filter(|(i, c)| *i == 0 || c.is_uppercase() || c.is_ascii_digit()).collect();
+    let chars: Vec<char> = name.chars().collect();
+    let humps: Vec<(usize, char)> = chars.iter().copied().enumerate().filter(|(i, c)| *i == 0 || c.is_uppercase() || c.is_ascii_digit()).collect();
     let mut qi = query.chars().peekable();
     let mut hi = 0;
-    let chars: Vec<char> = name.chars().collect();
-    let mut pos = 0usize;
     let mut ok = true;
     while let Some(qc) = qi.next() {
         // Next hump starting with qc, then extend within the hump.
@@ -892,7 +990,7 @@ fn score(name: &str, query: &str) -> Option<i32> {
             ok = false;
             break;
         }
-        pos = name[..humps[hi].0].chars().count() + 1;
+        let mut pos = humps[hi].0 + 1;
         hi += 1;
         while let Some(&nc) = qi.peek() {
             if pos < chars.len() && chars[pos].eq_ignore_ascii_case(&nc) && !(chars[pos].is_uppercase() && pos > 0) {
@@ -903,11 +1001,10 @@ fn score(name: &str, query: &str) -> Option<i32> {
             }
         }
     }
-    let _ = pos;
     if ok {
         return Some(600 - name.len() as i32);
     }
-    n.find(&q).map(|i| 400 - i as i32 - name.len() as i32)
+    n.find(q).map(|i| 400 - i as i32 - name.len() as i32)
 }
 
 /// Search Everywhere / Go to Class: classes, then public methods and functions, best first.
@@ -916,57 +1013,96 @@ pub async fn index_search(state: tauri::State<'_, IndexState>, query: String, li
     let index = state.index.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let idx = index.read().map_err(|e| e.to_string())?;
-        let limit = limit.unwrap_or(100);
-        let query = query.trim();
-        // "User::save" searches members of matching classes.
-        let (class_q, member_q) = match query.split_once("::") {
-            Some((c, m)) => (c, Some(m)),
-            None => (query, None),
-        };
-        let vendor_prefix = format!("{}/vendor/", idx.root);
-        let mut hits: Vec<(i32, SearchHit)> = Vec::new();
-        for (path, f) in &idx.files {
-            let vendor = path.starts_with(&vendor_prefix);
-            // Project symbols rank above vendor ones.
-            let bonus = if vendor { -150 } else { 0 };
-            for c in &f.symbols.classes {
-                let class_score = score(&c.name, class_q);
-                if member_q.is_none() {
-                    if let Some(s) = class_score {
-                        hits.push((s + bonus + 50, SearchHit { kind: c.kind.clone(), name: c.name.clone(), detail: c.fqn.clone(), path: path.clone(), line: c.line, vendor }));
-                    }
-                }
-                if query.is_empty() {
-                    continue;
-                }
-                for m in c.members.iter().filter(|m| m.kind == "method" && m.visibility == "public") {
-                    let s = match member_q {
-                        Some(mq) => class_score.and_then(|cs| score(&m.name, mq).map(|ms| cs / 4 + ms)),
-                        None => score(&m.name, query),
-                    };
-                    if let Some(s) = s {
-                        hits.push((s + bonus - 100, SearchHit { kind: "method".into(), name: format!("{}::{}()", c.name, m.name), detail: m.detail.clone(), path: path.clone(), line: m.line, vendor }));
-                    }
-                }
-            }
-            if member_q.is_none() && !query.is_empty() {
-                for fun in &f.symbols.functions {
-                    if let Some(s) = score(&fun.name, query) {
-                        hits.push((s + bonus - 80, SearchHit { kind: "function".into(), name: format!("{}()", fun.name), detail: fun.fqn.clone(), path: path.clone(), line: fun.line, vendor }));
-                    }
-                }
-            }
-        }
-        hits.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
-        hits.truncate(limit);
-        Ok(hits.into_iter().map(|(_, h)| h).collect())
+        Ok(search(&idx, &query, limit.unwrap_or(100)))
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
+/// Search Everywhere's classes, methods and functions for a query, best first.
+fn search(idx: &ProjectIndex, query: &str, limit: usize) -> Vec<SearchHit> {
+    let query = query.trim();
+    // "User::save" searches members of matching classes.
+    let (class_q, member_q) = match query.split_once("::") {
+        Some((c, m)) => (c, Some(m)),
+        None => (query, None),
+    };
+    let table = idx.search_table();
+    // Project symbols rank above vendor ones.
+    let bonus = |e: &SearchEntry| if table.vendor[e.file as usize] { -150 } else { 0 };
+    let q_lower = query.to_lowercase();
+    let scored: Vec<(i32, usize)> = match member_q {
+        // "User::save": methods of the classes matching "User".
+        Some(mq) => {
+            let cq_lower = class_q.to_lowercase();
+            let mq_lower = mq.to_lowercase();
+            let class_scores: HashMap<(u32, u32), i32> = table
+                .entries
+                .par_iter()
+                .filter(|e| e.kind == SearchKind::Class)
+                .filter_map(|e| score_with(&e.name, &e.lower, class_q, &cq_lower).map(|s| ((e.file, e.item), s)))
+                .collect();
+            table
+                .entries
+                .par_iter()
+                .enumerate()
+                .filter(|(_, e)| e.kind == SearchKind::Method)
+                .filter_map(|(i, e)| {
+                    let cs = class_scores.get(&(e.file, e.item))?;
+                    let ms = score_with(&e.name, &e.lower, mq, &mq_lower)?;
+                    Some((cs / 4 + ms + bonus(e) - 100, i))
+                })
+                .collect()
+        }
+        None => table
+            .entries
+            .par_iter()
+            .enumerate()
+            .filter_map(|(i, e)| {
+                let offset = match e.kind {
+                    SearchKind::Class => 50,
+                    // An empty query lists classes only.
+                    _ if query.is_empty() => return None,
+                    SearchKind::Method => -100,
+                    SearchKind::Function => -80,
+                };
+                score_with(&e.name, &e.lower, query, &q_lower).map(|s| (s + bonus(e) + offset, i))
+            })
+            .collect(),
+    };
+    // Only the best `limit` are sorted: highest score first, then by name.
+    let order = |a: &(i32, usize), b: &(i32, usize)| b.0.cmp(&a.0).then_with(|| table.entries[a.1].display.cmp(&table.entries[b.1].display));
+    let mut scored = scored;
+    if limit > 0 && scored.len() > limit {
+        scored.select_nth_unstable_by(limit - 1, order);
+    }
+    scored.truncate(limit);
+    scored.sort_by(order);
+    let hits = scored.into_iter().filter_map(|(_, i)| {
+        let e = &table.entries[i];
+        let path = &table.paths[e.file as usize];
+        let f = idx.files.get(path)?;
+        let vendor = table.vendor[e.file as usize];
+        Some(match e.kind {
+            SearchKind::Class => {
+                let c = f.symbols.classes.get(e.item as usize)?;
+                SearchHit { kind: c.kind.clone(), name: c.name.clone(), detail: c.fqn.clone(), path: path.clone(), line: c.line, vendor }
+            }
+            SearchKind::Method => {
+                let m = f.symbols.classes.get(e.item as usize)?.members.get(e.member as usize)?;
+                SearchHit { kind: "method".into(), name: e.display.to_string(), detail: m.detail.clone(), path: path.clone(), line: m.line, vendor }
+            }
+            SearchKind::Function => {
+                let fun = f.symbols.functions.get(e.item as usize)?;
+                SearchHit { kind: "function".into(), name: e.display.to_string(), detail: fun.fqn.clone(), path: path.clone(), line: fun.line, vendor }
+            }
+        })
+    });
+    hits.collect()
+}
+
 /// References to each name across the project (name-based estimate).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn index_usages(state: tauri::State<'_, IndexState>, names: Vec<String>) -> Result<Vec<u32>, String> {
     // A few hash lookups: cheap enough to answer right away.
     let idx = state.index.read().map_err(|e| e.to_string())?;
@@ -1057,7 +1193,7 @@ pub struct UsageHit {
     end_column: u32,
     preview: String,
     /// Called on something whose type is unknown (`$x->save()`): maybe this member, maybe another
-    /// class's member of the same name (PhpStorm's "dynamic usages").
+    /// class's member of the same name.
     dynamic: bool,
     /// Properties: "read" or "write" (`$this->x = …`, `+=`, `++`); empty for the rest.
     access: &'static str,
@@ -1067,7 +1203,7 @@ pub struct UsageHit {
 #[serde(rename_all = "camelCase")]
 pub struct UsagesResult {
     name: String,
-    /// "Class", "Method", "Field", "Constant", "Function" (PhpStorm's words).
+    /// "Class", "Method", "Field", "Constant", "Function".
     kind: String,
     /// "\App\Entity\Photo.$uploader", "\App\Models\User::save()", "\App\Models\User".
     title: String,
@@ -1089,34 +1225,91 @@ fn is_write(after: &str, before: &str) -> bool {
 
 const MAX_USAGES: usize = 5000;
 
-/// Line, 1-based UTF-16 column, and the line's text for a byte offset.
-fn position(text: &str, offset: usize) -> (u32, u32, &str) {
-    let start = text[..offset].rfind('\n').map_or(0, |i| i + 1);
-    let end = text[offset..].find('\n').map_or(text.len(), |i| offset + i);
-    let line = text[..start].matches('\n').count() as u32 + 1;
-    let column = text[start..offset].encode_utf16().count() as u32 + 1;
-    (line, column, text[start..end].trim_end_matches('\r'))
+/// Where each line of a text starts, so a file with many hits finds their lines by binary search
+/// instead of counting newlines from the top for each one.
+struct Lines<'a> {
+    text: &'a str,
+    starts: Vec<usize>,
+}
+
+impl<'a> Lines<'a> {
+    fn new(text: &'a str) -> Self {
+        let mut starts = vec![0];
+        starts.extend(text.match_indices('\n').map(|(i, _)| i + 1));
+        Lines { text, starts }
+    }
+
+    /// Line, 1-based UTF-16 column, and the line's text for a byte offset.
+    fn position(&self, offset: usize) -> (u32, u32, &'a str) {
+        let line = self.starts.partition_point(|&s| s <= offset);
+        let start = self.starts[line - 1];
+        let end = self.starts.get(line).map_or(self.text.len(), |&next| next - 1);
+        let column = self.text[start..offset].encode_utf16().count() as u32 + 1;
+        (line as u32, column, self.text[start..end].trim_end_matches('\r'))
+    }
+
+    fn line(&self, offset: usize) -> u32 {
+        self.starts.partition_point(|&s| s <= offset) as u32
+    }
+}
+
+/// What a Find Usages run reuses for every file: the member pattern, compiled once.
+struct UsageMatcher {
+    member: Option<Regex>,
+}
+
+impl UsageMatcher {
+    fn new(target: &Target) -> Self {
+        let member = match target {
+            Target::Member { name, .. } => Some(Regex::new(&format!(r"(?i)(->|\?->|::)(\s*)(\$?)({})\b(\s*\()?", regex::escape(name))).unwrap()),
+            _ => None,
+        };
+        UsageMatcher { member }
+    }
 }
 
 /// Usages of a target in one file's text.
+#[cfg(test)]
 fn usages_in(idx: &ProjectIndex, path: &str, text: &str, target: &Target, class_fqn: Option<&str>) -> Vec<UsageHit> {
+    usages_with(idx, &UsageMatcher::new(target), path, text, target, class_fqn)
+}
+
+/// Usages of a target in one file's text, with the run's compiled matcher.
+fn usages_with(idx: &ProjectIndex, matcher: &UsageMatcher, path: &str, text: &str, target: &Target, class_fqn: Option<&str>) -> Vec<UsageHit> {
     let mut out = Vec::new();
+    let lines = Lines::new(text);
     let hit = |out: &mut Vec<UsageHit>, start: usize, end: usize, dynamic: bool| {
-        let (line, column, line_text) = position(text, start);
+        let (line, column, line_text) = lines.position(start);
         let width = text[start..end].encode_utf16().count() as u32;
         out.push(UsageHit { path: path.to_string(), line, column, end_column: column + width, preview: line_text.trim().to_string(), dynamic, access: "" });
     };
     // Names as PHP resolves them (imports, namespace): exact class and function references.
-    let file = File::new(Cow::Owned(path.as_bytes().to_vec()), FileType::Host, Some(PathBuf::from(path)), Cow::Owned(text.as_bytes().to_vec()));
+    // Parsed only when needed: a member search parses a file only for its `Class::` receivers.
     let arena = LocalArena::new();
-    let program = parse_file_borrowed_with_settings(&arena, &file, ParserSettings::default());
-    let names = NameResolver::new(&arena).resolve(program);
-    let resolved_at = |offset: usize| names.iter().find(|(s, e, _, _)| *s as usize <= offset && offset < *e as usize).map(|(_, _, n, _)| String::from_utf8_lossy(n).trim_start_matches('\\').to_string());
+    let file = std::cell::OnceCell::new();
+    let parsed = std::cell::OnceCell::new();
+    let names = || -> &Vec<(u32, u32, Vec<u8>)> {
+        parsed.get_or_init(|| {
+            let file = file.get_or_init(|| File::new(Cow::Owned(path.as_bytes().to_vec()), FileType::Host, Some(PathBuf::from(path)), Cow::Owned(text.as_bytes().to_vec())));
+            let program = parse_file_borrowed_with_settings(&arena, file, ParserSettings::default());
+            let resolved = NameResolver::new(&arena).resolve(program);
+            let mut list: Vec<(u32, u32, Vec<u8>)> = resolved.iter().map(|(s, e, n, _)| (s, e, n.to_vec())).collect();
+            list.sort_by_key(|(s, _, _)| *s);
+            list
+        })
+    };
+    // The resolved name covering an offset: binary search over the names sorted by start.
+    let resolved_at = |offset: usize| {
+        let list = names();
+        let i = list.partition_point(|(s, _, _)| *s as usize <= offset);
+        let (_, e, n) = list.get(i.checked_sub(1)?)?;
+        (offset < *e as usize).then(|| String::from_utf8_lossy(n).trim_start_matches('\\').to_string())
+    };
 
     match target {
         Target::Class { .. } => {
             let fqn = class_fqn.unwrap_or_default();
-            for (start, end, name, _) in names.iter() {
+            for &(start, end, ref name) in names() {
                 if !String::from_utf8_lossy(name).trim_start_matches('\\').eq_ignore_ascii_case(fqn) {
                     continue;
                 }
@@ -1131,7 +1324,7 @@ fn usages_in(idx: &ProjectIndex, path: &str, text: &str, target: &Target, class_
         Target::Function { name, .. } => {
             let fqn = class_fqn.unwrap_or(name).trim_start_matches('\\');
             let global = !fqn.contains('\\');
-            for (start, end, resolved, _) in names.iter() {
+            for &(start, end, ref resolved) in names() {
                 let resolved = String::from_utf8_lossy(resolved);
                 let resolved = resolved.trim_start_matches('\\');
                 let written = &text[start as usize..end as usize];
@@ -1146,8 +1339,7 @@ fn usages_in(idx: &ProjectIndex, path: &str, text: &str, target: &Target, class_
         Target::Member { name, member_kind, .. } => {
             let class = class_fqn.unwrap_or_default();
             let kind = member_kind.as_deref().unwrap_or("");
-            let escaped = regex::escape(name);
-            let re = Regex::new(&format!(r"(?i)(->|\?->|::)(\s*)(\$?)({escaped})\b(\s*\()?")).unwrap();
+            let Some(re) = matcher.member.as_ref() else { return out };
             for m in re.captures_iter(text) {
                 let (op, dollar, word, call) = (m.get(1).unwrap(), m.get(3).unwrap(), m.get(4).unwrap(), m.get(5));
                 // PHP: methods are case-insensitive, properties and constants are not.
@@ -1164,15 +1356,15 @@ fn usages_in(idx: &ProjectIndex, path: &str, text: &str, target: &Target, class_
                 // What it is called on.
                 let before = text[..op.start()].trim_end();
                 let receiver: Option<String> = if before.ends_with("$this") {
-                    idx.class_at(path, position(text, op.start()).0).map(|c| c.fqn.clone())
+                    idx.class_at(path, lines.line(op.start())).map(|c| c.fqn.clone())
                 } else if let Some(word_start) = before.rfind(|c: char| !(c.is_alphanumeric() || c == '_' || c == '\\')).map(|i| i + 1).or(Some(0)) {
                     let ident = &before[word_start..];
                     if ident.is_empty() || before[..word_start].ends_with('$') || ident.chars().next().is_some_and(|c| c.is_ascii_digit()) {
                         None
                     } else {
                         match ident.to_ascii_lowercase().as_str() {
-                            "self" | "static" => idx.class_at(path, position(text, op.start()).0).map(|c| c.fqn.clone()),
-                            "parent" => idx.class_at(path, position(text, op.start()).0).and_then(|c| c.extends.clone()),
+                            "self" | "static" => idx.class_at(path, lines.line(op.start())).map(|c| c.fqn.clone()),
+                            "parent" => idx.class_at(path, lines.line(op.start())).and_then(|c| c.extends.clone()),
                             _ if op.as_str() == "::" => resolved_at(word_start),
                             _ => None,
                         }
@@ -1235,7 +1427,10 @@ pub async fn index_find_usages(state: tauri::State<'_, IndexState>, target: Targ
                 (format!("{}()", f.fqn), f.fqn.clone(), f.name.clone(), "Function", format!("\\{}()", f.fqn), ns, path.clone())
             }
         };
-        let needle_lower = needle.to_lowercase();
+        let matcher = UsageMatcher::new(&target);
+        // Files that can't contain the name are skipped: case-insensitive, on the raw bytes.
+        let mentions = regex::bytes::RegexBuilder::new(&regex::escape(&needle)).case_insensitive(true).unicode(false).build().map_err(|e| e.to_string())?;
+        let is_member = matches!(target, Target::Member { .. });
         let vendor = format!("{}/vendor/", idx.root);
         let with_vendor = include_vendor.unwrap_or(false);
         let paths: Vec<&String> = idx.files.keys().filter(|p| with_vendor || !p.starts_with(&vendor)).collect();
@@ -1244,15 +1439,25 @@ pub async fn index_find_usages(state: tauri::State<'_, IndexState>, target: Targ
             paths
                 .par_iter()
                 .flat_map_iter(|path| {
-                    let text = match overrides.get(*path) {
-                        Some(t) => t.clone(),
-                        None => std::fs::read(path).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default(),
+                    let text: Cow<str> = match overrides.get(*path) {
+                        Some(t) => Cow::Borrowed(t.as_str()),
+                        None => {
+                            // Members: the index already knows which names follow `->` / `::` in
+                            // each file, so most files are never read.
+                            if is_member && idx.files.get(*path).is_some_and(|f| !f.symbols.refs.iter().any(|(n, _)| n.eq_ignore_ascii_case(&needle))) {
+                                return Vec::new();
+                            }
+                            let Ok(bytes) = std::fs::read(path) else { return Vec::new() };
+                            if !mentions.is_match(&bytes) {
+                                return Vec::new();
+                            }
+                            Cow::Owned(String::from_utf8_lossy(&bytes).into_owned())
+                        }
                     };
-                    // Cheap filter first: most files never mention the name.
-                    if !text.to_lowercase().contains(&needle_lower) {
+                    if !mentions.is_match(text.as_bytes()) {
                         return Vec::new();
                     }
-                    usages_in(&idx, path, &text, &target, Some(&class_fqn))
+                    usages_with(&idx, &matcher, path, &text, &target, Some(&class_fqn))
                 })
                 .collect()
         });
@@ -1431,7 +1636,7 @@ function current_user() { return null; }
         idx.rebuild();
         let classes: usize = idx.files.values().map(|f| f.symbols.classes.len()).sum();
         let aggregated = t3.elapsed();
-        // The cache, as JSON (versions before 0.1.3) and as it is now.
+        // The cache, as JSON (the format of early builds) and as it is now.
         let json = serde_json::to_vec(&idx.files).unwrap();
         let t4 = Instant::now();
         let back: HashMap<String, CachedFile> = serde_json::from_slice(&json).unwrap();
@@ -1623,6 +1828,41 @@ function current_user() { return null; }
         assert_eq!((first[0].line, first[0].column, first[0].end_column), (4, 5, 20));
     }
 
+    /// A file with thousands of hits: every position right (line table), static receivers resolved
+    /// through the lazily parsed names, and fast enough to be a regression guard.
+    #[test]
+    fn many_usages_in_one_file() {
+        let idx = idx3();
+        let mut text = String::from("<?php\nnamespace App\\Http;\n\nuse App\\Models\\Post;\n\nfunction f(Post $post, $x): void\n{\n");
+        let lines = 3000;
+        for i in 0..lines {
+            // Mixed widths before the hit (é is 2 bytes, 1 UTF-16 unit): columns must be in UTF-16.
+            match i % 3 {
+                0 => text.push_str("    $post->save();\n"),
+                1 => text.push_str("    /* é */ $x->save();\n"),
+                _ => text.push_str("    Post::find(1)->save();\n"),
+            }
+        }
+        text.push_str("}\n");
+        let target = Target::Member { class: "App\\Models\\Model".into(), name: "save".into(), member_kind: Some("method".into()) };
+        let started = std::time::Instant::now();
+        let hits = usages_in(&idx, "/p/app/Http/Many.php", &text, &target, Some("App\\Models\\Model"));
+        let took = started.elapsed();
+        assert_eq!(hits.len(), lines);
+        assert_eq!((hits[0].line, hits[0].column, hits[0].end_column), (8, 12, 16));
+        assert_eq!((hits[1].line, hits[1].column), (9, 17), "UTF-16 column: in bytes it would be 18");
+        let last = hits.last().unwrap();
+        assert_eq!(last.line, 7 + lines as u32);
+        assert_eq!(last.preview, "Post::find(1)->save();");
+        // Untyped receivers ($post, $x) are dynamic; Post::find(1)->save() is too (a call result).
+        assert!(hits.iter().all(|h| h.dynamic));
+        assert!(took < std::time::Duration::from_secs(2), "{took:?}");
+        // `Post::find` is resolved through the file's imports.
+        let finds = usages_in(&idx, "/p/app/Http/Many.php", &text, &Target::Member { class: "App\\Models\\Model".into(), name: "find".into(), member_kind: Some("method".into()) }, Some("App\\Models\\Model"));
+        assert_eq!(finds.len(), lines / 3);
+        assert!(finds.iter().all(|h| !h.dynamic), "Post::find is exact: Post extends Model");
+    }
+
     #[test]
     fn scores_like_go_to_class() {
         assert!(score("UserController", "UserController") > score("UserController", "User"));
@@ -1632,5 +1872,49 @@ function current_user() { return null; }
         assert!(score("UserController", "troll").is_some()); // substring
         assert!(score("UserController", "xyz").is_none());
         assert!(score("UserController", "User") > score("UserController", "UC"));
+    }
+
+    const USER_CTRL: &str = "<?php\nnamespace App\\Http\\Controllers;\n\nclass UserController\n{\n    public function save(): void {}\n    public function show(): void {}\n    private function secret(): void {}\n}\n";
+    const SEARCH_USER: &str = "<?php\nnamespace App\\Models;\n\nclass User\n{\n    public function save(): bool { return true; }\n}\n\nfunction user_helper(): void {}\n";
+    const VENDOR_UC: &str = "<?php\nnamespace Vendor;\n\nclass UnitConverter\n{\n}\n\nclass UserCache\n{\n}\n";
+
+    fn search_index() -> ProjectIndex {
+        project(&[("/p/app/Http/Controllers/UserController.php", USER_CTRL), ("/p/app/Models/User.php", SEARCH_USER), ("/p/vendor/acme/lib/src/Things.php", VENDOR_UC)])
+    }
+
+    fn names(hits: &[SearchHit]) -> Vec<String> {
+        hits.iter().map(|h| h.name.clone()).collect()
+    }
+
+    #[test]
+    fn search_ranks_humps_and_project_above_vendor() {
+        let idx = search_index();
+        let uc = names(&search(&idx, "UC", 10));
+        assert_eq!(uc.first().map(String::as_str), Some("UserController"), "{uc:?}");
+        // The vendor classes match too, below the project's.
+        let at = |n: &str| uc.iter().position(|x| x == n).unwrap_or(usize::MAX);
+        assert!(at("UserController") < at("UserCache") && at("UserController") < at("UnitConverter"), "{uc:?}");
+        assert!(!uc.iter().any(|n| n.contains("secret")), "private methods aren't listed");
+    }
+
+    #[test]
+    fn search_members_of_a_class_and_functions() {
+        let idx = search_index();
+        assert_eq!(names(&search(&idx, "User::save", 10)), vec!["User::save()", "UserController::save()"]);
+        assert_eq!(names(&search(&idx, "UserController::sh", 10)), vec!["UserController::show()"]);
+        assert!(names(&search(&idx, "user_hel", 10)).contains(&"user_helper()".to_string()));
+        // Empty query: classes only, by name.
+        assert_eq!(names(&search(&idx, "", 10)), vec!["User", "UserController", "UnitConverter", "UserCache"]);
+        assert_eq!(search(&idx, "UC", 1).len(), 1, "the limit is applied");
+    }
+
+    #[test]
+    fn search_table_follows_index_changes() {
+        let mut idx = search_index();
+        assert!(names(&search(&idx, "Order", 10)).is_empty());
+        idx.set("/p/app/Models/Order.php".into(), CachedFile { mtime: 1, size: 1, symbols: scan("/p/app/Models/Order.php", b"<?php\nclass Order {}\n") });
+        assert_eq!(names(&search(&idx, "Order", 10)), vec!["Order"]);
+        idx.remove("/p/app/Models/Order.php");
+        assert!(names(&search(&idx, "Order", 10)).is_empty());
     }
 }

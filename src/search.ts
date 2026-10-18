@@ -35,7 +35,7 @@ const MAX_MATCHES = 2000;
 
 /**
  * Searches the project. `unsaved` holds the editor text of files with unsaved changes:
- * like PhpStorm, those are searched as shown in the editor, not as saved on disk.
+ * those are searched as shown in the editor, not as saved on disk.
  */
 export async function searchInFiles(
   backend: Backend,

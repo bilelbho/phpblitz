@@ -4,6 +4,7 @@ import { db } from '../db/store';
 import { useEffect, useState } from 'react';
 import { debug } from '../debug/manager';
 import { useSymbols } from '../symbols';
+import { useCursor } from '../cursorStore';
 import { cachedInspect, composerPhpLevel, interpretersFor, kindLabel, projectPhp, useInterpreters } from '../interpreters';
 import { Icon, Sym } from './Icon';
 import { FileIcon } from './FileIcon';
@@ -55,7 +56,7 @@ function PhpLevel({ ws }: { ws: Workspace }) {
   );
 }
 
-/** Which language server is running, JetBrains-style ("PHPantom ●"). */
+/** Which language server is running ("PHPantom ●"). */
 function LanguageServer({ ws }: { ws: Workspace }) {
   const s = ws.lspStatus;
   if (s.state === 'off') return null;
@@ -96,6 +97,7 @@ function MagoStatus({ ws }: { ws: Workspace }) {
 }
 
 export function StatusBar({ ws }: { ws: Workspace }) {
+  const cursor = useCursor();
   const idx = useSymbols();
   const tab = ws.activeTab;
   const all = Object.values(ws.problems).flat();
@@ -121,7 +123,7 @@ export function StatusBar({ ws }: { ws: Workspace }) {
       });
     });
     const cls = ws.structure.find((s) => s.depth === 0 && s.kind !== 'function');
-    const member = [...ws.structure].reverse().find((s) => s.depth > 0 && s.kind === 'method' && s.line <= ws.cursor.line);
+    const member = [...ws.structure].reverse().find((s) => s.depth > 0 && s.kind === 'method' && s.line <= cursor.line);
     if (cls) crumbs.push({ label: cls.name, sym: ['c', '#548af7'], open: (anchor) => ({ kind: 'members', path: tab.path, selected: member?.line, anchor }) });
     if (member) crumbs.push({ label: `${member.name}()`, sym: ['m', '#e55765'], open: (anchor) => ({ kind: 'members', path: tab.path, selected: member.line, anchor }) });
   } else if (tab?.kind === 'table') {
@@ -177,7 +179,7 @@ export function StatusBar({ ws }: { ws: Workspace }) {
       {tab?.kind === 'file' && (
         <>
           <span className="item" title="Line:Column">
-            {ws.cursor.line}:{ws.cursor.col}
+            {cursor.line}:{cursor.col}
           </span>
           <span className="item" title="Line separator">
             {lineEnding}

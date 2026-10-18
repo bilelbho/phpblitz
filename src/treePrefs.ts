@@ -20,7 +20,7 @@ export interface TreePrefs {
   view: 'project' | 'open' | 'changed';
 }
 
-/** PhpStorm's defaults. */
+/** The defaults. */
 const DEFAULTS: TreePrefs = {
   previewTab: false,
   singleClickOpen: false,

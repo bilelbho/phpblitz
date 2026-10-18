@@ -1,6 +1,6 @@
 [package]
 name = "phpblitz"
-version = "0.1.6"
+version = "0.1.0"
 description = "A fast, open source PHP IDE"
 authors = ["The PHPBlitz Authors"]
 license = "Apache-2.0"
@@ -29,7 +29,7 @@ mago-text-edit = "=1.57.0"
 toml = "0.8"
 toml_edit = "0.22"
 # File watching (changes made outside PHPBlitz: git, composer, other editors).
-notify-debouncer-mini = "0.7"
+notify = "8.2"
 # Find in Files: ripgrep's directory walker (respects .gitignore) and regex engine.
 ignore = "0.4"
 regex = "1"

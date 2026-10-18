@@ -8,6 +8,8 @@ import { FindResults } from './FindInFiles';
 import { DebugPanel, GitToolWindow, TerminalView, TodoToolWindow } from './lazy';
 import { isTauri } from '../platform';
 import { useHideTool } from './toolHide';
+import { TestResults } from './TestResults';
+import { useTestRunner } from '../tests/runner';
 
 const SEVERITY_COLOR = { error: 'var(--red)', warning: 'var(--orange)', info: 'var(--muted)' } as const;
 
@@ -24,11 +26,12 @@ export function BottomPanel({ ws, height, tab: only }: { ws: Workspace; height?:
     const tool = toolOfTab(t);
     return !tool || ws.toolLayout.bottom.includes(tool);
   };
+  const runner = useTestRunner();
   const problems = ws.activePath ? ws.problems[ws.activePath] ?? [] : [];
   const outdatedCount = ws.outdated ? Object.keys(ws.outdated).length : 0;
   const tabs: { id: BottomTab; label: string; count?: string }[] = [
     { id: 'problems', label: 'Problems', count: problems.length ? String(problems.length) : undefined },
-    { id: 'tests', label: 'Tests', count: ws.tests.running ? 'running' : undefined },
+    { id: 'tests', label: 'Run', count: runner.running ? 'running' : undefined },
     { id: 'composer', label: 'Composer', count: outdatedCount ? `${outdatedCount} updates` : undefined },
     ...(ws.findResults ? [{ id: 'find' as const, label: 'Find', count: String(ws.findResults.result.total) }] : []),
     ...(ws.usages ? [{ id: 'usages' as const, label: `Usages of ${ws.usages.name}`, count: ws.usages.loading ? '…' : String(ws.usages.items.length) }] : []),
@@ -58,7 +61,7 @@ export function BottomPanel({ ws, height, tab: only }: { ws: Workspace; height?:
     );
   }
 
-  // Terminal is a tool window of its own, like in PhpStorm (not a tab next to Problems).
+  // Terminal is a tool window of its own (not a tab next to Problems).
   if (tab === 'terminal') {
     return (
       <section className={place} style={{ height }} aria-label="Terminal">
@@ -107,7 +110,7 @@ export function BottomPanel({ ws, height, tab: only }: { ws: Workspace; height?:
         {tab === 'problems' && <Problems ws={ws} />}
         {tab === 'usages' && <Usages ws={ws} />}
         {tab === 'find' && <FindResults ws={ws} />}
-        {tab === 'tests' && <Tests ws={ws} />}
+        {tab === 'tests' && <TestResults ws={ws} />}
         {tab === 'composer' && (
           <>
             {ws.packages.map((p) => {
@@ -136,7 +139,7 @@ export function BottomPanel({ ws, height, tab: only }: { ws: Workspace; height?:
 const SEVERITY_ICON = { error: 'error', warning: 'warning', info: 'warning' } as const;
 const SEVERITY_ORDER = { error: 0, warning: 1, info: 2 } as const;
 
-/** JetBrains' Problems tool window: the current file, or errors across the project. */
+/** The Problems tool window: the current file, or errors across the project. */
 function Problems({ ws }: { ws: Workspace }) {
   const [view, setView] = useState<'file' | 'project'>('file');
   const path = ws.activePath;
@@ -413,40 +416,6 @@ function Terminal({ ws }: { ws: Workspace }) {
         />
       </div>
       <div ref={end} />
-    </div>
-  );
-}
-
-function Tests({ ws }: { ws: Workspace }) {
-  const { running, result } = ws.tests;
-  return (
-    <div>
-      <div className="row" style={{ height: 34, paddingLeft: 12, gap: 10 }}>
-        <button type="button" className="btn small" onClick={ws.runTests} disabled={running}>
-          <Play size={12} />
-          {running ? 'Running…' : 'Run tests'}
-        </button>
-        {result && (
-          <span style={{ color: result.ok ? 'var(--green)' : 'var(--red)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
-            {result.ok && <Icon name="check" size={14} />}
-            {result.summary}
-          </span>
-        )}
-      </div>
-      {!result && !running && <div className="empty">No test results yet. Run PHPUnit with the button above or the ▶ in the toolbar.</div>}
-      {result?.tests?.map((t) => (
-        <div key={t.name} className="row" style={{ paddingLeft: 38, gap: 10 }}>
-          <span style={{ color: t.ok ? 'var(--green)' : 'var(--red)', display: 'inline-flex' }}>
-            <Icon name={t.ok ? 'check' : 'close'} size={12} />
-          </span>
-          <span>{t.name}</span>
-          <span className="grow" />
-          <span className="mono muted" style={{ fontSize: 12 }}>
-            {t.ms}
-          </span>
-        </div>
-      ))}
-      {result && !result.tests && <div className="console">{result.output || '(no output)'}</div>}
     </div>
   );
 }

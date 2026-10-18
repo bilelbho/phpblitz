@@ -7,6 +7,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from '../platform';
 import { Logo } from './Icon';
 import packages from '../thirdParty.json';
+import authorsFile from '../../AUTHORS?raw';
 
 const REPO = 'https://github.com/bilelbho/phpblitz';
 
@@ -17,6 +18,18 @@ interface Package {
   license: string;
   repository: string;
   author: string;
+}
+
+/** The AUTHORS file's sections ("Contributors", "AI assistance") with their entries. */
+const AUTHORS: { title: string; people: { name: string; role: string }[] }[] = [];
+for (const raw of authorsFile.split(String.fromCharCode(10))) {
+  const line = raw.trim();
+  if (!line || (line.startsWith('#') && !line.startsWith('## '))) continue;
+  if (line.startsWith('## ')) AUTHORS.push({ title: line.slice(3), people: [] });
+  else if (AUTHORS.length) {
+    const [name, ...role] = line.split(' — ');
+    AUTHORS[AUTHORS.length - 1].people.push({ name: name.trim(), role: role.join(' — ').trim() });
+  }
 }
 
 function openLink(url: string) {
@@ -33,7 +46,7 @@ export function AboutDialog({ view: initial, onClose }: { view: 'about' | 'licen
 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="jb-dialog about-dialog" role="dialog" aria-modal="true" aria-label={view === 'about' ? 'About PHPBlitz' : 'Open Source Licenses'} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      <div className="pb-dialog about-dialog" role="dialog" aria-modal="true" aria-label={view === 'about' ? 'About PHPBlitz' : 'Open Source Licenses'} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
         {view === 'about' ? (
           <div className="about-body">
             <Logo size={48} />
@@ -46,8 +59,19 @@ export function AboutDialog({ view: initial, onClose }: { view: 'about' | 'licen
               <a href="#" onClick={(e) => (e.preventDefault(), openLink('https://www.apache.org/licenses/LICENSE-2.0'))}>
                 Apache License 2.0
               </a>
-              : free to use, change and share, commercially too, as long as the NOTICE with the author's name is kept.
+              : free to use, change and share, commercially too, as long as the license and the NOTICE file are kept.
             </p>
+            {AUTHORS.map((section) => (
+              <div key={section.title} className="about-authors">
+                <div className="about-authors-title">{section.title}</div>
+                {section.people.map((p) => (
+                  <div key={p.name}>
+                    <span className="about-author">{p.name}</span>
+                    {p.role && <span className="muted"> — {p.role}</span>}
+                  </div>
+                ))}
+              </div>
+            ))}
             <p>
               Built on {(packages as Package[]).length} open source packages, among them Tauri, Monaco Editor, Mago, xterm.js and React. Thank you to their authors and
               contributors.
@@ -60,7 +84,7 @@ export function AboutDialog({ view: initial, onClose }: { view: 'about' | 'licen
         ) : (
           <Licenses />
         )}
-        <div className="jb-dialog-buttons">
+        <div className="pb-dialog-buttons">
           <button type="button" className="link-btn" style={{ marginRight: 'auto' }} onClick={() => openLink(REPO)}>
             Source code on GitHub
           </button>

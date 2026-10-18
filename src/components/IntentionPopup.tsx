@@ -1,4 +1,4 @@
-// Alt+Enter / lightbulb popup, like PhpStorm's: the actions on the left, a preview of what the
+// Alt+Enter / lightbulb popup: the actions on the left, a preview of what the
 // selected one would change on the right (toggle with Ctrl+Q).
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -8,7 +8,7 @@ import { Icon } from './Icon';
 import type { TextChange } from '../lsp/monacoBridge';
 
 type Item = Extract<ContextItem, { label: string }>;
-/** Columns (0-based, end exclusive) of new text on a preview line, highlighted like PhpStorm. */
+/** Columns (0-based, end exclusive) of new text on a preview line, highlighted. */
 type Mark = { line: number; from: number; to: number };
 type Preview = { state: 'loading' } | { state: 'none' } | { state: 'ready'; first: number; lines: string[]; marks: Mark[] };
 
@@ -299,7 +299,7 @@ function IntentionPreview({ anchor, preview }: { anchor: React.RefObject<HTMLDiv
   );
 }
 
-/** PhpStorm's yellow quick-fix bulb. */
+/** The yellow quick-fix bulb. */
 function BulbIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">

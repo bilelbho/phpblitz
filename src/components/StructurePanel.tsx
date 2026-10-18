@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import type { Workspace } from '../useWorkspace';
 import { paramTypes, type PhpSymbol } from '../php';
+import { useCursorLine } from '../cursorStore';
 import { Icon, Sym, Visibility } from './Icon';
 
-// Letters and colors of JetBrains' structure icons.
+// Letters and colors of the structure icons.
 export const SYMBOL_KIND: Record<PhpSymbol['kind'], [string, string]> = {
   class: ['c', '#548af7'],
   interface: ['i', '#5fb865'],
@@ -32,6 +33,7 @@ export function symbolLabel(s: PhpSymbol): string {
 }
 
 export function StructurePanel({ ws }: { ws: Workspace }) {
+  const cursorLine = useCursorLine();
   const [collapsed, setCollapsed] = useState(false);
   const path = ws.activePath;
   if (!path) return <div className="empty">Open a file to see its structure.</div>;
@@ -39,7 +41,7 @@ export function StructurePanel({ ws }: { ws: Workspace }) {
   if (!ws.structure.length) return <div className="empty">No classes or functions found in this file.</div>;
 
   // The member the caret is in.
-  const current = [...ws.structure].reverse().find((s) => s.line <= ws.cursor.line && s.depth > 0);
+  const current = [...ws.structure].reverse().find((s) => s.line <= cursorLine && s.depth > 0);
   const go = (s: PhpSymbol) => ws.setGoto({ path, line: s.line, nonce: Date.now() });
 
   return (

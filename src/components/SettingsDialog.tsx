@@ -1,4 +1,4 @@
-// Settings (Ctrl+Alt+S), laid out like PhpStorm's: a searchable tree on the left, the page on the right.
+// Settings (Ctrl+Alt+S), laid out: a searchable tree on the left, the page on the right.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -143,7 +143,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
   return (
     <div className="modal-backdrop settings-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
-        className="jb-dialog settings-dialog"
+        className="pb-dialog settings-dialog"
         role="dialog"
         aria-modal="true"
         aria-label="Settings"
@@ -210,7 +210,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
             </div>
           </div>
         </div>
-        <div className="jb-dialog-buttons settings-buttons">
+        <div className="pb-dialog-buttons settings-buttons">
           <button type="button" className="link-btn" style={{ marginRight: 'auto' }} disabled={!active.section} onClick={() => active.section && setDraft((d) => ({ ...d, [active.section!]: DEFAULT_SETTINGS[active.section!] }))}>
             Reset to defaults
           </button>
@@ -242,7 +242,7 @@ function TerminalPage({ ws, value: t, onChange, highlight }: { ws: Workspace; va
     terminals.shells().then(setShells);
   }, []);
   const projectRoot = ws.backend.kind === 'disk' ? ws.backend.root : '';
-  /** Marks options matching the search box, like PhpStorm's yellow highlight. */
+  /** Marks options matching the search box, with a yellow highlight. */
   const hit = (label: string) => (highlight && label.toLowerCase().includes(highlight) ? ' hit' : '');
 
   const browse = async () => {

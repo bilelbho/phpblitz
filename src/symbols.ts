@@ -5,7 +5,7 @@
 import { useSyncExternalStore } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { importsOf, phpIndex, type PhpSymbol } from './php';
+import { importsOf, phpIndex, type PhpSymbol, type Visibility } from './php';
 
 export type ClassKind = 'class' | 'interface' | 'trait' | 'enum';
 
@@ -74,7 +74,7 @@ const fromJsMember = (s: PhpSymbol): IndexMember => ({
 class Symbols {
   /** Answers come from Rust (desktop, a project on disk). */
   rust = false;
-  /** Indexing in progress (IntelliJ's "dumb mode"), with its progress. */
+  /** Indexing in progress, with its progress. */
   progress: { done: number; total: number } | null = null;
   private kinds = new Map<string, ClassKind>();
   private listeners = new Set<() => void>();
@@ -135,6 +135,17 @@ class Symbols {
     for (const p of removed) this.kinds.delete(p);
     for (const [p, k] of kinds) k ? this.kinds.set(p, k) : this.kinds.delete(p);
     this.changed();
+  }
+
+  /**
+   * The Structure of an indexed file (classes, members, functions), exact from the index; null
+   * when the index doesn't have it (browser sample, a file not indexed yet). `text` places the
+   * trait `use` lines, which the index lists without their lines.
+   */
+  async structure(path: string, text: string): Promise<PhpSymbol[] | null> {
+    if (!this.rust) return null;
+    const file = await invoke<IndexedStructure | null>('index_file_structure', { path }).catch(() => null);
+    return file ? structureFromIndex(file, text) : null;
   }
 
   /** An open file's current (unsaved) text. */
@@ -234,3 +245,39 @@ export function useSymbols() {
 }
 
 if (import.meta.hot) import.meta.hot.dispose(() => location.reload());
+
+interface IndexedMember {
+  kind: 'method' | 'property' | 'const';
+  name: string;
+  detail: string;
+  params?: string | null;
+  line: number;
+  visibility: Visibility;
+  isStatic: boolean;
+}
+
+interface IndexedStructure {
+  classes: { name: string; kind: 'class' | 'interface' | 'trait' | 'enum'; line: number; endLine: number; extends?: string | null; traits: string[]; members: IndexedMember[] }[];
+  functions: { name: string; line: number; params: string; detail: string }[];
+}
+
+/** The Structure panel's rows from the index, in file order, like structureOf's. */
+export function structureFromIndex(file: IndexedStructure, text: string): PhpSymbol[] {
+  const out: PhpSymbol[] = [];
+  const lines = text.split('\n');
+  for (const c of file.classes) {
+    out.push({ kind: c.kind, name: c.name, detail: c.extends ? `extends ${c.extends.split('\\').pop()}` : '', line: c.line, depth: 0, visibility: 'public' });
+    for (const m of c.members) {
+      out.push({ kind: m.kind, name: m.name, detail: m.detail, params: m.kind === 'method' ? (m.params ?? '') : undefined, line: m.line, depth: 1, visibility: m.visibility, isStatic: m.isStatic || m.kind === 'const' });
+    }
+    // Trait imports inside the class body.
+    if (c.traits.length) {
+      for (let n = c.line; n <= Math.min(c.endLine || c.line, lines.length); n++) {
+        const m = lines[n - 1].match(/^\s*use\s+([\w\\]+)(?:\s*,\s*[\w\\]+)*\s*[;{]/);
+        if (m) out.push({ kind: 'use', name: m[1], detail: 'trait', line: n, depth: 1, visibility: 'public' });
+      }
+    }
+  }
+  for (const f of file.functions) out.push({ kind: 'function', name: f.name, detail: f.detail, params: f.params, line: f.line, depth: 0, visibility: 'public' });
+  return out.sort((a, b) => a.line - b.line || a.depth - b.depth);
+}

@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { invalidateLaravelFiles, setLaravelProject } from './completion/laravel';
+import { isScriptModel, scriptFileChanged, scriptFilesChanged, scriptProblem, scriptUsages, setScriptContext } from './jsProjects';
 import { anchorOf, DEFAULT_LAYOUT, isBottomTool, loadToolLayout, moveTool as moveToolIn, saveToolLayout, type Anchor, type BottomTool, type SideAnchor, type SideTool, type Tool, type ToolLayout } from './toolLayout';
 import * as monaco from 'monaco-editor';
-import type { Backend, CommitOptions, Entry, GitInfo, Package, Problem, RunResult, TestResult } from './backend/types';
+import type { Backend, CommitOptions, Entry, GitInfo, Package, Problem, RunResult } from './backend/types';
+import { testRunner, type Scope } from './tests/runner';
 import { baseName } from './backend/types';
-import { languageOf, phpIndex, routesOf, structureOf, type Route } from './php';
+import { languageOf, phpIndex, routesOf, structureOf, type PhpSymbol, type Route } from './php';
 import { symbols } from './symbols';
 import { findUsages as indexFindUsages, setDefinitionOpener, targetAt } from './navigation';
 import { aiReply, type AiMessage } from './mock';
@@ -45,7 +47,7 @@ import { debug, useDebug } from './debug/manager';
 import { useInterpreters } from './interpreters';
 import { projectStorage } from './projectStorage';
 
-/** `preview`: PhpStorm's preview tab (italic), replaced by the next previewed file. */
+/** `preview`: the preview tab (italic), replaced by the next previewed file. */
 export type Tab =
   | { id: string; kind: 'file'; path: string; preview?: boolean }
   /** A database table's data (Database tool window). */
@@ -56,7 +58,7 @@ export type Tab =
   | { id: string; kind: 'diff'; path: string; commit?: string };
 /** Left tool windows. Structure docks in the bottom half, the others in the top half. */
 export type LeftTool = 'project' | 'commit' | 'structure' | 'database';
-export type RightTool = 'notifications' | 'ai' | 'endpoints' | 'composer';
+export type RightTool = 'notifications' | 'ai' | 'endpoints' | 'composer' | 'npm';
 export type GitDialogRequest =
   | { kind: 'push' }
   | { kind: 'newBranch'; from?: string }
@@ -143,7 +145,7 @@ export function useWorkspace(backend: Backend) {
 
   /**
    * Lists a folder into the tree. A folder that is shown open also gets its sub-folders listed in
-   * the background (one level ahead, like PhpStorm's file cache), so opening them is instant.
+   * the background (one level ahead), so opening them is instant.
    * `quiet`: a background listing (no error notification).
    */
   const loadDir = useCallback(
@@ -349,17 +351,64 @@ export function useWorkspace(backend: Backend) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<Record<string, string>>({});
   const savedText = useRef<Record<string, string>>({});
-  const liveText = useRef<Record<string, string>>({});
+  /** Editor documents edited since their text was last read: read on demand, not per keystroke. */
+  const staleModels = useRef(new Map<string, monaco.editor.ITextModel>());
+  /**
+   * The current text of each open file (unsaved edits included). Typing only marks the file
+   * stale; its text is read from the editor the first time something asks for it (save, search,
+   * the analysis after a pause), so a keystroke never copies the whole document.
+   */
+  const liveText = useRef<Record<string, string>>(
+    new Proxy({} as Record<string, string>, {
+      get(target, key) {
+        if (typeof key === 'string') {
+          const model = staleModels.current.get(key);
+          if (model) {
+            staleModels.current.delete(key);
+            if (!model.isDisposed()) target[key] = model.getValue();
+          }
+        }
+        return Reflect.get(target, key);
+      },
+      set(target, key, value) {
+        if (typeof key === 'string') staleModels.current.delete(key);
+        return Reflect.set(target, key, value);
+      },
+      deleteProperty(target, key) {
+        if (typeof key === 'string') staleModels.current.delete(key);
+        return Reflect.deleteProperty(target, key);
+      },
+    }),
+  );
   const [dirty, setDirty] = useState<Set<string>>(new Set());
   const [activeText, setActiveText] = useState('');
-  const [cursor, setCursor] = useState({ line: 1, col: 1 });
   const [goto, setGoto] = useState<GotoRequest | null>(null);
   const [breakpoints, setBreakpoints] = useState<Record<string, number[]>>({});
   /** Problems from the language server or `php -l`; used when Mago is not available (browser). */
   const [otherProblems, setOtherProblems] = useState<Record<string, Problem[]>>({});
   /** Problems from Mago (lint + analysis) for open files. */
   const [magoProblems, setMagoProblems] = useState<Record<string, Problem[]>>({});
-  const problems = magoAvailable ? magoProblems : otherProblems;
+  /** Errors from the TypeScript service in open .js/.ts files (it marks the editor itself). */
+  const [scriptProblems, setScriptProblems] = useState<Record<string, Problem[]>>({});
+  useEffect(() => {
+    const sub = monaco.editor.onDidChangeMarkers((uris) => {
+      setScriptProblems((prev) => {
+        let next = prev;
+        for (const uri of uris) {
+          const markers = monaco.editor.getModelMarkers({ resource: uri }).filter((m) => (m.owner === 'typescript' || m.owner === 'javascript') && m.severity > monaco.MarkerSeverity.Hint);
+          const path = uriToPath(uri.toString());
+          if (!markers.length && !(path in next)) continue;
+          if (next === prev) next = { ...prev };
+          if (markers.length) next[path] = markers.map((m) => scriptProblem(path, m));
+          else delete next[path];
+        }
+        return next;
+      });
+    });
+    return () => sub.dispose();
+  }, []);
+  const baseProblems = magoAvailable ? magoProblems : otherProblems;
+  const problems = useMemo(() => (Object.keys(scriptProblems).length ? { ...baseProblems, ...scriptProblems } : baseProblems), [baseProblems, scriptProblems]);
   const [status, setStatus] = useState('');
 
   const tabsRef = useRef(tabs);
@@ -454,7 +503,7 @@ export function useWorkspace(backend: Backend) {
     [backend],
   );
 
-  /** Files over the code insight limit: shown, not analyzed (like IntelliJ). */
+  /** Files over the code insight limit: shown, not analyzed. */
   const largeFiles = useRef(new Set<string>());
   /** One analysis at a time, newest text per file, active file first, closed files dropped. */
   const analysisQueue = useRef<AnalysisQueue | null>(null);
@@ -508,8 +557,8 @@ export function useWorkspace(backend: Backend) {
   }, []);
 
   /**
-   * Opens a file in a tab. With `preview`, it reuses the preview tab (PhpStorm's
-   * "Enable Preview Tab"): the next preview replaces it until it is edited or pinned.
+   * Opens a file in a tab. With `preview`, it reuses the preview tab ("Enable
+   * Preview Tab"): the next preview replaces it until it is edited or pinned.
    */
   /** Files being read ahead of opening (mouse pressed on them in the tree). */
   const prefetched = useRef(new Map<string, Promise<string>>());
@@ -672,7 +721,7 @@ export function useWorkspace(backend: Backend) {
       markBusy(400);
       setEditedFiles((s) => (s.has(path) ? s : new Set(s).add(path)));
       if (!largeFiles.current.has(path)) lspRef.current?.didChange(path, text);
-      // Editing a previewed file keeps it open (PhpStorm pins the preview tab).
+      // Editing a previewed file keeps it open.
       if (text !== savedText.current[path]) pinTab(`file:${path}`);
       setDirty((d) => {
         const isDirty = text !== savedText.current[path];
@@ -686,7 +735,48 @@ export function useWorkspace(backend: Backend) {
       typingTimer.current = window.setTimeout(() => {
         setActiveText(text);
         if (path.endsWith('.php') && text.length <= CODE_INSIGHT_LIMIT) {
-          void symbols.updateText(path, text).then(refreshUsageHints);
+          void symbols.updateText(path, text).then(() => {
+            refreshUsageHints();
+            bumpStructure();
+          });
+        }
+        checkFile(path, text, 0);
+      }, ANALYSIS_DELAY);
+    },
+    [backend, checkFile],
+  );
+
+  /**
+   * Typing in the editor: the cheap path. The text is read only when needed; the language server
+   * gets just the changed ranges when it takes them; a length check decides most dirty states.
+   */
+  const onModelEdit = useCallback(
+    (path: string, model: monaco.editor.ITextModel, e: monaco.editor.IModelContentChangedEvent) => {
+      if (!(path in liveText.current)) return;
+      staleModels.current.set(path, model);
+      markBusy(400);
+      setEditedFiles((s) => (s.has(path) ? s : new Set(s).add(path)));
+      if (!largeFiles.current.has(path)) lspRef.current?.didEdit(path, e.changes, () => liveText.current[path]);
+      const saved = savedText.current[path];
+      // Most edits change the length: no need to compare the whole text then.
+      const isDirty = saved === undefined || model.getValueLength() !== saved.length || liveText.current[path] !== saved;
+      if (isDirty) pinTab(`file:${path}`);
+      setDirty((d) => {
+        if (isDirty === d.has(path)) return d;
+        const next = new Set(d);
+        if (isDirty) next.add(path);
+        else next.delete(path);
+        return next;
+      });
+      window.clearTimeout(typingTimer.current);
+      typingTimer.current = window.setTimeout(() => {
+        const text = liveText.current[path];
+        setActiveText(text);
+        if (path.endsWith('.php') && text.length <= CODE_INSIGHT_LIMIT) {
+          void symbols.updateText(path, text).then(() => {
+            refreshUsageHints();
+            bumpStructure();
+          });
         }
         checkFile(path, text, 0);
       }, ANALYSIS_DELAY);
@@ -735,7 +825,25 @@ export function useWorkspace(backend: Backend) {
     setActiveText(activePath ? liveText.current[activePath] ?? '' : '');
   }, [activePath, loaded]);
 
-  const structure = useMemo(() => (activePath?.endsWith('.php') && activeText.length <= CODE_INSIGHT_LIMIT ? structureOf(activeText) : []), [activePath, activeText]);
+  // Structure: exact from the index once it has the file's current text (the regex scan is the
+  // fallback: browser sample, big files, files not indexed yet).
+  const [indexStructure, setIndexStructure] = useState<{ path: string; symbols: PhpSymbol[] } | null>(null);
+  const [structureTick, bumpStructure] = useReducer((x: number) => x + 1, 0);
+  useEffect(() => {
+    if (!activePath?.endsWith('.php') || !symbols.rust || activeText.length > CODE_INSIGHT_LIMIT) return;
+    let live = true;
+    void symbols.structure(activePath, activeText).then((found) => live && setIndexStructure(found ? { path: activePath, symbols: found } : null));
+    return () => {
+      live = false;
+    };
+    // activeText changes with the same pause that updates the index: structureTick follows that.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePath, structureTick]);
+  const structure = useMemo(() => {
+    if (!activePath?.endsWith('.php') || activeText.length > CODE_INSIGHT_LIMIT) return [];
+    if (indexStructure?.path === activePath) return indexStructure.symbols;
+    return structureOf(activeText);
+  }, [activePath, activeText, indexStructure]);
 
   const toggleBreakpoint = useCallback((path: string, line: number) => {
     setBreakpoints((b) => {
@@ -751,6 +859,11 @@ export function useWorkspace(backend: Backend) {
     setLaravelProject({ root: backend.root, files, read: (path) => backend.readFile(path) });
   }, [backend, files]);
   useEffect(() => () => setLaravelProject(null), [backend]);
+  // JS and TS projects inside this one (resources/js, a front end): loaded with the first .js/.ts file.
+  useEffect(() => {
+    if (files.length) setScriptContext({ backend, files, notify });
+  }, [backend, files, notify]);
+  useEffect(() => () => setScriptContext(null), [backend]);
   const [indexStats, setIndexStats] = useState<{ files: number; classes: number; ms: number } | null>(null);
   const [routes, setRoutes] = useState<Route[]>([]);
   const [indexVersion, bumpIndex] = useReducer((x: number) => x + 1, 0);
@@ -855,6 +968,7 @@ export function useWorkspace(backend: Backend) {
       }
       savedText.current[path] = text;
       invalidateLaravelFiles([path]);
+      scriptFileChanged(path, text);
       lspRef.current?.didSave(path, text);
       setDirty((d) => {
         const next = new Set(d);
@@ -932,13 +1046,21 @@ export function useWorkspace(backend: Backend) {
   );
 
   // ── Tests and terminal ────────────────────────────────────────
-  const [tests, setTests] = useState<{ running: boolean; result: TestResult | null }>({ running: false, result: null });
-  const runTests = useCallback(async () => {
-    showBottom('tests');
-    setTests((t) => ({ ...t, running: true }));
-    const result = await backend.runTests();
-    setTests({ running: false, result });
-  }, [backend, showBottom]);
+  // PHPUnit / Pest runs live in the test runner (tests/runner.ts); the Run window shows them.
+  useEffect(() => {
+    testRunner.setProject(backend);
+    return () => testRunner.setProject(null);
+  }, [backend]);
+  /** Runs (or debugs) tests: a file, a test, the failed ones… The Run window opens. */
+  const runTestScope = useCallback(
+    (scope: Scope, opts?: { debug?: boolean }) => {
+      showBottom('tests');
+      void testRunner.start(scope, opts);
+    },
+    [showBottom],
+  );
+  /** The whole suite (toolbar ▶, Run ▸ Run Tests). */
+  const runTests = useCallback(() => runTestScope({ kind: 'all' }), [runTestScope]);
 
   const [terminal, setTerminal] = useState<{ id: number; line: string; cwd: string; result?: RunResult }[]>([]);
   /** Folder commands run in; `cd` changes it (each command is its own process). */
@@ -1133,6 +1255,7 @@ export function useWorkspace(backend: Backend) {
     async (changes: { kind: 'file' | 'git' | 'vendor'; path: string; exists: boolean; isDir: boolean }[]) => {
       const files = changes.filter((c) => c.kind === 'file');
       invalidateLaravelFiles(files.map((c) => c.path));
+      void scriptFilesChanged(files, (p) => backend.readFile(p));
 
       // Project tree and the file list used by Search Everywhere.
       const parents = new Set(files.map((c) => c.path.slice(0, c.path.lastIndexOf('/'))));
@@ -1524,7 +1647,7 @@ export function useWorkspace(backend: Backend) {
 
   /**
    * After the declarations scan (phase 1): checks the open files right away, then analyzes the
-   * whole project in the background (phase 2), like IntelliJ's "dumb mode" then smart mode.
+   * whole project in the background (phase 2).
    */
   const analyzeProject = useCallback(
     async (scanned: MagoSummary) => {
@@ -1720,6 +1843,10 @@ export function useWorkspace(backend: Backend) {
   const collectUsages = useCallback(
     async (model: monaco.editor.ITextModel, position: monaco.IPosition, vendor = false): Promise<UsageSearch> => {
       const word = model.getWordAtPosition(position)?.word ?? '';
+      if (isScriptModel(model)) {
+        const found = await scriptUsages(model, position);
+        return { name: found.name || word, title: found.name || word, kind: '', container: '', items: found.usages, target: null };
+      }
       if (lspRef.current?.running) {
         const found = await lspFindUsages(model, position);
         return { name: found?.name || word, title: found?.name || word, kind: '', container: '', items: found?.usages ?? [], target: null };
@@ -1752,7 +1879,7 @@ export function useWorkspace(backend: Backend) {
     [collectUsages, showBottom],
   );
 
-  /** Show Usages (Ctrl+Alt+F7, a "N usages" lens): PhpStorm's popup at the code. One usage: jump there. */
+  /** Show Usages (Ctrl+Alt+F7, a "N usages" lens): a popup at the code. One usage: jump there. */
   const [usagesPopup, setUsagesPopup] = useState<UsagesPopupState | null>(null);
   const showUsagesAt = useCallback(
     async (model: monaco.editor.ITextModel, position: monaco.IPosition, anchor: { x: number; y: number }) => {
@@ -1932,7 +2059,7 @@ export function useWorkspace(backend: Backend) {
     // tabs and editor
     isLargeFile: (path: string) => largeFiles.current.has(path),
     tabs, activeId, setActiveId, activeTab, activePath, loaded, dirty, openFile, openTable, openConsole, closeTab, closeTabs, moveTab,
-    onEdit, save, saveActive, cursor, setCursor, goto, setGoto, breakpoints, toggleBreakpoint, structure, problems,
+    onEdit, onModelEdit, save, saveActive, goto, setGoto, breakpoints, toggleBreakpoint, structure, problems,
     // tool windows
     toolLayout, openTools, bottomSideTool, showTool, toggleTool, hideTool, isToolOpen, placeTool, resetToolLayout, toggleLeft, showLeft, setRightTool, toggleRight, bottomTab, bottomOpen, setBottomOpen, showBottom,
     searchOpen, setSearchOpen, searchTab, openSearch, recentFiles, forgetRecent, editedFiles, recentOpen, setRecentOpen,
@@ -1944,7 +2071,7 @@ export function useWorkspace(backend: Backend) {
     // composer
     packages, outdated, composerBusy, checkOutdated, updatePackage, hasComposer,
     // run
-    tests, runTests, terminal, runCommand, clearTerminal: () => setTerminal([]), terminalCwd,
+    runTests, runTestScope, terminal, runCommand, clearTerminal: () => setTerminal([]), terminalCwd,
     openTerminalAt: (dir: string) => {
       setTerminalCwd(dir);
       // Desktop: a new shell tab in that folder (Project tree ▸ Open In ▸ Terminal).

@@ -12,6 +12,20 @@ import {
   IconBell,
   IconBookmark,
   IconBrandGit,
+  IconBrandNpm,
+  IconBrandPhp,
+  IconBrandLaravel,
+  IconBrandSymfony,
+  IconBrandDrupal,
+  IconBrandAngular,
+  IconBrandBootstrap,
+  IconServer2,
+  IconBrandNextjs,
+  IconBrandNodejs,
+  IconBrandNuxt,
+  IconBrandReact,
+  IconBrandVite,
+  IconBrandVue,
   IconBug,
   IconBulb,
   IconCalculator,
@@ -115,6 +129,20 @@ const ICONS = {
   bug: IconBug,
   run: IconPlayerPlay,
   git: IconBrandGit,
+  npm: IconBrandNpm,
+  php: IconBrandPhp,
+  laravel: IconBrandLaravel,
+  symfony: IconBrandSymfony,
+  drupal: IconBrandDrupal,
+  angular: IconBrandAngular,
+  bootstrap: IconBrandBootstrap,
+  express: IconServer2,
+  nextjs: IconBrandNextjs,
+  nodejs: IconBrandNodejs,
+  nuxt: IconBrandNuxt,
+  react: IconBrandReact,
+  vite: IconBrandVite,
+  vue: IconBrandVue,
   branch: IconGitBranch,
   todo: IconListCheck,
   gear: IconSettings,
@@ -177,7 +205,7 @@ export function Logo({ size = 22 }: { size?: number }) {
   return <img src={appIcon} width={size} height={size} alt="" aria-hidden="true" draggable={false} style={{ display: 'block' }} />;
 }
 
-/** JetBrains-style symbol icon (class, method, field…): a tinted circle with a colored letter. */
+/** Symbol icon (class, method, field…): a tinted circle with a colored letter. */
 export function Sym({ letter, color }: { letter: string; color: string }) {
   return (
     <span className="sym" style={{ color, background: `${color}26` }} aria-hidden="true">

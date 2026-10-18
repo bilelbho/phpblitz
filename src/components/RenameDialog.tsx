@@ -19,7 +19,7 @@ export function RenameDialog({ ws, path, isDir, onClose, onRenamed }: { ws: Work
   const lspReady = ws.lspStatus.state === 'ready' || symbols.rust;
 
   useEffect(() => {
-    // Select the name without the extension, like PhpStorm.
+    // Select the name without the extension.
     const el = input.current;
     if (el) {
       el.focus();
@@ -59,7 +59,7 @@ export function RenameDialog({ ws, path, isDir, onClose, onRenamed }: { ws: Work
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
-        className="jb-dialog"
+        className="pb-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="rename-title"
@@ -69,10 +69,10 @@ export function RenameDialog({ ws, path, isDir, onClose, onRenamed }: { ws: Work
           if (e.key === 'Enter') submit();
         }}
       >
-        <div className="jb-dialog-title" id="rename-title">
+        <div className="pb-dialog-title" id="rename-title">
           Rename {isDir ? 'Directory' : 'File'}
         </div>
-        <div className="jb-dialog-body">
+        <div className="pb-dialog-body">
           <span className="muted" style={{ fontSize: 12 }}>
             {relativePath(ws.backend, path)}
           </span>
@@ -98,7 +98,7 @@ export function RenameDialog({ ws, path, isDir, onClose, onRenamed }: { ws: Work
           {className && !lspReady && <span className="muted" style={{ fontSize: 12 }}>Needs the desktop app or a running language server.</span>}
           {error && <div className="error-text">{error}</div>}
         </div>
-        <div className="jb-dialog-buttons">
+        <div className="pb-dialog-buttons">
           <button type="button" className="btn" onClick={onClose}>
             Cancel
           </button>

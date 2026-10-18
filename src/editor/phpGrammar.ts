@@ -1,4 +1,4 @@
-// PHP highlighting closer to PhpStorm's than Monaco's built-in grammar: method calls, properties,
+// PHP highlighting, richer than Monaco's built-in grammar: method calls, properties,
 // named arguments, #[Attributes], PHPDoc tags and declarations get their own tokens.
 
 import * as monaco from 'monaco-editor';
@@ -10,7 +10,7 @@ const keywords = [
   'implements', 'include', 'include_once', 'instanceof', 'insteadof', 'interface', 'isset', 'list', 'match', 'namespace',
   'new', 'or', 'print', 'private', 'protected', 'public', 'readonly', 'require', 'require_once', 'return', 'static',
   'switch', 'throw', 'trait', 'try', 'unset', 'use', 'var', 'while', 'xor', 'yield', 'from',
-  // Types and literals, colored like keywords in PhpStorm.
+  // Types and literals, colored like keywords.
   'int', 'float', 'string', 'bool', 'array', 'object', 'mixed', 'void', 'never', 'null', 'iterable', 'callable',
   'self', 'parent', 'true', 'false', 'TRUE', 'FALSE', 'NULL',
 ];

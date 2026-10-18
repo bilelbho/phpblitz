@@ -206,7 +206,7 @@ export class PhpIndex {
 
 export const phpIndex = new PhpIndex();
 
-/** Parameter list as JetBrains shows it in Structure: types only, `$name` when untyped. */
+/** Parameter list as Structure shows it: types only, `$name` when untyped. */
 export function paramTypes(params: string | undefined): string {
   if (!params) return '';
   if (params === '…') return '…';
@@ -290,7 +290,8 @@ export function languageOf(path: string): string {
   const ext = path.split('.').pop()?.toLowerCase() ?? '';
   if (path.endsWith('.blade.php')) return 'html';
   const map: Record<string, string> = {
-    php: 'php', json: 'json', js: 'javascript', mjs: 'javascript', ts: 'typescript', css: 'css', scss: 'scss',
+    php: 'php', json: 'json', jsonc: 'json', js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript',
+    ts: 'typescript', mts: 'typescript', cts: 'typescript', tsx: 'typescript', vue: 'html', svelte: 'html', css: 'css', scss: 'scss', less: 'less',
     html: 'html', xml: 'xml', md: 'markdown', markdown: 'markdown', yml: 'yaml', yaml: 'yaml', sql: 'sql', sh: 'shell', env: 'dotenv', ini: 'ini',
   };
   if (path.split('/').pop()?.startsWith('.env')) return 'dotenv';

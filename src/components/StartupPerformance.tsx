@@ -45,11 +45,11 @@ export function StartupPerformance({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="jb-dialog perf-dialog" role="dialog" aria-modal="true" aria-labelledby="perf-title" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
-        <div className="jb-dialog-title" id="perf-title">
+      <div className="pb-dialog perf-dialog" role="dialog" aria-modal="true" aria-labelledby="perf-title" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+        <div className="pb-dialog-title" id="perf-title">
           Startup Performance
         </div>
-        <div className="jb-dialog-body perf-body">
+        <div className="pb-dialog-body perf-body">
           <div className="muted">
             Opening <b>{p.project || 'this project'}</b>
             {ready !== null && <> · the window was ready {ms(ready)} after launch</>}
@@ -71,7 +71,7 @@ export function StartupPerformance({ onClose }: { onClose: () => void }) {
             Stages run in parallel where they can. If a project opens slowly, copy this report and send it with the project's size.
           </div>
         </div>
-        <div className="jb-dialog-buttons">
+        <div className="pb-dialog-buttons">
           <button type="button" className="btn" onClick={() => void copy()}>
             {copied ? 'Copied' : 'Copy Report'}
           </button>

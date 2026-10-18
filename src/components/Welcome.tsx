@@ -15,6 +15,7 @@ import { ContextMenu, type ContextItem } from './ContextMenu';
 import { THEMES } from './SettingsAppearance';
 import { WindowControls } from './WindowControls';
 import { AboutDialog } from './lazy';
+import { NewProjectDialog } from './NewProjectDialog';
 import { checkForUpdates, RELEASES_URL, restartToUpdate, useUpdateState } from '../updater';
 
 interface Props {
@@ -398,7 +399,7 @@ function DialogShell({ title, busy, error, okLabel, canOk, onOk, onClose, childr
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose()}>
       <form
-        className="jb-dialog welcome-dialog"
+        className="pb-dialog welcome-dialog"
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -408,12 +409,12 @@ function DialogShell({ title, busy, error, okLabel, canOk, onOk, onClose, childr
           if (canOk && !busy) onOk();
         }}
       >
-        <div className="jb-dialog-title">{title}</div>
-        <div className="jb-dialog-body">
+        <div className="pb-dialog-title">{title}</div>
+        <div className="pb-dialog-body">
           {children}
           {error && <div className="error-text welcome-dialog-error">{error}</div>}
         </div>
-        <div className="jb-dialog-buttons">
+        <div className="pb-dialog-buttons">
           <button type="button" className="btn" disabled={busy} onClick={onClose}>
             Cancel
           </button>
@@ -423,56 +424,6 @@ function DialogShell({ title, busy, error, okLabel, canOk, onOk, onClose, childr
         </div>
       </form>
     </div>
-  );
-}
-
-function NewProjectDialog({ near, onClose, onCreated }: { near?: string; onClose: () => void; onCreated: (path: string) => void }) {
-  const [name, setName] = useState('untitled');
-  const [location, setLocation] = useDefaultLocation(near);
-  const [composer, setComposer] = useState(true);
-  const [git, setGit] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-
-  const create = async () => {
-    const path = joinPath(location, name.trim());
-    setBusy(true);
-    setError('');
-    try {
-      await invoke('create_dir', { path });
-      if (composer) {
-        const pkg = name.trim().toLowerCase().replace(/[^a-z0-9_.-]+/g, '-');
-        const json = { name: `app/${pkg}`, type: 'project', require: { php: '>=8.2' }, autoload: { 'psr-4': { 'App\\': 'src/' } } };
-        await invoke('create_file', { path: `${path}/composer.json`, content: JSON.stringify(json, null, 4) + '\n' });
-        await invoke('create_dir', { path: `${path}/src` });
-      }
-      if (git) await invoke('run_process', { cwd: path, program: 'git', args: ['init'] }).catch(() => {});
-      onClose();
-      onCreated(path);
-    } catch (e) {
-      setError(String(e));
-      setBusy(false);
-    }
-  };
-
-  return (
-    <DialogShell title="New Project" busy={busy} error={error} okLabel="Create" canOk={VALID_NAME.test(name.trim()) && !!location.trim()} onOk={create} onClose={onClose}>
-      <label htmlFor="np-name">Name:</label>
-      <div className="field">
-        <input id="np-name" value={name} autoFocus spellCheck={false} onFocus={(e) => e.target.select()} onChange={(e) => setName(e.target.value)} />
-      </div>
-      <label htmlFor="np-location">Location:</label>
-      <FolderField id="np-location" value={location} onChange={setLocation} />
-      <span className="muted welcome-dialog-hint">Project will be created in: {toNative(joinPath(location || '…', name.trim() || '…'))}</span>
-      <label className="settings-check">
-        <input type="checkbox" className="checkbox" checked={composer} onChange={(e) => setComposer(e.target.checked)} />
-        Create composer.json (PSR-4 autoload from src/)
-      </label>
-      <label className="settings-check">
-        <input type="checkbox" className="checkbox" checked={git} onChange={(e) => setGit(e.target.checked)} />
-        Create Git repository
-      </label>
-    </DialogShell>
   );
 }
 

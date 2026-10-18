@@ -1,4 +1,4 @@
-// The editor's right-click menu, modeled on PhpStorm's.
+// The editor's right-click menu.
 import { debug } from './debug/manager';
 
 import * as monaco from 'monaco-editor';
@@ -7,6 +7,9 @@ import type { Workspace } from './useWorkspace';
 import { baseName, relativePath, type Problem } from './backend/types';
 import { isTauri } from './platform';
 import { codeActionsAt, isLspActive, type CodeAction } from './lsp/monacoBridge';
+import { testMenuItems, testsOf } from './tests/gutter';
+import { testAt } from './tests/discover';
+import { isScriptModel, scriptQuickFixes } from './jsProjects';
 import type { ContextItem } from './components/ContextMenu';
 import { structureOf } from './php';
 import { symbols } from './symbols';
@@ -44,9 +47,33 @@ const isGenerate = (a: CodeAction) => a.kind.startsWith('source') || /^(generate
 export async function codeActionsForSelection(editor: Editor): Promise<CodeAction[]> {
   const model = editor.getModel();
   const sel = editor.getSelection();
-  if (!model || !sel || !isLspActive()) return [];
+  if (!model || !sel) return [];
+  if (isScriptModel(model)) return scriptCodeActions(model, sel);
+  if (!isLspActive()) return [];
   const actions = await codeActionsAt(model, sel);
   return actions.sort((a, b) => Number(b.preferred) - Number(a.preferred));
+}
+
+/** The TypeScript service's quick fixes for the problems on the caret's lines. */
+async function scriptCodeActions(model: monaco.editor.ITextModel, sel: monaco.Selection): Promise<CodeAction[]> {
+  const markers = monaco.editor
+    .getModelMarkers({ resource: model.uri })
+    .filter((m) => (m.owner === 'typescript' || m.owner === 'javascript') && m.startLineNumber <= sel.endLineNumber && m.endLineNumber >= sel.startLineNumber);
+  const fixes = (await Promise.all(markers.map((m) => scriptQuickFixes(model, m).catch(() => [])))).flat();
+  const seen = new Set<string>();
+  return fixes
+    .filter((f) => !seen.has(f.title) && seen.add(f.title))
+    .map((f) => ({ title: f.title, kind: 'quickfix', preferred: false, run: async () => f.run() }));
+}
+
+/** Run / Debug for the test at a line of a test file, or for the whole file. */
+function testItemsAt(ws: Workspace, path: string, text: string, line: number, name: string): ContextItem[] {
+  const test = testAt(testsOf(path, text), line);
+  if (test) return testMenuItems(ws.runTestScope, path, test);
+  return [
+    { label: `Run '${name}'`, shortcut: SHORTCUTS.runTests, icon: 'run', run: () => ws.runTestScope({ kind: 'file', path }) },
+    { label: `Debug '${name}'`, icon: 'bug', run: () => ws.runTestScope({ kind: 'file', path }, { debug: true }) },
+  ];
 }
 
 function actionItems(actions: CodeAction[], empty: string, onError: (e: unknown) => void, uri?: string): ContextItem[] {
@@ -81,7 +108,7 @@ function magoProblemItems(problems: Problem[], ws: Workspace, path: string): Con
       preview: async () => f.edits.map((e) => ({ startLine: e.line, startColumn: e.column, endLine: e.endLine, endColumn: e.endColumn, text: e.text })),
     })),
   );
-  // One submenu per rule, like PhpStorm's "Inspection 'X' options ▸".
+  // One submenu per rule ("Inspection 'X' options ▸").
   const options: ContextItem[] = problems.map((p) => ({
     label: `'${p.code}' options`,
     icon: p.severity === 'error' ? ('error' as const) : ('warning' as const),
@@ -123,7 +150,7 @@ export function contextActionsMenu(actions: CodeAction[], ws: Workspace, mago: {
   const magoItems = mago ? magoProblemItems(magoProblemsAtCaret(mago.editor, ws, mago.path).slice(0, 4), ws, mago.path) : [];
   const lspItems = actions.filter((a) => !isGenerate(a) || a.kind.startsWith('quickfix'));
   if (!lspItems.length && magoItems.length) return magoItems;
-  // Quick fixes (with a bulb) first, then a line, then intentions, like PhpStorm.
+  // Quick fixes (with a bulb) first, then a line, then intentions.
   const isFix = (a: CodeAction) => a.kind.startsWith('quickfix') || a.preferred;
   const fixes = lspItems.filter(isFix);
   const intentions = lspItems.filter((a) => !isFix(a));
@@ -282,8 +309,8 @@ export function buildEditorMenu(
       ? [{ label: magoHere ? `Mago (${magoHere} here)` : 'Mago', icon: 'check' as const, submenu: magoMenu(editor, ws, path) }]
       : []),
     SEP,
-    ...(isTest ? [{ label: `Run '${className}'`, shortcut: SHORTCUTS.runTests, icon: 'run' as const, run: ws.runTests }] : []),
-    ...(isTest && ws.backend.kind === 'disk' ? [{ label: `Debug '${className}'`, icon: 'bug' as const, run: () => void debug.debugScript(`${ws.backend.root}/vendor/bin/phpunit`, [path]) }] : []),
+    // In a test file: run or debug the test at the caret (else the whole file).
+    ...(isTest ? testItemsAt(ws, path, model.getValue(), editor.getPosition()?.lineNumber ?? 1, className) : []),
     ...(path.endsWith('.php') && !isTest ? [{ label: `Debug '${path.split('/').pop()}'`, icon: 'bug' as const, run: () => void debug.debugScript(path) }] : []),
     ...(debug.active?.status === 'break'
       ? [
@@ -370,7 +397,8 @@ export async function quickFixesFor(editor: Editor, ws: Workspace, path: string,
         .filter((a) => a.kind.startsWith('quickfix') || a.preferred)
         .map((a) => ({ title: a.title, run: () => void a.run().catch((e) => reportError(ws, e)) }))
     : [];
-  return [...mago, ...lsp];
+  const script = isScriptModel(model) ? await scriptQuickFixes(model, marker).catch(() => []) : [];
+  return [...mago, ...lsp, ...script];
 }
 
 /**

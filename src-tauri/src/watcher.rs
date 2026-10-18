@@ -11,7 +11,7 @@
 //! appear, shallow folders first.
 //!
 //! Folders that can't be watched (the inotify limit `fs.inotify.max_user_watches` is reached, or no
-//! watcher can be created at all) are polled instead, like VS Code and IntelliJ do: their files'
+//! watcher can be created at all) are polled instead: their files'
 //! times and sizes are compared every few seconds. `watch_start` reports how many, so the UI can
 //! explain how to raise the limit.
 
@@ -20,8 +20,8 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant, SystemTime};
 
-use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
-use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
+use notify::event::{AccessKind, AccessMode};
+use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher as _};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
@@ -32,7 +32,7 @@ const NEVER_WATCHED: [&str; 7] = ["node_modules", ".git", ".idea", ".blitz", ".s
 
 /// The open project's watching: OS watches, and the poller for folders without one.
 struct Session {
-    debouncer: Option<Debouncer<RecommendedWatcher>>,
+    debouncer: Option<RecommendedWatcher>,
     /// Owned here only: the polling thread holds a weak reference and stops when this is dropped.
     #[allow(dead_code)]
     poller: Arc<Mutex<Poller>>,
@@ -98,6 +98,8 @@ fn classify(root: &Path, paths: impl IntoIterator<Item = PathBuf>) -> Vec<FsChan
             Some("vendor") => push(FsChange { kind: "vendor", path: crate::fs::norm(&root.join("vendor")), exists: true, is_dir: true }),
             Some(dir) if IGNORED_DIRS.contains(&dir) => {}
             Some(_) if rel.components().any(|c| matches!(c, Component::Normal(s) if s == "node_modules")) => {}
+            // The temp file of an atomic save (fs::write_atomic): renamed over the real file at once.
+            Some(_) if path.to_string_lossy().ends_with(".blitz-tmp") => {}
             Some(_) => push(FsChange { kind: "file", path: crate::fs::norm(&path), exists: path.exists(), is_dir: path.is_dir() }),
         }
     }
@@ -250,6 +252,62 @@ fn spawn_poller(poller: Weak<Mutex<Poller>>, emit: impl Fn(Vec<PathBuf>) + Send 
     });
 }
 
+/// Whether an event changed something. Linux's inotify also reports files being opened and
+/// closed after reading (IN_OPEN): PHPBlitz reading vendor/ for the analyzer would look like
+/// `composer install` and start the analysis again, forever. Reads are dropped; a close after
+/// writing is a change.
+fn is_change(kind: &EventKind) -> bool {
+    match kind {
+        EventKind::Access(AccessKind::Close(AccessMode::Write)) => true,
+        EventKind::Access(_) => false,
+        _ => true,
+    }
+}
+
+/// A watcher whose changes arrive in batches: once things are quiet for `delay`, and at least
+/// every 4 × `delay` during a long burst (`composer install`, a checkout).
+fn change_watcher(delay: Duration, mut on_paths: impl FnMut(Vec<PathBuf>) + Send + 'static) -> notify::Result<RecommendedWatcher> {
+    use std::sync::mpsc::RecvTimeoutError;
+    let (tx, rx) = std::sync::mpsc::channel::<PathBuf>();
+    let watcher = notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
+        let Ok(event) = result else { return };
+        if is_change(&event.kind) {
+            for path in event.paths {
+                let _ = tx.send(path);
+            }
+        }
+    })?;
+    // Ends when the watcher (and with it the sender) is dropped.
+    std::thread::spawn(move || {
+        while let Ok(first) = rx.recv() {
+            let started = Instant::now();
+            let mut batch = vec![first];
+            let mut open = true;
+            loop {
+                let left = (delay * 4).saturating_sub(started.elapsed());
+                if left.is_zero() {
+                    break;
+                }
+                match rx.recv_timeout(delay.min(left)) {
+                    Ok(path) => batch.push(path),
+                    Err(RecvTimeoutError::Timeout) => break,
+                    Err(RecvTimeoutError::Disconnected) => {
+                        open = false;
+                        break;
+                    }
+                }
+            }
+            batch.sort();
+            batch.dedup();
+            on_paths(batch);
+            if !open {
+                return;
+            }
+        }
+    });
+    Ok(watcher)
+}
+
 /// fs.inotify.max_user_watches, read for the message (Linux).
 fn inotify_limit() -> Option<u64> {
     std::fs::read_to_string("/proc/sys/fs/inotify/max_user_watches").ok()?.trim().parse().ok()
@@ -278,9 +336,7 @@ fn start(app: AppHandle, shared: Watcher, root: String) -> Result<WatchStatus, S
     let watched_root = root_path.clone();
     // New folders (Linux, macOS) are added from a helper thread, not the debouncer's callback.
     let (new_dirs, new_dirs_rx) = std::sync::mpsc::channel::<PathBuf>();
-    let debouncer = new_debouncer(Duration::from_millis(250), move |result: DebounceEventResult| {
-        let Ok(events) = result else { return };
-        let paths: Vec<PathBuf> = events.into_iter().map(|e| e.path).collect();
+    let debouncer = change_watcher(Duration::from_millis(250), move |paths: Vec<PathBuf>| {
         if cfg!(not(windows)) {
             for c in classify(&watched_root, paths.iter().cloned()).iter().filter(|c| c.kind == "file" && c.exists && c.is_dir) {
                 let _ = new_dirs.send(PathBuf::from(&c.path));
@@ -302,7 +358,7 @@ fn start(app: AppHandle, shared: Watcher, root: String) -> Result<WatchStatus, S
     if cfg!(windows) {
         // One recursive watch covers the project.
         drop(new_dirs_rx);
-        match debouncer.as_mut().map(|d| d.watcher().watch(&root_path, RecursiveMode::Recursive)) {
+        match debouncer.as_mut().map(|d| d.watch(&root_path, RecursiveMode::Recursive)) {
             Some(Ok(())) => status.watched = 1,
             other => {
                 if let Some(Err(e)) = other {
@@ -317,7 +373,7 @@ fn start(app: AppHandle, shared: Watcher, root: String) -> Result<WatchStatus, S
         }
     } else {
         let (watched, failed) = watch_folders(folders_to_watch(&root_path), |dir| match debouncer.as_mut() {
-            Some(d) => d.watcher().watch(dir, RecursiveMode::NonRecursive).map_err(|e| e.to_string()),
+            Some(d) => d.watch(dir, RecursiveMode::NonRecursive).map_err(|e| e.to_string()),
             None => Err(String::new()),
         });
         status.watched = watched;
@@ -339,7 +395,7 @@ fn start(app: AppHandle, shared: Watcher, root: String) -> Result<WatchStatus, S
                 let Ok(mut guard) = shared.lock() else { break };
                 let Some(session) = guard.as_mut() else { continue };
                 let Some(d) = session.debouncer.as_mut() else { continue };
-                let (_, failed) = watch_folders(subfolders(&dir, &NEVER_WATCHED), |sub| d.watcher().watch(sub, RecursiveMode::NonRecursive).map_err(|e| e.to_string()));
+                let (_, failed) = watch_folders(subfolders(&dir, &NEVER_WATCHED), |sub| d.watch(sub, RecursiveMode::NonRecursive).map_err(|e| e.to_string()));
                 if let (Some((_, dirs)), Some(poller)) = (failed, weak_poller.upgrade()) {
                     if let Ok(mut p) = poller.lock() {
                         for dir in dirs {
@@ -409,13 +465,11 @@ mod tests {
 
         let (tx, rx) = std::sync::mpsc::channel();
         let watched = root.clone();
-        let mut debouncer = new_debouncer(Duration::from_millis(150), move |r: DebounceEventResult| {
-            if let Ok(events) = r {
-                let _ = tx.send(classify(&watched, events.into_iter().map(|e| e.path)));
-            }
+        let mut debouncer = change_watcher(Duration::from_millis(150), move |paths| {
+            let _ = tx.send(classify(&watched, paths));
         })
         .unwrap();
-        debouncer.watcher().watch(&root, RecursiveMode::Recursive).unwrap();
+        debouncer.watch(&root, RecursiveMode::Recursive).unwrap();
         std::thread::sleep(Duration::from_millis(200));
 
         std::fs::write(root.join("app/New.php"), "<?php class NewOne {}").unwrap();
@@ -432,6 +486,52 @@ mod tests {
         assert!(seen.iter().any(|c| c.path.ends_with("app/Old.php") && !c.exists), "{seen:?}");
         drop(debouncer);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Reading files is not a change (Linux reports every open): otherwise the analyzer reading
+    /// vendor/ looked like `composer install` and started itself again, forever.
+    #[test]
+    fn reading_files_is_not_a_change() {
+        let root = std::env::temp_dir().join(format!("phpblitz-watch-read-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("vendor/acme")).unwrap();
+        let root = if cfg!(target_os = "macos") { root.canonicalize().unwrap() } else { root };
+        std::fs::write(root.join("vendor/acme/Lib.php"), "<?php").unwrap();
+        std::fs::write(root.join("Read.php"), "<?php").unwrap();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let watched = root.clone();
+        let mut watcher = change_watcher(Duration::from_millis(100), move |paths| {
+            let _ = tx.send(classify(&watched, paths));
+        })
+        .unwrap();
+        watcher.watch(&root, RecursiveMode::Recursive).unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+
+        for _ in 0..3 {
+            let _ = std::fs::read(root.join("vendor/acme/Lib.php")).unwrap();
+            let _ = std::fs::read(root.join("Read.php")).unwrap();
+        }
+        let quiet = rx.recv_timeout(Duration::from_millis(600));
+        assert!(quiet.is_err(), "reads were reported as changes: {quiet:?}");
+
+        // A real write still is.
+        std::fs::write(root.join("Read.php"), "<?php // edited").unwrap();
+        let batch = rx.recv_timeout(Duration::from_secs(5)).expect("the write is reported");
+        assert!(batch.iter().any(|c| c.path.ends_with("Read.php")), "{batch:?}");
+        drop(watcher);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn only_reads_are_dropped() {
+        use notify::event::{CreateKind, ModifyKind};
+        assert!(!is_change(&EventKind::Access(AccessKind::Open(AccessMode::Any))));
+        assert!(!is_change(&EventKind::Access(AccessKind::Close(AccessMode::Read))));
+        assert!(is_change(&EventKind::Access(AccessKind::Close(AccessMode::Write))));
+        assert!(is_change(&EventKind::Create(CreateKind::File)));
+        assert!(is_change(&EventKind::Modify(ModifyKind::Any)));
+        assert!(is_change(&EventKind::Remove(notify::event::RemoveKind::File)));
     }
 
     /// Polled folders: new, changed and deleted files are found, new folders are polled from then on.
@@ -475,7 +575,7 @@ mod tests {
         let (watched, failed) = watch_folders(dirs, |d| {
             tried += 1;
             // What notify's MaxFilesWatch error displays.
-            if d >= Path::new("c") { Err(notify_debouncer_mini::notify::Error::new(notify_debouncer_mini::notify::ErrorKind::MaxFilesWatch).add_path(d.to_path_buf()).to_string()) } else { Ok(()) }
+            if d >= Path::new("c") { Err(notify::Error::new(notify::ErrorKind::MaxFilesWatch).add_path(d.to_path_buf()).to_string()) } else { Ok(()) }
         });
         assert_eq!(watched, 2);
         assert_eq!(tried, 3, "stops at the limit");

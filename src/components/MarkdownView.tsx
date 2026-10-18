@@ -1,4 +1,4 @@
-// Markdown files open like in PhpStorm: editor and live preview side by side, with a toolbar for
+// Markdown files open: editor and live preview side by side, with a toolbar for
 // Editor / Editor and Preview / Preview. Shell code blocks get a ▷ that runs them in the terminal.
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';

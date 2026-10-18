@@ -37,7 +37,7 @@ export interface Interpreter {
   remoteRoot?: string;
 }
 
-/** Where Docker containers mount the project when PHPBlitz runs them (like PhpStorm's /opt/project). */
+/** Where Docker containers mount the project when PHPBlitz runs them. */
 export const DOCKER_PROJECT = '/opt/project';
 
 /** Running a script with step debugging: Xdebug connects back to PHPBlitz on `port`. */

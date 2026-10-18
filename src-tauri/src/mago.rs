@@ -2,7 +2,7 @@
 //!
 //! - **Lint** (`mago_check`): style and correctness rules for one file, straight from
 //!   the editor's text. Needs no project scan, so it also works for unsaved buffers.
-//! - **Analysis**: PHPStan-like type checking, in two phases like IntelliJ's indexing:
+//! - **Analysis**: PHPStan-like type checking, in two phases:
 //!   1. `mago_open` scans the project's declarations only (fast). From then on `mago_check`
 //!      analyzes the files the user opens against them.
 //!   2. `mago_analyze` analyzes every file in the background, without holding the engine, so
@@ -104,9 +104,8 @@ impl MagoState {
     }
 }
 
-/// Mago runs its work in parallel on the current rayon pool. Like IntelliJ's indexing, it gets
-/// most cores but not all: the window, file reads and the language server stay responsive while a
-/// big project is analyzed.
+/// Mago runs its work in parallel on the current rayon pool. It gets most cores but not all: the
+/// window, file reads and the language server stay responsive while a big project is analyzed.
 pub(crate) fn analysis_pool() -> &'static rayon::ThreadPool {
     static POOL: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
     POOL.get_or_init(|| {
@@ -313,7 +312,7 @@ fn lowest_php_version(constraint: &str) -> Option<PHPVersion> {
 
 fn configuration(root: &str, info: &ProjectInfo, excluded: &[String]) -> OrchestratorConfiguration<'static> {
     // The configuration lives as long as the leaked orchestrator that borrows it.
-    // Generated code and caches (Laravel, Symfony), excluded like PhpStorm does.
+    // Generated code and caches (Laravel, Symfony), excluded.
     let mut excludes: Vec<&'static str> = vec!["node_modules", "storage", "bootstrap/cache", "var/cache", "var/log", ".blitz"];
     excludes.extend(excluded.iter().filter(|e| !e.is_empty() && !e.contains("..")).map(|e| &*Box::leak(e.clone().into_boxed_str())));
     let mut linter_settings = mago_linter::settings::Settings::default();
@@ -670,7 +669,7 @@ impl Engine {
     }
 
     /// The project's errors and warnings, at most `limit` of them (`total` and `hidden` count them
-    /// all). Weak warnings (`info`) are only shown in open files, like PhpStorm's Project Errors.
+    /// all). Weak warnings (`info`) are only shown in open files.
     fn project_issues(&self, limit: usize) -> ProjectIssues {
         let mut result = ProjectIssues { total: 0, hidden: 0, analyzed: self.analyzed, files: Vec::new() };
         if !self.analyzed {

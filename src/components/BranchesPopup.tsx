@@ -1,4 +1,4 @@
-// The Git branches popup (top bar branch widget), like PhpStorm's: search, Update / Commit /
+// The Git branches popup (top bar branch widget): search, Update / Commit /
 // Push / Fetch / New Branch / Stash, then local and remote branches with their actions.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -67,7 +67,7 @@ export function BranchesPopup({ ws, anchor, onClose }: { ws: Workspace; anchor: 
         onClose();
         if (!(await confirmDialog(b.remote ? `Delete the remote branch ${b.name}? This deletes it on the server.` : `Delete the branch ${b.name}?`))) return;
         const ok = await ws.runGit(`Delete ${b.name}`, () => (b.remote ? repo.deleteRemoteBranch(b.name) : repo.deleteBranch(b.name)));
-        // Not merged: offer to force it, like PhpStorm.
+        // Not merged: offer to force it.
         if (!ok && !b.remote && (await confirmDialog(`${b.name} is not fully merged. Delete it anyway? Its unmerged commits are lost.`))) {
           await ws.runGit(`Delete ${b.name}`, () => repo.deleteBranch(b.name, true));
         }

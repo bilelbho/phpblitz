@@ -21,7 +21,7 @@ export function WindowControls() {
   );
 }
 
-/** Stable color per project name, like JetBrains' colored project widget. */
+/** Stable color per project name, for the colored project widget. */
 export function projectColor(name: string): string {
   const palette = ['#3d7a4b', '#3574f0', '#9b5fc0', '#c2803a', '#2a8f96', '#c25863', '#5b7cc2', '#7d8f2e'];
   let h = 0;

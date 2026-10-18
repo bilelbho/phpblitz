@@ -134,7 +134,7 @@ export function SearchEverywhere({ ws, initialTab, onClose, actions }: Props) {
       if (score >= 0) scored.push([score * 1000 + name.length, item]);
     }
     const local = scored.sort((a, b) => a[0] - b[0]).map(([, i]) => i);
-    // "All": the best classes, then files and actions, then methods and functions (like PhpStorm).
+    // "All": the best classes, then files and actions, then methods and functions.
     return (tab === 'all' ? [...classes.slice(0, 25), ...local.slice(0, 40), ...symbolsFound.slice(0, 25)] : local).slice(0, LIMIT);
   }, [items, hitItems, tab, query]);
 

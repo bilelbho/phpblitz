@@ -1,4 +1,4 @@
-// Modify Table / Create Table, like PhpStorm's: the table's structure on the left (columns, keys,
+// Modify Table / Create Table: the table's structure on the left (columns, keys,
 // foreign keys, indexes, checks), the selected element's properties on the right, and a live
 // preview of the SQL at the bottom. OK runs it (atomically on Postgres).
 
@@ -367,7 +367,7 @@ export function TableDialog({ ws, request, onClose }: { ws: Workspace; request: 
         </div>
       )}
       {error && <div className="td-error">{error}</div>}
-      <div className="jb-dialog-buttons">
+      <div className="pb-dialog-buttons">
         <button type="button" className="btn primary" disabled={busy || !model.name.trim() || (!request.table && !model.columns.length)} onClick={() => void execute()}>
           {busy ? 'Running…' : 'OK'}
         </button>
@@ -397,7 +397,7 @@ function Shell({ title, onClose, wide, children }: { title: string; onClose: () 
   return (
     <div className="modal-backdrop settings-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
-        className={'jb-dialog td-dialog' + (wide ? ' wide' : '')}
+        className={'pb-dialog td-dialog' + (wide ? ' wide' : '')}
         role="dialog"
         aria-modal="true"
         aria-label={title}

@@ -1,12 +1,12 @@
-// Background work the way IntelliJ's "daemon" schedules it: a file shows up first, analysis runs
+// Background work, scheduled so that a file shows up first, analysis runs
 // once the editor has been quiet for a moment, one analysis at a time, newest text only, the
 // active file first, and work for files the user already left is dropped. Low-priority work
 // (indexing) yields to the user: it waits while files are being opened or typed in.
 
-/** IntelliJ's default auto-reparse delay. */
+/** Pause after typing before the file is analyzed again. */
 export const ANALYSIS_DELAY = 300;
 
-/** Above this size (characters), files get no code insight (IntelliJ: idea.max.intellisense.filesize, 2.5 MB). */
+/** Above this size (characters, 2.5 MB), files get no code insight. */
 export const CODE_INSIGHT_LIMIT = 2_500_000;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));

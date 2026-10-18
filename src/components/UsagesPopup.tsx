@@ -1,4 +1,4 @@
-// PhpStorm's Show Usages popup (Ctrl+Alt+F7, clicking "N usages"): what was searched and how many
+// The Show Usages popup (Ctrl+Alt+F7, clicking "N usages"): what was searched and how many
 // usages, filters (read / write access, dynamic usages, merge lines), the scope (Project Files or
 // Project and Libraries), the usages with their code, and the selected one's path below.
 

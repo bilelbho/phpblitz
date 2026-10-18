@@ -1,5 +1,5 @@
-// The main menu (File, Edit, View, Navigate, Code, Refactor, Run, Tools, Git, Window, Help), in
-// PhpStorm's order and with its underlined letters, shown as a menu bar or under the hamburger
+// The main menu (File, Edit, View, Navigate, Code, Refactor, Run, Tools, Git, Window, Help), with
+// underlined letters for Alt+key, shown as a menu bar or under the hamburger
 // button (View ▸ Appearance ▸ Main Menu). It lists what PHPBlitz can do; items that need an open
 // code editor are disabled without one.
 
@@ -15,6 +15,7 @@ import { getSettings, saveSettings, updateEditorSettings, DEFAULT_SETTINGS, type
 import { zoomBy } from './uiSettings';
 import { isTauri, recentProjects } from './platform';
 import { debug } from './debug/manager';
+import { testRunner } from './tests/runner';
 import { perf } from './perf';
 import { openAppDialog } from './appDialogs';
 import { checkForUpdates, RELEASES_URL } from './updater';
@@ -432,20 +433,41 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
         const php = ws.activePath?.endsWith('.php') ? ws.activePath : null;
         return [
           {
-            label: "Run 'PHPUnit'",
+            label: 'Run All Tests',
             mnemonic: 'u',
             icon: 'run',
-            shortcut: 'Ctrl+Shift+F10',
-            disabled: ws.tests.running,
+            disabled: testRunner.running,
             run: ws.runTests,
           },
           {
-            label: "Debug 'PHPUnit'",
+            label: 'Debug All Tests',
             mnemonic: 'D',
             icon: 'bug',
-            disabled: ws.backend.kind !== 'disk',
-            run: () => void debug.debugScript(`${ws.backend.root}/vendor/bin/phpunit`),
+            disabled: testRunner.running,
+            run: () => ws.runTestScope({ kind: 'all' }, { debug: true }),
           },
+          {
+            label: testRunner.run ? `Rerun '${testRunner.run.label}'` : 'Rerun',
+            icon: 'run',
+            disabled: !testRunner.run || testRunner.running,
+            run: () => {
+              ws.showBottom('tests');
+              testRunner.rerun();
+            },
+          },
+          {
+            label: 'Rerun Failed Tests',
+            icon: 'refresh',
+            disabled: testRunner.running || !testRunner.failedTests().length,
+            run: () => ws.runTestScope({ kind: 'failed' }),
+          },
+          {
+            label: 'Stop Tests',
+            icon: 'stopSquare',
+            disabled: !testRunner.running,
+            run: () => void testRunner.stop(),
+          },
+          { kind: 'sep' },
           {
             label: php ? `Debug '${name(php)}'` : 'Debug Current File',
             icon: 'bug',

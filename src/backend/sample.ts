@@ -1,4 +1,4 @@
-import type { Backend, Entry, GitInfo, Package, Problem, RunResult, TestResult } from './types';
+import type { Backend, Entry, GitInfo, Package, Problem, RunResult } from './types';
 
 const ROOT = '/acme-shop';
 
@@ -230,6 +230,15 @@ final class InvoiceTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('status', 'pending');
     }
+
+    public function test_it_rejects_negative_amounts(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->postJson("/users/{$user->id}/invoice", ['amount' => -5])
+            ->assertStatus(422);
+    }
 }
 `,
   // Lines joined below: code fences need backticks, which a template literal can't hold as is.
@@ -261,6 +270,100 @@ final class InvoiceTest extends TestCase
     'More on [Laravel](https://laravel.com/docs).',
     '',
   ].join('\n'),
+  'package.json': String.raw`{
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc --noEmit && vite build"
+    },
+    "devDependencies": {
+        "axios": "^1.7.4",
+        "laravel-vite-plugin": "^1.0",
+        "typescript": "^5.6",
+        "vite": "^5.0"
+    }
+}
+`,
+  'tsconfig.json': String.raw`{
+    // The front end in resources/js; Vite builds it.
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "strict": true,
+        "jsx": "preserve",
+        "paths": {
+            "@/*": ["./resources/js/*"],
+        },
+    },
+    "include": ["resources/js/**/*"],
+}
+`,
+  'vite.config.ts': String.raw`import { defineConfig } from 'vite';
+import laravel from 'laravel-vite-plugin';
+
+export default defineConfig({
+    plugins: [
+        laravel({ input: ['resources/js/app.ts'], refresh: true }),
+    ],
+});
+`,
+  'resources/js/lib/money.ts': String.raw`/** An amount in cents, with its currency. */
+export interface Money {
+    cents: number;
+    currency: 'EUR' | 'USD';
+}
+
+/**
+ * Formats an amount for people: 1234 EUR cents → "€12.34".
+ * @param money the amount
+ * @param locale defaults to the page's language
+ */
+export function formatMoney(money: Money, locale = document.documentElement.lang || 'en'): string {
+    return new Intl.NumberFormat(locale, { style: 'currency', currency: money.currency }).format(money.cents / 100);
+}
+
+export const withTax = (money: Money, rate = 0.2): Money => ({ ...money, cents: Math.round(money.cents * (1 + rate)) });
+`,
+  'resources/js/app.ts': String.raw`import { formatMoney, withTax, type Money } from '@/lib/money';
+import { InvoiceTotal } from './components/InvoiceTotal';
+
+const total: Money = { cents: 12_000, currency: 'EUR' };
+
+document.querySelectorAll<HTMLElement>('[data-total]').forEach((el) => {
+    el.textContent = formatMoney(withTax(total));
+});
+
+console.log(InvoiceTotal({ total }));
+`,
+  'resources/js/components/InvoiceTotal.tsx': String.raw`import { formatMoney, type Money } from '../lib/money';
+
+export function InvoiceTotal({ total }: { total: Money }) {
+    return <strong className="total">{formatMoney(total)}</strong>;
+}
+`,
+  'tools/pdf-renderer/package.json': String.raw`{
+    "name": "pdf-renderer",
+    "scripts": {
+        "start": "node src/index.js"
+    }
+}
+`,
+  'tools/pdf-renderer/src/index.js': String.raw`import { render } from './render.js';
+
+const file = process.argv[2] ?? 'invoice.html';
+render(file).then((out) => console.log('Wrote', out));
+`,
+  'tools/pdf-renderer/src/render.js': String.raw`/**
+ * Renders an HTML invoice to a PDF next to it.
+ * @param {string} file the HTML file
+ * @returns {Promise<string>} the PDF's path
+ */
+export async function render(file) {
+    return file.replace(/\.html$/, '.pdf');
+}
+`,
   'composer.json': String.raw`{
     "name": "acme/shop",
     "type": "project",
@@ -535,18 +638,6 @@ export class SampleBackend implements Backend {
       }
     });
     return problems;
-  }
-
-  async runTests(): Promise<TestResult> {
-    await delay(700);
-    const tests = [
-      { name: 'it creates an invoice including tax', ms: '38 ms', ok: true },
-      { name: 'it rejects an amount below 1', ms: '12 ms', ok: true },
-      { name: 'it requires authentication', ms: '9 ms', ok: true },
-      { name: 'it returns 201 with the invoice', ms: '21 ms', ok: true },
-      { name: 'it runs inside a database transaction', ms: '17 ms', ok: true },
-    ];
-    return { ok: true, summary: 'OK (5 tests, 9 assertions)', output: '', tests };
   }
 
   async shell(line: string): Promise<RunResult> {

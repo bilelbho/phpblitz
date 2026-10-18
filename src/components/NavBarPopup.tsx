@@ -1,4 +1,4 @@
-// Popups of the status bar's navigation bar (breadcrumbs), like PhpStorm's: a folder's contents
+// Popups of the status bar's navigation bar (breadcrumbs): a folder's contents
 // (folders open another column to the right, files open), or a class's members (jump to one).
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';

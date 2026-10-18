@@ -1,6 +1,6 @@
 // Rename refactoring (Shift+F6) without a language server, from the symbol index: the
 // declarations (for a method, also where it is overridden or implemented) and the usages the index
-// finds, like PhpStorm. Usages on values of unknown type ("dynamic") are only renamed on request.
+// finds. Usages on values of unknown type ("dynamic") are only renamed on request.
 // Local variables are renamed within their function.
 
 import * as monaco from 'monaco-editor';
@@ -30,6 +30,8 @@ export interface RenamePlan {
   file?: string;
   /** Declared in vendor/: can't be renamed. */
   error?: string;
+  /** A JavaScript or TypeScript name (from the TypeScript service): `$` is allowed in it. */
+  script?: boolean;
 }
 
 /** What planning needs from the workspace. */
@@ -42,7 +44,8 @@ interface Location {
 }
 
 const IDENT = /^[A-Za-z_\x80-\uffff][\w\x80-\uffff]*$/;
-export const validName = (name: string) => IDENT.test(name);
+const SCRIPT_IDENT = /^[A-Za-z_$\x80-\uffff][\w$\x80-\uffff]*$/;
+export const validName = (name: string, script = false) => (script ? SCRIPT_IDENT : IDENT).test(name);
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 

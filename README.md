@@ -1,12 +1,5 @@
-<p align="center">
-  <img src="app-icon.svg" alt="PHPBlitz" width="96">
-</p>
-
 <h1 align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/wordmark-dark.svg">
-    <img src=".github/assets/wordmark-light.svg" alt="PHPBlitz" width="260">
-  </picture>
+  <img src=".github/assets/wordmark.svg" alt="PHPBlitz" width="260">
 </h1>
 
 <p align="center">
@@ -77,10 +70,21 @@ PHP, Git and Composer on your PATH turn on running PHP, tests, the Git tools and
 - **Errors as you type**: Mago's linter and PHPStan-like analyzer are built in. Open files are checked
   right away; the whole project is analyzed in the background. Framework rules (Laravel, Symfony,
   PHPUnit, Doctrine…) come from `composer.json`.
+- **JavaScript and TypeScript**: .js, .jsx, .ts and .tsx files get completion, errors as you type,
+  documentation, Go to Declaration, Find Usages, Rename and quick fixes, across the project: a
+  Laravel front end in `resources/js`, a Vue or React app or a Node tool in a subfolder. PHPBlitz
+  reads their `tsconfig.json`/`jsconfig.json` (path aliases like `@/`) and the types of their
+  packages in `node_modules`. The **npm** tool window lists each `package.json` with its scripts
+  and runs them in the terminal.
 - **Git**: change markers, diff viewer, commit, push and pull, branches, log with graph, annotations
   (blame), stash.
 - **Databases**: PostgreSQL, MySQL/MariaDB and SQLite: schema tree, query consoles, table data, table
   editing. Passwords stay in your system's credential store.
+- **Tests**: PHPUnit and Pest. ▶ in the gutter beside each test class, test method and Pest test
+  (green or red after a run), Ctrl+Shift+F10 runs the test at the caret, and the Run window shows
+  the results as a tree with failures, expected / actual values, clickable stack traces and output.
+  Rerun failed tests, rerun one data set, or debug a test. Runs with the project's PHP interpreter,
+  local or in Docker.
 - **Debugging**: Xdebug 3 step debugging with breakpoints, variables, watches and inline values.
 - **Terminal**: real shells in tabs (PowerShell, cmd, Git Bash, WSL, bash, zsh…).
 - **Composer**: installed packages, available updates.

@@ -1,4 +1,4 @@
-// Bookmark popups, like PhpStorm's: "Add Mnemonic Bookmark" (Ctrl+F11), a grid of 0-9 and A-Z with
+// Bookmark popups: "Add Mnemonic Bookmark" (Ctrl+F11), a grid of 0-9 and A-Z with
 // an optional description, and "Bookmarks" (Shift+F11), every bookmark in the project.
 
 import { useEffect, useRef, useState } from 'react';
@@ -28,7 +28,7 @@ export function MnemonicDialog({ path, line, onClose }: { path: string; line: nu
       <div
         ref={box}
         tabIndex={-1}
-        className="jb-dialog mnemonic-dialog"
+        className="pb-dialog mnemonic-dialog"
         role="dialog"
         aria-modal="true"
         aria-label="Add Mnemonic Bookmark"
@@ -41,8 +41,8 @@ export function MnemonicDialog({ path, line, onClose }: { path: string; line: nu
           e.stopPropagation();
         }}
       >
-        <div className="jb-dialog-title">Add Mnemonic Bookmark</div>
-        <div className="jb-dialog-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="pb-dialog-title">Add Mnemonic Bookmark</div>
+        <div className="pb-dialog-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div className="mnemonic-grid" role="radiogroup" aria-label="Mnemonic">
             {MNEMONICS.map((m) => (
               <button
@@ -67,7 +67,7 @@ export function MnemonicDialog({ path, line, onClose }: { path: string; line: nu
             Type a digit or letter to pick it. Ctrl+{'<digit>'} jumps to a digit bookmark.
           </span>
         </div>
-        <div className="jb-dialog-buttons">
+        <div className="pb-dialog-buttons">
           <button type="button" className="btn" onClick={onClose}>
             Cancel
           </button>
@@ -101,7 +101,7 @@ export function BookmarksPopup({ ws, onClose }: { ws: Workspace; onClose: () => 
       <div
         ref={box}
         tabIndex={-1}
-        className="jb-popup"
+        className="pb-popup"
         role="dialog"
         aria-label="Bookmarks"
         style={{ marginTop: '12vh', alignSelf: 'flex-start' }}
@@ -116,8 +116,8 @@ export function BookmarksPopup({ ws, onClose }: { ws: Workspace; onClose: () => 
           e.stopPropagation();
         }}
       >
-        <div className="jb-popup-title">Bookmarks</div>
-        <div className="jb-popup-list" role="listbox">
+        <div className="pb-popup-title">Bookmarks</div>
+        <div className="pb-popup-list" role="listbox">
           {!list.length && <div className="empty">No bookmarks. Press F11 on a line to add one, or Ctrl+F11 for one with a mnemonic.</div>}
           {list.map((b, i) => (
             <div

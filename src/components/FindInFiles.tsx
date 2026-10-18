@@ -1,4 +1,4 @@
-// PhpStorm's Find in Files (Ctrl+Shift+F) and Replace in Files (Ctrl+Shift+R).
+// Find in Files (Ctrl+Shift+F) and Replace in Files (Ctrl+Shift+R).
 
 import { FileIcon } from './FileIcon';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -9,7 +9,7 @@ import { confirmDialog, isTauri } from '../platform';
 import { replaceInFiles, replaceInText, searchInFiles, type SearchMatch, type SearchOptions, type SearchResult } from '../search';
 import { Icon } from './Icon';
 
-/** Options survive closing the popup, like in PhpStorm. */
+/** Options survive closing the popup. */
 let remembered: Omit<SearchOptions, 'query'> = { regex: false, matchCase: false, wholeWord: false, fileMask: '' };
 let rememberedQuery = '';
 
@@ -201,9 +201,9 @@ export function FindInFiles({ ws }: { ws: Workspace }) {
 
   return (
     <div className="modal-backdrop clear" style={{ paddingTop: '8vh' }} onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <div className="jb-popup fif" role="dialog" aria-label={replaceMode ? 'Replace in files' : 'Find in files'} onKeyDown={onKeyDown}>
+      <div className="pb-popup fif" role="dialog" aria-label={replaceMode ? 'Replace in files' : 'Find in files'} onKeyDown={onKeyDown}>
         <div className="fif-head">
-          <span className="jb-popup-title" style={{ padding: 0 }}>
+          <span className="pb-popup-title" style={{ padding: 0 }}>
             {replaceMode ? 'Replace in Files' : 'Find in Files'}
           </span>
           {scopeDir && (
@@ -331,7 +331,7 @@ export function FindInFiles({ ws }: { ws: Workspace }) {
   );
 }
 
-/** A few lines of code around the selected match, like PhpStorm's preview pane. */
+/** A few lines of code around the selected match (the preview pane). */
 function Preview({ ws, hit }: { ws: Workspace; hit: Hit }) {
   const [text, setText] = useState<string | null>(ws.liveTextOf(hit.path) ?? null);
   useEffect(() => {

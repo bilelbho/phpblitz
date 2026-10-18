@@ -1,4 +1,4 @@
-// Dragging tabs like PhpStorm: the tab lifts into a floating card that follows the pointer, the
+// Dragging tabs: the tab lifts into a floating card that follows the pointer, the
 // other tabs slide apart where it would land, and dropping moves it there. Dragged away from the
 // strip, the owner can offer drop zones (the terminal splits that way).
 // Pointer events, not HTML5 drag and drop: the desktop web view keeps that for files.
