@@ -25,6 +25,10 @@
   <a href="#thank-you">Credits</a>
 </p>
 
+<p align="center">
+  <img src=".github/assets/screenshots/editor.png" alt="PHPBlitz with a Laravel project: the Project and Structure tool windows, a controller with rendered doc comments and usage counts, and an error found as you type" width="900">
+</p>
+
 PHPBlitz takes its workflow from the IDEs PHP developers already know: tool windows, Search
 Everywhere, Find Usages, Rename, Alt+Enter fixes, the same keyboard shortcuts. It's an independent
 project, written from scratch, and opens big projects quickly on modest machines.
@@ -61,6 +65,19 @@ certificate yet, so the first launch needs one extra step (check the checksum fi
 PHP, Git and Composer on your PATH turn on running PHP, tests, the Git tools and package updates.
 
 ## What it does
+
+<table>
+  <tr>
+    <td><img src=".github/assets/screenshots/tests.png" alt="Running PHPUnit tests: run icons in the gutter, the result tree and the expected and actual values of a failure"></td>
+    <td><img src=".github/assets/screenshots/search.png" alt="Search Everywhere finding classes"></td>
+    <td><img src=".github/assets/screenshots/light.png" alt="The light theme"></td>
+  </tr>
+  <tr>
+    <td align="center">Tests: gutter icons, results, failures</td>
+    <td align="center">Search Everywhere</td>
+    <td align="center">Light theme</td>
+  </tr>
+</table>
 
 - **Editor**: PHP highlighting, completion, rendered doc comments, bookmarks, soft wrap, Markdown preview,
   TODO comments (with a TODO tool window).
