@@ -4,7 +4,6 @@
 
 import { lazy, Suspense, type ComponentProps, type ComponentType, type ReactNode } from 'react';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function lazyNamed<T extends ComponentType<any>>(load: () => Promise<T>, fallback: ReactNode = <div className="empty">Loading…</div>) {
   const Component = lazy(async () => ({ default: await load() }));
   return function Lazy(props: ComponentProps<T>) {

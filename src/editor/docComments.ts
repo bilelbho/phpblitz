@@ -393,7 +393,6 @@ export function setupDocComments(editor: monaco.editor.IStandaloneCodeEditor, en
         return;
       }
       if (e.target.type !== T.GUTTER_GLYPH_MARGIN || !e.target.position) return;
-      const model = editor.getModel();
       const line = e.target.position.lineNumber;
       const id = raw.find((x) => rawLine(x) === line);
       // After the other gutter listeners, which ask ownsGlyph() to skip their breakpoint toggle.

@@ -66,12 +66,12 @@ function textBlock(text: string): string {
     } else if (/^#{1,6}\s/.test(line)) {
       flush();
       out.push(`<div class="md-h">${inline(line.replace(/^#+\s*/, ''))}</div>`);
-    } else if (/^[-*+]\s+/.test(line)) {
+    } else if (/^([-*+]|\d+[.)])\s+/.test(line)) {
       if (paragraph.length) {
         out.push(`<p>${inline(paragraph.join(' '))}</p>`);
         paragraph = [];
       }
-      list.push(line.replace(/^[-*+]\s+/, ''));
+      list.push(line.replace(/^([-*+]|\d+[.)])\s+/, ''));
     } else {
       if (list.length) flush();
       paragraph.push(line);

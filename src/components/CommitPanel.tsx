@@ -7,7 +7,9 @@ import type { Workspace } from '../useWorkspace';
 import { baseName, relativePath, type GitChange } from '../backend/types';
 import { Icon } from './Icon';
 import { ContextMenu, type ContextItem } from './ContextMenu';
-import { confirmDialog } from '../platform';
+import { confirmDialog, isTauri } from '../platform';
+import { generateCommitMessage } from '../ai/commitMessage';
+import { AiCancelled, type AiStream } from '../ai/client';
 import type { Commit } from '../git/git';
 import { projectStorage } from '../projectStorage';
 
@@ -55,6 +57,8 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
   const [prefs, setPrefsState] = useState<ViewPrefs>(loadPrefs);
   const [ignored, setIgnored] = useState<string[] | null>(null);
   const [message, setMessage] = useState('');
+  const generation = useRef<AiStream | null>(null);
+  const [generating, setGenerating] = useState(false);
   const [amend, setAmend] = useState(false);
   /** Fixup: on, and the commit it fixes (with whether that commit is already pushed). */
   const [fixupOn, setFixupOn] = useState(false);
@@ -298,6 +302,25 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
         { label: 'Sign-off commit', checked: prefs.signOff, run: () => setPrefs({ signOff: !prefs.signOff }) },
       ],
     });
+  };
+
+  /** The AI's commit message for the included changes, streamed into the message box. */
+  const generateMessage = async () => {
+    if (generation.current) {
+      generation.current.cancel();
+      return;
+    }
+    setError('');
+    setGenerating(true);
+    try {
+      generation.current = await generateCommitMessage(ws, included, (text) => setMessage(text));
+      await generation.current.done;
+    } catch (e) {
+      if (!(e instanceof AiCancelled)) setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      generation.current = null;
+      setGenerating(false);
+    }
   };
 
   /** The clock: recent commits. New / Amend: reuse a message. Fixup: choose the target. */
@@ -548,6 +571,7 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
         <label htmlFor="commit-message" className="sr-only">
           Commit message
         </label>
+        <div className="commit-message-box">
         <textarea
           id="commit-message"
           className="textarea"
@@ -563,6 +587,19 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit(false);
           }}
         />
+          {isTauri && !fixupOn && (
+            <button
+              type="button"
+              className={'icon-btn small commit-ai' + (generating ? ' busy' : '')}
+              title={generating ? 'Stop generating' : included.length ? 'Generate the commit message with AI' : 'Select changes to commit first'}
+              aria-label={generating ? 'Stop generating' : 'Generate the commit message with AI'}
+              disabled={!generating && !included.length}
+              onClick={() => void generateMessage()}
+            >
+              <Icon name={generating ? 'stopSquare' : 'sparkle'} size={13} />
+            </button>
+          )}
+        </div>
         {fixupOn && (
           <label className="settings-check" title="git rebase -i --autosquash, without the editor; other local changes are stashed and restored">
             <input type="checkbox" className="checkbox" checked={prefs.squashFixup} onChange={(e) => setPrefs({ squashFixup: e.target.checked })} />

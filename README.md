@@ -35,8 +35,8 @@ project, written from scratch, and opens big projects quickly on modest machines
 
 > [!IMPORTANT]
 > **Status:** PHPBlitz is young (version 0.x). The everyday editing, navigation, analysis and Git
-> features work; the debugger and the database tools are newer, and the AI assistant isn't
-> connected yet. Expect rough edges, and please [report what you find](https://github.com/bilelbho/phpblitz/issues):
+> features work; the debugger, the database tools and the AI agent support are newer. Expect
+> rough edges, and please [report what you find](https://github.com/bilelbho/phpblitz/issues):
 > include your system, the PHPBlitz version and, for slowness, the report from
 > **Help ▸ Startup Performance** (it has a Copy Report button).
 
@@ -79,6 +79,12 @@ PHP, Git and Composer on your PATH turn on running PHP, tests, the Git tools and
   </tr>
 </table>
 
+<p align="center">
+  <img src=".github/assets/screenshots/agents.png" alt="Claude Code running in a PHPBlitz terminal tab, started from the AI tool window's Agents tab and connected to PHPBlitz's index" width="900">
+  <br>
+  <sub>AI agents: Claude Code started from the AI tool window, in the project, with your own account</sub>
+</p>
+
 - **Editor**: PHP highlighting, completion, rendered doc comments, bookmarks, soft wrap, Markdown preview,
   TODO comments (with a TODO tool window).
 - **Navigation without a language server**: Go to Definition (Ctrl+B), Find Usages (Alt+F7), Show
@@ -105,6 +111,13 @@ PHP, Git and Composer on your PATH turn on running PHP, tests, the Git tools and
 - **Debugging**: Xdebug 3 step debugging with breakpoints, variables, watches and inline values.
 - **Terminal**: real shells in tabs (PowerShell, cmd, Git Bash, WSL, bash, zsh…).
 - **Composer**: installed packages, available updates.
+- **AI assistant** (with your own Anthropic API key): a chat that knows the open file, the
+  selection, its problems and the classes it uses (from the index), with Apply and Show diff on its
+  code; Edit with AI (Ctrl+Shift+I) shows the change as a diff to accept; commit messages from your
+  changes; optional ghost text while typing.
+- **AI agents**: start Claude Code, Codex or Gemini CLI in a terminal tab, signed in with your own
+  account, and send them prompts about the open file. An optional MCP server lets agents use
+  PHPBlitz's index (usages, classes, problems) instead of searching files.
 
 Optional: a PHP language server adds more completion and refactorings when found on your PATH
 (`cargo install phpantom_lsp`, or `cargo install php-lsp`).
@@ -126,8 +139,14 @@ PHPBlitz keeps per-project files in a `.blitz` folder in your project:
 - No telemetry and no account. The only thing PHPBlitz fetches on its own is the update check
   (`latest.json` from this repository's GitHub Releases), which you can turn off in Settings ▸
   Appearance & Behavior ▸ Appearance. Otherwise the network is used only for what you start, like
-  Git push and pull or a database connection.
+  Git push and pull, a database connection or an AI request.
 - Database passwords are kept in your system's credential store, not in files.
+- AI is off until you add your own Anthropic API key (kept in the credential store). Then code goes
+  to Anthropic only when you use a feature: the chat and Edit with AI send the open file, the
+  selection and outlines of the classes it uses; a commit message sends the diff; ghost text (off
+  by default) sends the code around the caret. AI agents you start run under your own account; the
+  MCP server for them is off until you turn it on, only accepts connections from this computer
+  with its token, and only reads.
 
 More in [SECURITY.md](SECURITY.md).
 
@@ -163,7 +182,7 @@ npm run tauri build   # installers, in src-tauri/target/release/bundle
 npm run dev           # the UI alone in a browser, with a sample project
 ```
 
-Tests: `cargo test` in `src-tauri`, `npx tsc --noEmit` for the UI.
+Checks: `npx tsc --noEmit`, `npm run lint` and `npm test` for the UI; `cargo test` and `cargo clippy` in `src-tauri`.
 
 ### Where things are
 

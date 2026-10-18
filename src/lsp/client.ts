@@ -4,8 +4,7 @@
 // JSON-RPC: requests with ids, notifications, document sync and the few
 // server→client requests servers commonly send.
 
-import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { Channel, invoke } from '@tauri-apps/api/core';
 import type * as L from './protocol';
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; method: string };
@@ -26,7 +25,6 @@ export class LspClient {
   private nextId = 1;
   private pending = new Map<number, Pending>();
   private handlers = new Map<string, Handler[]>();
-  private unlisten: UnlistenFn[] = [];
   private versions = new Map<string, number>();
   private exited = false;
 
@@ -37,22 +35,20 @@ export class LspClient {
 
   /** Starts the process and performs the initialize handshake. */
   async start(): Promise<void> {
-    this.unlisten.push(
-      await listen<{ server: number; message: string }>('lsp-message', (e) => {
-        if (e.payload.server === this.server) this.receive(e.payload.message);
-      }),
-      await listen<{ server: number; line: string }>('lsp-log', (e) => {
-        if (e.payload.server === this.server) this.emit('$log', e.payload.line);
-      }),
-      await listen<{ server: number }>('lsp-exit', (e) => {
-        if (e.payload.server !== this.server) return;
+    // This server's own channel: its messages, stderr lines and exit, in order (and none lost
+    // before its id is known).
+    const events = new Channel<{ kind: 'message'; message: string } | { kind: 'log'; line: string } | { kind: 'exit' }>();
+    events.onmessage = (e) => {
+      if (e.kind === 'message') this.receive(e.message);
+      else if (e.kind === 'log') this.emit('$log', e.line);
+      else {
         this.exited = true;
         for (const p of this.pending.values()) p.reject(new Error('Language server exited'));
         this.pending.clear();
         this.emit('$exit', null);
-      }),
-    );
-    this.server = await invoke<number>('lsp_start', { command: this.spec.command, args: this.spec.args, cwd: this.root });
+      }
+    };
+    this.server = await invoke<number>('lsp_start', { command: this.spec.command, args: this.spec.args, cwd: this.root, onEvent: events });
 
     const rootUri = pathToUri(this.root);
     const result = await this.request<L.InitializeResult>('initialize', {
@@ -78,8 +74,6 @@ export class LspClient {
       }
       await invoke('lsp_stop', { server: this.server }).catch(() => {});
     }
-    this.unlisten.forEach((u) => u());
-    this.unlisten = [];
   }
 
   get running() {

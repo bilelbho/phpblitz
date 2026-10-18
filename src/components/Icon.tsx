@@ -63,7 +63,7 @@ import {
   IconNumbers,
   IconPackage,
   IconPencil,
-  IconPhone,
+  IconBroadcast,
   IconPlayerPause,
   IconPlayerPlay,
   IconPlayerStop,
@@ -114,7 +114,7 @@ const ICONS = {
   runToCursor: IconPlayerTrackNext,
   evaluate: IconCalculator,
   mute: IconCircleOff,
-  listen: IconPhone,
+  listen: IconBroadcast,
   // Tool windows and the main toolbar.
   folder: IconFolder,
   folderOpen: IconFolderOpen,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ContextMenu, type ContextItem } from './ContextMenu';
 import { FileStructurePopup, FindBar, GotoLineDialog, type FindRequest } from './EditorPopups';
 import { setEditorCommands, setMainEditor } from '../editorCommands';
@@ -29,7 +29,7 @@ import { setUsagesHandler } from '../monaco';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import type { Workspace } from '../useWorkspace';
-import { baseName, relativePath } from '../backend/types';
+import { baseName } from '../backend/types';
 import { languageOf } from '../php';
 import { TableEditor } from './TableEditor';
 import { QueryConsole } from './QueryConsole';
@@ -38,8 +38,9 @@ import { TabBar } from './TabBar';
 import { HunkPopup } from './HunkPopup';
 import { diffLines, type Hunk } from '../git/diff';
 import type { BlameLine } from '../git/git';
-import type { Tab } from '../useWorkspace';
 import { Icon } from './Icon';
+import { trackActiveEditor } from '../editor/active';
+import { startInlineEdit } from '../ai/actions';
 
 export function EditorArea({ ws }: { ws: Workspace }) {
   const tab = ws.activeTab;
@@ -240,6 +241,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
 
   const onMount: OnMount = (editor) => {
     editorRef.current = editor;
+    trackActiveEditor(editor);
     perf.mark('First editor ready', baseName(path));
     onEditor?.(editor);
     setupMarkdown(editor);
@@ -518,6 +520,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       });
     }
     editor.addAction({ id: 'phpblitz.softWrap', label: 'Soft-Wrap', keybindings: [KeyMod.Alt | KeyCode.KeyZ], run: toggleSoftWrap });
+    editor.addAction({ id: 'phpblitz.editWithAi', label: 'Edit with AI…', keybindings: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyI], run: (ed) => startInlineEdit(latest.current.ws, ed) });
 
     // Our right-click menu instead of Monaco's.
     editor.onContextMenu(async (e) => {
@@ -756,13 +759,16 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
   const dbg = useDebug();
   const debugDecorations = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
   const position = dbg.position;
+  // A new object each render: the effect below follows its parts.
+  const stopPath = position?.path;
+  const stopLine = position?.line;
   const session = dbg.active;
   useEffect(() => {
     const editor = editorRef.current;
     const model = editor?.getModel();
     if (!ready || !editor || !model) return;
     const deco = (debugDecorations.current ??= editor.createDecorationsCollection());
-    if (!position || position.path !== path || position.line > model.getLineCount()) {
+    if (stopLine === undefined || stopPath !== path || stopLine > model.getLineCount()) {
       deco.clear();
       return;
     }
@@ -770,19 +776,19 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     const rules: string[] = [];
     const items: monaco.editor.IModelDeltaDecoration[] = [
       {
-        range: new monaco.Range(position.line, 1, position.line, 1),
+        range: new monaco.Range(stopLine, 1, stopLine, 1),
         options: { isWholeLine: true, className: top ? 'debug-line' : 'debug-frame-line', glyphMarginClassName: top ? 'debug-arrow' : 'debug-frame-arrow', stickiness: 1 },
       },
     ];
     if (getSettings().debug.inlineValues && session?.variables?.length) {
       // Values of the variables each line uses, from the start of the function to the stop line.
       const values = new Map(session.variables.filter((v) => v.name !== '$this').map((v) => [v.name, displayValue(v)]));
-      let start = position.line;
-      for (let l = position.line; l >= Math.max(1, position.line - 200); l--) {
+      let start = stopLine;
+      for (let l = stopLine; l >= Math.max(1, stopLine - 200); l--) {
         start = l;
         if (/\bfunction\b/.test(model.getLineContent(l))) break;
       }
-      for (let l = start; l <= position.line; l++) {
+      for (let l = start; l <= stopLine; l++) {
         const seen = new Set<string>();
         const parts: string[] = [];
         for (const m of model.getLineContent(l).matchAll(/\$[A-Za-z_]\w*/g)) {
@@ -801,7 +807,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     }
     inlineStyle().textContent = rules.join('\n');
     deco.set(items);
-  }, [ready, path, position?.path, position?.line, session?.variables, session?.frame]);
+  }, [ready, path, stopPath, stopLine, session?.variables, session?.frame]);
 
   const gitKey = ws.git ? `${ws.git.branch}|${ws.git.changes.find((c) => c.path === path)?.status ?? ''}` : '';
   const large = ws.isLargeFile(path);
@@ -1158,6 +1164,8 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         hideCursorInOverviewRuler: true,
         scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10, useShadows: false },
         suggest: { showWords: true },
+        // Ghost text from the AI (Settings ▸ Tools ▸ AI); nothing shows while it's off.
+        inlineSuggest: { enabled: true, mode: 'subwordSmart' },
       }}
     />
     </div>

@@ -40,10 +40,10 @@ function cached<T>(path: string, parse: (text: string) => T): Promise<T> {
 
 type Token = { t: 'str'; v: string; at: number } | { t: 'sym'; v: string; at: number } | { t: 'word'; v: string; at: number };
 
-/** PHP code as strings, words and punctuation (comments dropped). */
+/** PHP code as strings, words (and numbers) and punctuation (comments dropped). */
 function tokens(src: string): Token[] {
   const out: Token[] = [];
-  const re = /\/\/[^\n]*|#(?!\[)[^\n]*|\/\*[\s\S]*?\*\/|'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"|(=>|->|::|[[\](){};,=])|([A-Za-z_\\][\w\\]*)/g;
+  const re = /\/\/[^\n]*|#(?!\[)[^\n]*|\/\*[\s\S]*?\*\/|'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"|(=>|->|::|[[\](){};,=])|([A-Za-z_\\][\w\\]*|-?\d[\w.]*)/g;
   for (const m of src.matchAll(re)) {
     const at = m.index ?? 0;
     if (m[1] !== undefined) out.push({ t: 'str', v: m[1].replace(/\\(['\\])/g, '$1'), at });

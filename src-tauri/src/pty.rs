@@ -1,9 +1,9 @@
 //! Interactive terminal sessions.
 //!
 //! Each session is a shell running in a pseudo-terminal (ConPTY on Windows), so
-//! programs like `php artisan tinker`, prompts and colors work. Output is sent to
-//! the UI as base64 `pty-output` events (bytes, not text: a UTF-8 character can be
-//! split across reads, and xterm.js decodes the stream itself).
+//! programs like `php artisan tinker`, prompts and colors work. Output goes to the
+//! UI through the session's channel as raw bytes (not text: a UTF-8 character can be
+//! split across reads, and xterm.js decodes the stream itself), grouped into frames.
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -11,11 +11,13 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::ipc::{Channel, InvokeResponseBody};
+use tauri::State;
 
 struct Session {
     master: Box<dyn MasterPty + Send>,
@@ -40,15 +42,33 @@ impl PtyState {
     }
 }
 
-#[derive(Clone, Serialize)]
-struct Output {
-    id: u32,
-    data: String,
+/// Sends what `received` delivers in frames: everything that arrives within `frame` of a frame's
+/// first chunk (or up to MAX_FRAME bytes) goes to `send` as one buffer. Returns when the sender
+/// side is gone (everything flushed) or `send` returns false.
+pub(crate) fn forward_frames(received: &std::sync::mpsc::Receiver<Vec<u8>>, frame: Duration, mut send: impl FnMut(Vec<u8>) -> bool) {
+    while let Ok(first) = received.recv() {
+        let started = Instant::now();
+        let mut buf = first;
+        while buf.len() < MAX_FRAME {
+            match received.recv_timeout(frame.saturating_sub(started.elapsed())) {
+                Ok(more) => buf.extend_from_slice(&more),
+                Err(_) => break,
+            }
+        }
+        if !send(buf) {
+            return;
+        }
+    }
 }
 
-#[derive(Clone, Serialize)]
+/// How long output is collected before it is sent (well under one screen refresh).
+const FRAME: Duration = Duration::from_millis(6);
+/// A frame is sent early once it holds this much.
+const MAX_FRAME: usize = 256 * 1024;
+
+/// The shell ended: the last message on its channel.
+#[derive(Serialize)]
 struct Exit {
-    id: u32,
     code: Option<u32>,
 }
 
@@ -151,8 +171,8 @@ fn with_integration(shell: &str, args: Vec<String>, cmd: &mut CommandBuilder) ->
 
 /// Starts a shell in a pseudo-terminal and returns the session id.
 #[tauri::command(async)]
+#[allow(clippy::too_many_arguments)] // a command's arguments are its call's fields
 pub fn pty_spawn(
-    app: AppHandle,
     state: State<'_, PtyState>,
     shell: String,
     args: Vec<String>,
@@ -160,6 +180,7 @@ pub fn pty_spawn(
     cols: u16,
     rows: u16,
     env: Vec<(String, String)>,
+    on_output: Channel<InvokeResponseBody>,
 ) -> Result<u32, String> {
     let pair = native_pty_system()
         .openpty(PtySize { rows: rows.max(2), cols: cols.max(10), pixel_width: 0, pixel_height: 0 })
@@ -185,19 +206,28 @@ pub fn pty_spawn(
     let id = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
 
     let exit_child = Arc::clone(&child);
+    let (chunks, received) = std::sync::mpsc::channel::<Vec<u8>>();
     std::thread::spawn(move || {
         let mut buf = [0u8; 16 * 1024];
-        let engine = base64::engine::general_purpose::STANDARD;
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    let _ = app.emit("pty-output", Output { id, data: engine.encode(&buf[..n]) });
+                    if chunks.send(buf[..n].to_vec()).is_err() {
+                        break;
+                    }
                 }
             }
         }
+    });
+    // Output in frames: what arrives within FRAME of the first byte goes out as one message, so
+    // `cat big.log` sends a few messages per frame instead of thousands. Then the exit, through the
+    // same channel (as JSON, the output is raw bytes), so it always comes after the last output.
+    std::thread::spawn(move || {
+        forward_frames(&received, FRAME, |frame| on_output.send(InvokeResponseBody::Raw(frame)).is_ok());
         let code = exit_child.lock().ok().and_then(|mut c| c.wait().ok()).map(|s| s.exit_code());
-        let _ = app.emit("pty-exit", Exit { id, code });
+        let exit = serde_json::to_string(&Exit { code }).unwrap_or_default();
+        let _ = on_output.send(InvokeResponseBody::Json(exit));
     });
 
     state.sessions.lock().map_err(|e| e.to_string())?.insert(id, Session { master: pair.master, input: crate::process::spawn_writer(writer), child });
@@ -341,5 +371,55 @@ mod tests {
         let args: Vec<&str> = bash.args.iter().map(|s| s.as_str()).collect();
         let out = run_integrated(&bash.path, &args, "false\r", |o| o.contains("133;D;"));
         assert!(out.contains("\x1b]133;D;1\x07"), "exit code 1: {out:?}");
+    }
+}
+
+#[cfg(test)]
+mod frame_tests {
+    use super::*;
+
+    #[test]
+    fn groups_bursts_and_flushes_at_the_end() {
+        let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        let writer = std::thread::spawn(move || {
+            // A burst (like `cat big.log`): many small reads at once…
+            for i in 0..500u32 {
+                tx.send(format!("line {i}
+").into_bytes()).unwrap();
+            }
+            // …then a pause, and one last chunk before the shell exits.
+            std::thread::sleep(Duration::from_millis(60));
+            tx.send(b"bye".to_vec()).unwrap();
+        });
+        let mut frames: Vec<Vec<u8>> = Vec::new();
+        forward_frames(&rx, Duration::from_millis(20), |f| {
+            frames.push(f);
+            true
+        });
+        writer.join().unwrap();
+        let all: Vec<u8> = frames.concat();
+        let text = String::from_utf8(all).unwrap();
+        assert!(text.starts_with("line 0
+") && text.ends_with("line 499
+bye"), "nothing lost, in order");
+        assert!(frames.len() <= 4, "500 reads became a few frames, not 500: {}", frames.len());
+        assert_eq!(frames.last().unwrap(), b"bye", "the chunk after the pause is its own frame");
+    }
+
+    #[test]
+    fn big_output_is_split_at_the_frame_limit() {
+        let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        for _ in 0..40 {
+            tx.send(vec![b'x'; 16 * 1024]).unwrap();
+        }
+        drop(tx);
+        let mut sizes = Vec::new();
+        forward_frames(&rx, Duration::from_secs(1), |f| {
+            sizes.push(f.len());
+            true
+        });
+        assert_eq!(sizes.iter().sum::<usize>(), 40 * 16 * 1024);
+        assert!(sizes.iter().all(|&n| n <= MAX_FRAME + 16 * 1024), "{sizes:?}");
+        assert!(sizes.len() >= 2, "640 KB isn't one message: {sizes:?}");
     }
 }

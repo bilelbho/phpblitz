@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import { isTauri } from '../platform';
-import { perf, usePerf, windowReadyMs, type Span } from '../perf';
+import { usePerf, windowReadyMs, type Span } from '../perf';
 
 const ms = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)} s` : `${n} ms`);
 

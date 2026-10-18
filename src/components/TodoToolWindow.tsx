@@ -55,7 +55,7 @@ export function TodoToolWindow({ ws }: { ws: Workspace }) {
   const path = ws.activePath;
   const fileText = path ? (ws.liveTextOf(path) ?? ws.loaded[path] ?? '') : '';
   const fileItems = useMemo(() => (path ? todosInText(path, fileText) : []), [path, fileText]);
-  const items = view === 'project' ? (projectItems ?? []) : fileItems;
+  const items = useMemo(() => (view === 'project' ? (projectItems ?? []) : fileItems), [view, projectItems, fileItems]);
 
   // The tree: Found … › project › folder › file › items (folders only in the Project view).
   const rows = useMemo(() => {

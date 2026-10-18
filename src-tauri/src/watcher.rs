@@ -150,13 +150,16 @@ fn subfolders(dir: &Path, skip: &[&str]) -> Vec<PathBuf> {
     out
 }
 
+/// An entry at a scan: (modified, size, is_dir).
+type Meta = (Option<SystemTime>, u64, bool);
+
 /// Folders whose changes are found by polling: each one's entries (not recursive), compared with
 /// the previous scan by modification time and size.
 #[derive(Default)]
 struct Poller {
     dirs: Vec<PathBuf>,
-    /// Entry path → (modified, size, is_dir) at the last scan.
-    seen: HashMap<PathBuf, (Option<SystemTime>, u64, bool)>,
+    /// Entry path → its metadata at the last scan.
+    seen: HashMap<PathBuf, Meta>,
 }
 
 impl Poller {
@@ -171,7 +174,7 @@ impl Poller {
         self.dirs.push(dir);
     }
 
-    fn entries(dir: &Path) -> Vec<(PathBuf, (Option<SystemTime>, u64, bool))> {
+    fn entries(dir: &Path) -> Vec<(PathBuf, Meta)> {
         let Ok(read) = std::fs::read_dir(dir) else { return Vec::new() };
         read.flatten()
             .filter_map(|e| {

@@ -77,6 +77,10 @@ class Symbols {
   /** Indexing in progress, with its progress. */
   progress: { done: number; total: number } | null = null;
   private kinds = new Map<string, ClassKind>();
+  /** Folders whose files' kinds were asked for (icons load per folder, as they're shown). */
+  private askedDirs = new Set<string>();
+  private dirQueue = new Set<string>();
+  private dirTimer = 0;
   private listeners = new Set<() => void>();
   private version = 0;
   private unlisten: Promise<() => void> | null = null;
@@ -97,6 +101,7 @@ class Symbols {
   async open(root: string, excludes: string[]): Promise<IndexStats> {
     this.rust = true;
     this.kinds.clear();
+    this.askedDirs.clear();
     this.progress = { done: 0, total: 0 };
     this.changed();
     this.unlisten ??= listen<{ done: number; total: number }>('index-progress', (e) => {
@@ -106,8 +111,8 @@ class Symbols {
     });
     try {
       const stats = await invoke<IndexStats>('index_open', { root, excludes });
-      const kinds = await invoke<[string, ClassKind][]>('index_kinds');
-      this.kinds = new Map(kinds);
+      // Icons shown while indexing found nothing yet: they ask again.
+      this.askedDirs.clear();
       return stats;
     } finally {
       this.progress = null;
@@ -162,9 +167,34 @@ class Symbols {
     }
   }
 
-  /** What a file declares (for its icon). */
+  /**
+   * What a file declares (for its icon). The kinds of a folder's files are fetched the first time
+   * one of them is shown, in one batch per frame, instead of every file's kind at startup.
+   */
   kindOf(path: string): ClassKind | undefined {
-    return this.rust ? this.kinds.get(path) : phpIndex.kindOf(path);
+    if (!this.rust) return phpIndex.kindOf(path);
+    const kind = this.kinds.get(path);
+    if (kind === undefined && path.endsWith('.php')) this.requestDir(path.slice(0, path.lastIndexOf('/')));
+    return kind;
+  }
+
+  private requestDir(dir: string) {
+    if (this.askedDirs.has(dir)) return;
+    this.askedDirs.add(dir);
+    this.dirQueue.add(dir);
+    if (this.dirTimer) return;
+    this.dirTimer = window.setTimeout(() => {
+      this.dirTimer = 0;
+      const dirs = [...this.dirQueue];
+      this.dirQueue.clear();
+      void invoke<[string, ClassKind][]>('index_kinds_in', { dirs })
+        .then((found) => {
+          if (!found.length) return;
+          for (const [p, k] of found) this.kinds.set(p, k);
+          this.changed();
+        })
+        .catch(() => {});
+    }, 16);
   }
 
   /** Classes, methods and functions matching a query, best first. */

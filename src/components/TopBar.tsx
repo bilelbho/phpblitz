@@ -162,9 +162,6 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
 
         <div className="drag" data-tauri-drag-region style={{ flex: '0 0 24px' }} />
 
-        <button type="button" className={'top-icon' + (ws.isToolOpen('ai') ? ' open' : '')} aria-label="AI Assistant" title="AI Assistant" onClick={() => ws.toggleRight('ai')}>
-          <Icon name="sparkle" />
-        </button>
         <button type="button" className="top-icon" aria-label="Search everywhere" title="Search Everywhere (Double Shift)" onClick={() => onSearch('all')}>
           <Icon name="search" />
         </button>

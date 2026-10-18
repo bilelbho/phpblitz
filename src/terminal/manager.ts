@@ -3,8 +3,7 @@
 // Sessions live outside React, so switching the bottom panel to Problems and back
 // (which unmounts the view) keeps shells, scrollback and running programs.
 
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { Channel, invoke } from '@tauri-apps/api/core';
 import type { IMarker, ITheme, Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
 import { useSyncExternalStore } from 'react';
@@ -68,13 +67,6 @@ function termOptions(t: TerminalSettings) {
   } as const;
 }
 
-function decode(base64: string): Uint8Array {
-  const bin = atob(base64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
-}
-
 /** A short beep for the terminal bell (no audio files needed). */
 function beep() {
   try {
@@ -98,11 +90,9 @@ class TerminalManager {
   /** Tabs being opened (waiting for the shell list), so the view doesn't open another. */
   creating = 0;
   private nextId = 1;
-  private byPty = new Map<number, Session>();
   private listeners = new Set<() => void>();
   private snapshot = { sessions: this.sessions, activeId: this.activeId };
   private shellsPromise: Promise<ShellSpec[]> | null = null;
-  private eventsReady: Promise<void> | null = null;
   /** The view element the active session is shown in. */
   private host: HTMLElement | null = null;
 
@@ -123,17 +113,6 @@ class TerminalManager {
     return this.shellsPromise;
   }
 
-  /** One listener pair for all sessions; output is routed by pty id. */
-  private events() {
-    this.eventsReady ??= Promise.all([
-      listen<{ id: number; data: string }>('pty-output', (e) => this.byPty.get(e.payload.id)?.term.write(decode(e.payload.data))),
-      listen<{ id: number; code: number | null }>('pty-exit', (e) => {
-        const s = this.byPty.get(e.payload.id);
-        if (s) this.onExit(s, e.payload.code);
-      }),
-    ]).then(() => undefined);
-    return this.eventsReady;
-  }
 
   private uniqueName(base: string) {
     const used = new Set(this.sessions.map((s) => s.name));
@@ -185,9 +164,13 @@ class TerminalManager {
     this.activeId = session.id;
     this.changed();
 
-    await this.events();
     try {
+      // The shell's output: raw bytes, in frames, straight to xterm.js.
+      // Then `{ code }` when the shell ends, after the last output.
+      const output = new Channel<ArrayBuffer | { code: number | null }>();
+      output.onmessage = (data) => (data instanceof ArrayBuffer ? term.write(new Uint8Array(data)) : this.onExit(session, data.code));
       session.ptyId = await invoke<number>('pty_spawn', {
+        onOutput: output,
         shell: shell.path,
         args: shell.args,
         cwd: opts.cwd,
@@ -195,7 +178,6 @@ class TerminalManager {
         rows: term.rows,
         env: parseEnv(settings.env),
       });
-      this.byPty.set(session.ptyId, session);
       // The view may have sized the terminal before the shell existed.
       this.resizePty(session);
     } catch (e) {
@@ -274,7 +256,6 @@ class TerminalManager {
 
   private onExit(s: Session, code: number | null) {
     s.exited = true;
-    if (s.ptyId !== null) this.byPty.delete(s.ptyId);
     if (getSettings().terminal.closeOnExit) {
       this.close(s.id);
       return;
@@ -325,7 +306,6 @@ class TerminalManager {
     const s = this.sessions[i];
     if (s.ptyId !== null) {
       invoke('pty_kill', { id: s.ptyId }).catch(() => {});
-      this.byPty.delete(s.ptyId);
     }
     s.element.remove();
     s.term.dispose();
@@ -367,6 +347,29 @@ class TerminalManager {
     const lines = command.replace(/\r\n/g, '\n').trim().split('\n').join('\r');
     await invoke('pty_write', { id: s.ptyId, data: lines + '\r' }).catch(() => {});
     s.term.focus();
+  }
+
+  /**
+   * Opens a tab named `name` and runs a program in its shell (the shell stays when it ends).
+   * `command` gets the shell, since PowerShell, cmd and bash quote paths differently.
+   */
+  async start(opts: { cwd: string; name: string; command: (shell: ShellSpec) => string }): Promise<Session | null> {
+    const s = await this.create({ cwd: opts.cwd });
+    if (!s || s.ptyId === null) return s;
+    this.rename(s.id, opts.name);
+    await invoke('pty_write', { id: s.ptyId, data: opts.command(s.shell) + '\r' }).catch(() => {});
+    s.term.focus();
+    return s;
+  }
+
+  /** Types text into a tab as a paste (bracketed, when the program asks for it), without Enter. */
+  paste(id: number, text: string): boolean {
+    const s = this.sessions.find((x) => x.id === id && !x.exited);
+    if (!s) return false;
+    this.setActive(s.id);
+    s.term.paste(text);
+    s.term.focus();
+    return true;
   }
 
   /** Font, cursor… apply to open tabs right away; the shell applies to new tabs. */

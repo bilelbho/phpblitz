@@ -1,7 +1,4 @@
-// Mocked for now: AI replies (later: a model API call with project context).
 // SAMPLE_DB is the sample project's database, served by db/store.ts's sample driver.
-
-import { structureOf } from './php';
 
 export type ColumnKey = 'pk' | 'fk' | 'uq' | undefined;
 
@@ -72,48 +69,3 @@ export const SAMPLE_DB: { connection: string; engine: string; schema: string; ta
     },
   },
 };
-
-export interface AiMessage {
-  who: 'you' | 'assistant';
-  text: string;
-  code?: string;
-}
-
-export const AI_SUGGESTIONS = ['Explain this file', 'Write a test for this class', 'Find N+1 queries'];
-
-export function aiReply(question: string, file: { name: string; content: string } | null): AiMessage {
-  const q = question.toLowerCase();
-  if (q.includes('explain')) {
-    if (!file || !file.name.endsWith('.php')) return { who: 'assistant', text: 'Open a PHP file and ask again, and I will explain it.' };
-    const symbols = structureOf(file.content);
-    const cls = symbols.find((s) => s.depth === 0);
-    const methods = symbols.filter((s) => s.kind === 'method').map((s) => s.name);
-    const props = symbols.filter((s) => s.kind === 'property').map((s) => '$' + s.name);
-    return {
-      who: 'assistant',
-      text:
-        `${file.name} defines ${cls ? `${cls.kind} ${cls.name}${cls.detail ? ` (${cls.detail})` : ''}` : 'no class'}` +
-        ` with ${methods.length} ${methods.length === 1 ? 'method' : 'methods'}${methods.length ? ': ' + methods.join(', ') : ''}` +
-        `${props.length ? `, and properties ${props.join(', ')}` : ''}.`,
-    };
-  }
-  if (q.includes('test')) {
-    const cls = file ? structureOf(file.content).find((s) => s.depth === 0)?.name : undefined;
-    const name = cls ?? 'Example';
-    return {
-      who: 'assistant',
-      text: `Here is a starting point for a PHPUnit test of ${name}:`,
-      code: `final class ${name}Test extends TestCase\n{\n    public function test_it_works(): void\n    {\n        // Arrange\n\n        // Act\n\n        // Assert\n        $this->assertTrue(true);\n    }\n}`,
-    };
-  }
-  if (q.includes('n+1') || q.includes('quer')) {
-    return {
-      who: 'assistant',
-      text: 'Look for relations accessed inside loops (foreach ($users as $user) { $user->orders ... }). Load them up front with ->with(\'orders\') to run one query instead of one per row.',
-    };
-  }
-  return {
-    who: 'assistant',
-    text: '(Mock reply) The real assistant will answer using the project index: classes, routes, the database schema and the open file.',
-  };
-}

@@ -61,12 +61,21 @@ postgres-native-tls = "0.5"
 native-tls = "0.2"
 mysql = { version = "25", default-features = false, features = ["minimal-rust", "native-tls"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
+# The AI assistant's calls to Anthropic (ai.rs): the same HTTP client and TLS as the updater.
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls-no-provider", "system-proxy"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# The MCP server's token (mcp.rs).
+getrandom = "0.3"
 keyring = { version = "3", features = ["windows-native", "apple-native"] }
 
 # Linux: the Secret Service (GNOME Keyring, KWallet) over D-Bus; without it keyring keeps
 # passwords in memory only.
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", features = ["linux-native-sync-persistent", "crypto-rust"] }
+
+# Programs installed while PHPBlitz runs: the PATH saved in the registry (process.rs).
+[target.'cfg(windows)'.dependencies]
+windows-registry = "0.6"
 
 # Auto-update from GitHub Releases, and the restart after installing one.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

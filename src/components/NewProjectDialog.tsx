@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { runJob } from '../jobs';
 import { homeDir } from '@tauri-apps/api/path';
 import { isTauri, pickFolder } from '../platform';
 import { GENERATORS, defaultValues, validate, type Generator, type Option, type Step, type Tool, type Values } from '../projectGenerators';
@@ -110,13 +110,9 @@ export function NewProjectDialog({ near, onClose, onCreated }: Props) {
   const runLine = async (line: string, cwd: string, append: (text: string) => void): Promise<number> => {
     const id = nextJob++;
     job.current = id;
-    const unlisten = await listen<{ id: number; text: string }>('job-output', (e) => {
-      if (e.payload.id === id) append(e.payload.text);
-    });
     try {
-      return await invoke<number>('job_run', { id, cwd, line });
+      return await runJob('job_run', { id, cwd, line }, append);
     } finally {
-      unlisten();
       job.current = 0;
     }
   };
@@ -176,9 +172,11 @@ export function NewProjectDialog({ near, onClose, onCreated }: Props) {
 
   /** After a failure: whether the folder was made, so it can be opened anyway. */
   const [madeFolder, setMadeFolder] = useState(false);
+  const runState = run?.state;
+  const runPath = run?.path;
   useEffect(() => {
-    if (run && run.state !== 'running') invoke<unknown[]>('list_dir', { path: run.path }).then((l) => setMadeFolder(l.length > 0), () => setMadeFolder(false));
-  }, [run?.state, run?.path]);
+    if (runPath && runState !== 'running') invoke<unknown[]>('list_dir', { path: runPath }).then((l) => setMadeFolder(l.length > 0), () => setMadeFolder(false));
+  }, [runState, runPath]);
 
   const running = run?.state === 'running';
 

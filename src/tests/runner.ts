@@ -5,7 +5,7 @@
 
 import { useSyncExternalStore } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { runJob } from '../jobs';
 import type { Backend } from '../backend/types';
 import { isTauri } from '../platform';
 import { commandFor, debugMappings, interpretersFor, mapPath, projectPhp, type Interpreter } from '../interpreters';
@@ -159,18 +159,16 @@ class TestRunner {
 
     const id = Date.now() % 1_000_000_000;
     this.job = id;
-    const unlisten = await listen<{ id: number; text: string }>('job-output', (e) => {
-      if (e.payload.id !== id || !this.run) return;
-      this.run.tree.line(e.payload.text.replace(ANSI, ''));
-      this.changed(false);
-    });
+    const run = this.run;
     try {
-      const code = await invoke<number>('job_exec', { id, cwd: b.root, program: cmd.program, args: cmd.args });
+      const code = await runJob('job_exec', { id, cwd: b.root, program: cmd.program, args: cmd.args }, (line) => {
+        run.tree.line(line.replace(ANSI, ''));
+        this.changed(false);
+      });
       this.finish(this.stopped ? null : code);
     } catch (e) {
       this.finish(null, String(e instanceof Error ? e.message : e));
     } finally {
-      unlisten();
       this.job = 0;
     }
   }

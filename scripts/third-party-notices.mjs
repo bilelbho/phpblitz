@@ -25,7 +25,7 @@ function licenseTexts(dir) {
 // ── npm: production dependencies only (what the app bundles) ──────────────
 const npmTree = JSON.parse(execSync('npm ls --omit=dev --all --json', { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
 const npm = new Map();
-(function walk(deps, from) {
+(function walk(deps) {
   for (const [name, d] of Object.entries(deps ?? {})) {
     const key = `${name}@${d.version}`;
     if (!npm.has(key)) {
@@ -33,12 +33,14 @@ const npm = new Map();
       let pkg = {};
       try {
         pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
-      } catch {}
+      } catch {
+        // No package.json (an optional dependency that isn't installed): listed as UNKNOWN.
+      }
       const license = typeof pkg.license === 'string' ? pkg.license : pkg.license?.type ?? pkg.licenses?.map((l) => l.type).join(' OR ') ?? 'UNKNOWN';
       const repo = typeof pkg.repository === 'string' ? pkg.repository : pkg.repository?.url ?? pkg.homepage ?? '';
       npm.set(key, { ecosystem: 'npm', name, version: d.version, license, repository: cleanRepo(repo), author: personName(pkg.author), texts: licenseTexts(dir) });
     }
-    walk(d.dependencies, key);
+    walk(d.dependencies);
   }
 })(npmTree.dependencies);
 

@@ -1,6 +1,7 @@
 //! Running external tools: git, php, composer, and terminal command lines.
 
 use serde::Serialize;
+use tauri::ipc::Channel;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -115,8 +116,9 @@ pub fn open_external(url: String) -> Result<(), String> {
     result.map(|_| ()).map_err(|e| e.to_string())
 }
 
-/// Finds the first of `names` on PATH or in ~/.cargo/bin (where `cargo install`
-/// puts language servers; GUI apps often start without it on PATH).
+/// Finds the first of `names` on PATH or in the folders installers use that GUI apps often start
+/// without on PATH: ~/.cargo/bin (`cargo install`: language servers), ~/.local/bin (AI agents'
+/// native installers), npm's global folder, and Homebrew's.
 #[tauri::command]
 pub async fn find_executable(names: Vec<String>) -> Option<String> {
     tauri::async_runtime::spawn_blocking(move || find_executable_blocking(names)).await.ok().flatten()
@@ -127,9 +129,19 @@ pub fn find_executable_blocking(names: Vec<String>) -> Option<String> {
     let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
         .map(|p| std::env::split_paths(&p).collect())
         .unwrap_or_default();
+    // Folders installers added to PATH since PHPBlitz started: found without a restart.
+    dirs.extend(saved_path());
     let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"));
     if let Some(home) = home {
-        dirs.push(PathBuf::from(home).join(".cargo").join("bin"));
+        let home = PathBuf::from(home);
+        dirs.push(home.join(".cargo").join("bin"));
+        dirs.push(home.join(".local").join("bin"));
+    }
+    if let Some(appdata) = std::env::var_os("APPDATA").filter(|_| cfg!(windows)) {
+        dirs.push(PathBuf::from(appdata).join("npm"));
+    }
+    if cfg!(target_os = "macos") {
+        dirs.extend(["/opt/homebrew/bin", "/usr/local/bin"].map(PathBuf::from));
     }
     let exts: &[&str] = if cfg!(windows) { &[".exe", ".cmd", ".bat", ""] } else { &[""] };
     for name in &names {
@@ -143,6 +155,41 @@ pub fn find_executable_blocking(names: Vec<String>) -> Option<String> {
         }
     }
     None
+}
+
+/// The PATH saved in the registry now (user, then system), %VARIABLES% expanded. The process keeps
+/// the PATH from when PHPBlitz started; installers change the saved one.
+#[cfg(windows)]
+fn saved_path() -> Vec<PathBuf> {
+    use windows_registry::{CURRENT_USER, LOCAL_MACHINE};
+    let read = |key: &windows_registry::Key, path: &str| key.open(path).ok().and_then(|k| k.get_string("Path").ok()).unwrap_or_default();
+    let user = read(CURRENT_USER, "Environment");
+    let system = read(LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment");
+    format!("{user};{system}").split(';').map(str::trim).filter(|d| !d.is_empty()).map(|d| PathBuf::from(expand_vars(d))).collect()
+}
+
+#[cfg(not(windows))]
+fn saved_path() -> Vec<PathBuf> {
+    Vec::new()
+}
+
+/// `%USERPROFILE%\bin` → `C:\Users\me\bin`; unknown variables stay as written.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn expand_vars(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(start) = rest.find('%') {
+        let Some(len) = rest[start + 1..].find('%') else { break };
+        let name = &rest[start + 1..start + 1 + len];
+        out.push_str(&rest[..start]);
+        match std::env::var(name) {
+            Ok(v) if !name.is_empty() => out.push_str(&v),
+            _ => out.push_str(&rest[start..start + len + 2]),
+        }
+        rest = &rest[start + len + 2..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Whether this copy can install updates itself. Everything can (the Windows installers, the macOS
@@ -175,17 +222,22 @@ pub struct JobState {
     jobs: std::sync::Mutex<std::collections::HashMap<u32, u32>>,
 }
 
+/// What a job's channel carries: its output (whole lines, grouped in frames), then its exit code.
 #[derive(Clone, Serialize)]
-struct JobOutput {
-    id: u32,
-    text: String,
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum JobEvent {
+    Output { text: String },
+    Exit { code: i32 },
 }
 
-/// Runs a command line through the system shell and streams stdout and stderr as `job-output`
-/// events, line by line; returns the exit code. Tools run without a terminal and without input,
+/// Lines that arrive within this time of each other go to the UI as one message.
+const JOB_FRAME: std::time::Duration = std::time::Duration::from_millis(16);
+
+/// Runs a command line through the system shell and streams stdout and stderr through
+/// `on_output`, then the exit code (also returned). Tools run without a terminal and without input,
 /// with the environment variables that make them pick defaults instead of asking (CI=1, …).
 #[tauri::command]
-pub async fn job_run(app: tauri::AppHandle, state: tauri::State<'_, JobState>, id: u32, cwd: String, line: String) -> Result<i32, String> {
+pub async fn job_run(state: tauri::State<'_, JobState>, id: u32, cwd: String, line: String, on_output: Channel<JobEvent>) -> Result<i32, String> {
     #[cfg(windows)]
     let mut cmd = {
         use std::os::windows::process::CommandExt;
@@ -206,22 +258,21 @@ pub async fn job_run(app: tauri::AppHandle, state: tauri::State<'_, JobState>, i
         .env("npm_config_yes", "true")
         .env("npm_config_fund", "false")
         .env("npm_config_update_notifier", "false");
-    stream_job(app, &state, id, &cwd, cmd).await
+    stream_job(&state, id, &cwd, cmd, on_output).await
 }
 
 /// Runs a program (no shell) and streams its output like `job_run`: test runs, whose output is
 /// read as it comes.
 #[tauri::command]
-pub async fn job_exec(app: tauri::AppHandle, state: tauri::State<'_, JobState>, id: u32, cwd: String, program: String, args: Vec<String>) -> Result<i32, String> {
+pub async fn job_exec(state: tauri::State<'_, JobState>, id: u32, cwd: String, program: String, args: Vec<String>, on_output: Channel<JobEvent>) -> Result<i32, String> {
     let mut cmd = Command::new(&program);
     cmd.args(&args);
-    stream_job(app, &state, id, &cwd, cmd).await
+    stream_job(&state, id, &cwd, cmd, on_output).await
 }
 
-async fn stream_job(app: tauri::AppHandle, state: &JobState, id: u32, cwd: &str, mut cmd: Command) -> Result<i32, String> {
+async fn stream_job(state: &JobState, id: u32, cwd: &str, mut cmd: Command, on_output: Channel<JobEvent>) -> Result<i32, String> {
     use std::io::BufRead;
     use std::process::Stdio;
-    use tauri::Emitter;
 
     #[cfg(not(windows))]
     {
@@ -241,28 +292,40 @@ async fn stream_job(app: tauri::AppHandle, state: &JobState, id: u32, cwd: &str,
     .into_iter()
     .flatten()
     .collect();
+    // Whole lines from both pipes, then to the UI in frames (a test run prints thousands of lines).
+    let (lines, received) = std::sync::mpsc::channel::<Vec<u8>>();
     let readers: Vec<_> = pipes
         .into_iter()
         .map(|pipe| {
-            let app = app.clone();
+            let lines = lines.clone();
             std::thread::spawn(move || {
                 let mut reader = std::io::BufReader::new(pipe);
                 let mut buf = Vec::new();
                 while reader.read_until(b'\n', &mut buf).is_ok_and(|n| n > 0) {
-                    let _ = app.emit("job-output", JobOutput { id, text: String::from_utf8_lossy(&buf).into_owned() });
-                    buf.clear();
+                    if lines.send(std::mem::take(&mut buf)).is_err() {
+                        break;
+                    }
                 }
             })
         })
         .collect();
+    drop(lines);
+    let output = on_output.clone();
+    let forwarder = std::thread::spawn(move || {
+        crate::pty::forward_frames(&received, JOB_FRAME, |frame| output.send(JobEvent::Output { text: String::from_utf8_lossy(&frame).into_owned() }).is_ok());
+    });
     let status = tauri::async_runtime::spawn_blocking(move || child.wait()).await.map_err(|e| e.to_string())?;
     for r in readers {
         let _ = r.join();
     }
+    let _ = forwarder.join();
     if let Ok(mut jobs) = state.jobs.lock() {
         jobs.remove(&id);
     }
-    Ok(status.map_err(|e| e.to_string())?.code().unwrap_or(-1))
+    let code = status.map_err(|e| e.to_string())?.code().unwrap_or(-1);
+    // The last message: the UI knows all output has arrived.
+    let _ = on_output.send(JobEvent::Exit { code });
+    Ok(code)
 }
 
 /// Stops a job started with `job_run`, with the processes it started.
@@ -305,8 +368,17 @@ pub fn spawn_writer(mut writer: impl std::io::Write + Send + 'static) -> std::sy
 
 #[cfg(test)]
 mod tests {
-    use super::spawn_writer;
+    use super::{expand_vars, spawn_writer};
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn expands_environment_variables() {
+        let home = std::env::var("PATH").unwrap();
+        assert_eq!(expand_vars("%PATH%\\bin"), format!("{home}\\bin"));
+        assert_eq!(expand_vars("C:\\%NO_SUCH_VAR_PB%\\x"), "C:\\%NO_SUCH_VAR_PB%\\x");
+        assert_eq!(expand_vars("50% off"), "50% off");
+        assert_eq!(expand_vars("%%"), "%%");
+    }
 
     struct Shared(Arc<Mutex<Vec<u8>>>);
     impl std::io::Write for Shared {

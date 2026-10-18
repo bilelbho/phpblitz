@@ -3,7 +3,9 @@
 //! Starts a language server (PHPantom, php-lsp, later our own) as a child
 //! process and relays LSP messages between it and the UI:
 //! - UI → server: the `lsp_send` command writes one framed JSON-RPC message to stdin.
-//! - server → UI: a reader thread parses stdout and emits `lsp-message` events.
+//! - server → UI: a reader thread parses stdout and sends each message through the server's
+//!   channel (with its stderr lines, and its exit as the last message).
+//!
 //! The JSON itself is never interpreted here, so any LSP server works.
 
 use serde::Serialize;
@@ -12,7 +14,8 @@ use std::io::{BufRead, BufReader, Read};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, State};
+use tauri::ipc::Channel;
+use tauri::State;
 
 struct Server {
     child: Child,
@@ -36,21 +39,13 @@ impl LspState {
     }
 }
 
+/// What a server's channel carries: its JSON-RPC messages, its stderr lines, then its exit.
 #[derive(Clone, Serialize)]
-struct LspMessage {
-    server: u32,
-    message: String,
-}
-
-#[derive(Clone, Serialize)]
-struct LspLog {
-    server: u32,
-    line: String,
-}
-
-#[derive(Clone, Serialize)]
-struct LspExit {
-    server: u32,
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum LspEvent {
+    Message { message: String },
+    Log { line: String },
+    Exit,
 }
 
 /// Reads `Content-Length: N\r\n...\r\n\r\n<N bytes>` frames until the stream ends.
@@ -83,14 +78,14 @@ fn read_messages(stdout: impl Read, mut on_message: impl FnMut(String)) {
     }
 }
 
-/// Starts a language server and returns its id. Messages arrive as `lsp-message` events.
+/// Starts a language server and returns its id. Its messages arrive through `on_event`.
 #[tauri::command(async)]
 pub fn lsp_start(
-    app: AppHandle,
     state: State<'_, LspState>,
     command: String,
     args: Vec<String>,
     cwd: String,
+    on_event: Channel<LspEvent>,
 ) -> Result<u32, String> {
     let mut cmd = Command::new(&command);
     cmd.args(&args)
@@ -108,18 +103,17 @@ pub fn lsp_start(
     let stdout = child.stdout.take().ok_or("no stdout")?;
     let stderr = child.stderr.take().ok_or("no stderr")?;
 
-    let out_app = app.clone();
+    let messages = on_event.clone();
     std::thread::spawn(move || {
         read_messages(stdout, |message| {
-            let _ = out_app.emit("lsp-message", LspMessage { server: id, message });
+            let _ = messages.send(LspEvent::Message { message });
         });
-        let _ = out_app.emit("lsp-exit", LspExit { server: id });
+        let _ = messages.send(LspEvent::Exit);
     });
 
-    let err_app = app.clone();
     std::thread::spawn(move || {
         for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            let _ = err_app.emit("lsp-log", LspLog { server: id, line });
+            let _ = on_event.send(LspEvent::Log { line });
         }
     });
 

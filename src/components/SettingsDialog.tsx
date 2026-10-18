@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { Workspace } from '../useWorkspace';
-import { DEFAULT_SETTINGS, getSettings, saveSettings, type DebugSettings, type EditorSettings, type Settings, type TabSettings, type TerminalSettings, type UiSettings } from '../settings';
+import { DEFAULT_SETTINGS, getSettings, saveSettings, type AiSettings, type DebugSettings, type EditorSettings, type Settings, type TabSettings, type TerminalSettings, type UiSettings } from '../settings';
 import { terminals, type ShellSpec } from '../terminal/manager';
 import { isTauri } from '../platform';
 import { Icon } from './Icon';
@@ -11,6 +11,7 @@ import { AppearancePage, EditorTabsPage } from './SettingsAppearance';
 import { PhpPage } from './PhpSettings';
 import { projectPhp, saveProjectPhp, type ProjectPhp } from '../interpreters';
 import { SCHEMES, schemeOf, schemePreview, type SchemeId } from '../editor/themes';
+import { AiAgentsPage } from './SettingsAi';
 
 interface Page {
   id: string;
@@ -92,6 +93,13 @@ const PAGES: Page[] = [
     group: 'Tools',
     keywords: 'shell path start directory environment variables font size line height tab name application title bell close session copy selection paste middle click shortcuts hyperlinks links cursor shape blink powershell bash cmd',
   },
+  {
+    id: 'ai-agents',
+    section: 'ai',
+    label: 'AI',
+    group: 'Tools',
+    keywords: 'ai assistant chat anthropic claude api key model sonnet haiku opus ghost text inline completion commit message edit with ai agents mcp model context protocol server claude code codex gemini copilot token port',
+  },
 ];
 
 export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: string; onClose: () => void }) {
@@ -125,6 +133,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
       editor: { ...ed, fontSize: clamp(ed.fontSize, 6, 48, 13), lineHeight: clamp(ed.lineHeight, 1, 3, 1.6) },
       terminal: { ...t, fontSize: clamp(t.fontSize, 6, 48, 13), lineHeight: clamp(t.lineHeight, 0.8, 3, 1) },
       debug: { ...draft.debug, port: clamp(draft.debug.port, 1, 65535, 9003), maxChildren: clamp(draft.debug.maxChildren, 10, 1000, 100) },
+      ai: { ...draft.ai, mcpPort: clamp(draft.ai.mcpPort, 1024, 65535, 7465) },
     };
     saveSettings(next);
     saveProjectPhp(root, php);
@@ -139,6 +148,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
   const setEditor = (patch: Partial<EditorSettings>) => setDraft((d) => ({ ...d, editor: { ...d.editor, ...patch } }));
   const setTerminal = (patch: Partial<TerminalSettings>) => setDraft((d) => ({ ...d, terminal: { ...d.terminal, ...patch } }));
   const setDebug = (patch: Partial<DebugSettings>) => setDraft((d) => ({ ...d, debug: { ...d.debug, ...patch } }));
+  const setAi = (patch: Partial<AiSettings>) => setDraft((d) => ({ ...d, ai: { ...d.ai, ...patch } }));
 
   return (
     <div className="modal-backdrop settings-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -207,6 +217,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
               {active.id === 'editor-general' && <EditorGeneralPage value={draft.editor} onChange={setEditor} highlight={query.trim().toLowerCase()} />}
               {active.id === 'gutter-icons' && <GutterIconsPage value={draft.editor} onChange={setEditor} highlight={query.trim().toLowerCase()} />}
               {active.id === 'terminal' && <TerminalPage ws={ws} value={draft.terminal} onChange={setTerminal} highlight={query.trim().toLowerCase()} />}
+              {active.id === 'ai-agents' && <AiAgentsPage value={draft.ai} saved={saved.ai} onChange={setAi} highlight={query.trim().toLowerCase()} />}
             </div>
           </div>
         </div>

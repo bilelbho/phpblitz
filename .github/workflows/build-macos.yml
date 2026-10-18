@@ -48,6 +48,12 @@ jobs:
       - name: Type-check
         run: npx tsc --noEmit
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Front-end tests
+        run: npm test
+
       - name: Rust tests
         working-directory: src-tauri
         run: cargo test --locked

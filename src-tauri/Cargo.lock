@@ -4068,6 +4068,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "bincode 1.3.3",
+ "getrandom 0.3.4",
  "ignore",
  "keyring",
  "mago-allocator",
@@ -4093,7 +4094,9 @@ dependencies = [
  "postgres-native-tls",
  "rayon",
  "regex",
+ "reqwest",
  "rusqlite",
+ "rustls",
  "serde",
  "serde_json",
  "tauri",
@@ -4104,6 +4107,7 @@ dependencies = [
  "toml 0.8.2",
  "toml_edit 0.22.27",
  "trash",
+ "windows-registry",
 ]
 
 [[package]]

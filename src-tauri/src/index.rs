@@ -606,7 +606,7 @@ impl ProjectIndex {
 
     /// The class declared around a line of a file.
     fn class_at(&self, path: &str, line: u32) -> Option<&ClassEntry> {
-        self.files.get(path)?.symbols.classes.iter().filter(|c| c.line <= line && line <= c.end_line.max(c.line)).last()
+        self.files.get(path)?.symbols.classes.iter().rfind(|c| c.line <= line && line <= c.end_line.max(c.line))
     }
 
     /// A class by FQN (leading `\` optional), else by short name (first match, project files first).
@@ -628,6 +628,12 @@ pub struct IndexState {
     index: Arc<RwLock<ProjectIndex>>,
     /// Bumped by each open: an older open still running stops.
     generation: Arc<std::sync::atomic::AtomicU64>,
+}
+
+/// The open project's folder (empty when none is open) and how many files and classes the index holds.
+pub(crate) fn overview(state: &IndexState) -> Result<(String, usize, usize), String> {
+    let idx = state.index.read().map_err(|e| e.to_string())?;
+    Ok((idx.root.clone(), idx.files.len(), idx.by_fqn.len()))
 }
 
 /// The cache file: in the project's `.blitz/cache`, or in the app's cache
@@ -767,10 +773,15 @@ pub async fn index_open(app: AppHandle, state: tauri::State<'_, IndexState>, roo
             }
         }
         let parsed_count = parsed.len();
+        // What's left of the old cache are files deleted since: with none of those and nothing
+        // parsed, the cache on disk is already right and isn't written again.
+        let removed = cached.len();
         next.files.extend(parsed);
         next.rebuild();
         if let Some(p) = &cache {
-            save_cache(p, &next);
+            if parsed_count > 0 || removed > 0 || !p.exists() {
+                save_cache(p, &next);
+            }
         }
         let stats = IndexStats {
             files: next.files.len(),
@@ -874,16 +885,26 @@ pub async fn index_save(app: AppHandle, state: tauri::State<'_, IndexState>) -> 
     .map_err(|e| e.to_string())?
 }
 
-/// Which kind of class each file declares (class, interface, trait, enum), for file icons.
+/// The class kinds of the PHP files directly in these folders, for their icons (the tree asks
+/// per folder as it shows them, instead of for every file of the project at once).
 #[tauri::command]
-pub async fn index_kinds(state: tauri::State<'_, IndexState>) -> Result<Vec<(String, String)>, String> {
+pub async fn index_kinds_in(state: tauri::State<'_, IndexState>, dirs: Vec<String>) -> Result<Vec<(String, String)>, String> {
     let index = state.index.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let idx = index.read().map_err(|e| e.to_string())?;
-        Ok(idx.files.iter().filter_map(|(p, f)| f.symbols.classes.first().map(|c| (p.clone(), c.kind.clone()))).collect())
+        Ok(kinds_in(&idx, &dirs))
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+fn kinds_in(idx: &ProjectIndex, dirs: &[String]) -> Vec<(String, String)> {
+    let dirs: HashSet<&str> = dirs.iter().map(|d| d.trim_end_matches('/')).collect();
+    idx.files
+        .iter()
+        .filter(|(p, _)| p.rsplit_once('/').is_some_and(|(dir, _)| dirs.contains(dir)))
+        .filter_map(|(p, f)| f.symbols.classes.first().map(|c| (p.clone(), c.kind.clone())))
+        .collect()
 }
 
 #[derive(Serialize)]
@@ -1586,7 +1607,7 @@ function current_user() { return null; }
         // References: members and classes by name.
         let refs: HashMap<_, _> = s.refs.iter().cloned().collect();
         assert_eq!(refs.get("name"), Some(&1));
-        assert!(refs.get("Model").is_some() && refs.get("HasName").is_some());
+        assert!(refs.contains_key("Model") && refs.contains_key("HasName"));
     }
 
     #[test]
@@ -1861,6 +1882,15 @@ function current_user() { return null; }
         let finds = usages_in(&idx, "/p/app/Http/Many.php", &text, &Target::Member { class: "App\\Models\\Model".into(), name: "find".into(), member_kind: Some("method".into()) }, Some("App\\Models\\Model"));
         assert_eq!(finds.len(), lines / 3);
         assert!(finds.iter().all(|h| !h.dynamic), "Post::find is exact: Post extends Model");
+    }
+
+    #[test]
+    fn kinds_for_the_files_of_some_folders() {
+        let idx = idx3();
+        let mut got = kinds_in(&idx, &["/p/app/Models".to_string()]);
+        got.sort();
+        assert_eq!(got, vec![("/p/app/Models/Model.php".to_string(), "class".to_string()), ("/p/app/Models/Post.php".to_string(), "class".to_string())]);
+        assert!(kinds_in(&idx, &["/p/app".to_string()]).is_empty(), "only files directly in the folder");
     }
 
     #[test]

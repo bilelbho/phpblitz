@@ -1,4 +1,4 @@
-# Linux build: type-check, Rust tests, then the packages (.deb, .rpm and .AppImage).
+# Linux build: type-check, lint, tests and clippy, then the packages (.deb, .rpm and .AppImage).
 # Pushing a tag like v0.2.0 also attaches the packages to that GitHub release (as a draft;
 # release.yml publishes it once every build has succeeded).
 # Built on Ubuntu 22.04 so the packages run on older glibc versions too.
@@ -50,6 +50,8 @@ jobs:
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -61,15 +63,22 @@ jobs:
       - name: Type-check
         run: npx tsc --noEmit
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Front-end tests
+        run: npm test
+
       # Without debug info the test build is a fraction of the size; it's removed before the
       # release build, which compiles everything again anyway.
-      - name: Rust tests
+      - name: Rust tests and clippy
         working-directory: src-tauri
         env:
           CARGO_PROFILE_TEST_DEBUG: 0
           CARGO_PROFILE_DEV_DEBUG: 0
         run: |
           cargo test --locked
+          cargo clippy --all-targets --locked -- -D warnings
           rm -rf target/debug
           df -h /
 

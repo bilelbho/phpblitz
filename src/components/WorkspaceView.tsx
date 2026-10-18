@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import '../monaco';
 import '../mago';
 import type { Backend } from '../backend/types';
-import { tabOfTool, toolOfTab, useWorkspace, type BottomTab, type LeftTool, type RightTool } from '../useWorkspace';
+import { tabOfTool, toolOfTab, useWorkspace } from '../useWorkspace';
 import { Icon, type IconName } from './Icon';
 import { Splitter } from './Splitter';
 import { TopBar } from './TopBar';
@@ -17,11 +17,12 @@ import { EditorArea } from './EditorArea';
 import { BottomPanel } from './BottomPanel';
 import { NotificationsPanel } from './NotificationsPanel';
 import { AiPanel } from './AiPanel';
+import { AiDialogs } from './AiDialogs';
 import { EndpointsPanel } from './EndpointsPanel';
 import { ComposerPanel } from './ComposerPanel';
 import { NpmPanel } from './NpmPanel';
 import { StatusBar } from './StatusBar';
-import { SearchEverywhere, type SearchTab } from './SearchEverywhere';
+import { SearchEverywhere } from './SearchEverywhere';
 import { FindInFiles } from './FindInFiles';
 import { AboutDialog, DatabasePanel, SettingsDialog, StartupPerformance } from './lazy';
 import { openAppDialog, useAppDialog } from '../appDialogs';
@@ -224,7 +225,7 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
     database: { label: 'Database', icon: 'database', hint: ws.backend.kind === 'sample' ? 'sample data' : '' },
     structure: { label: 'Structure', icon: 'structure' },
     notifications: { label: 'Notifications', icon: 'bell', count: ws.notices.length },
-    ai: { label: 'AI Assistant', icon: 'sparkle', hint: 'mock replies' },
+    ai: { label: 'AI', icon: 'sparkle' },
     endpoints: { label: 'Endpoints', icon: 'route', hint: `${ws.routes.length} routes` },
     composer: { label: 'Composer', icon: 'box', hint: 'composer.json', dot: !!ws.outdated && Object.keys(ws.outdated).length > 0 },
     npm: { label: 'npm', icon: 'npm', hint: 'package.json scripts' },
@@ -397,6 +398,7 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
       <GitDialogs ws={ws} />
       {ws.recentOpen && <RecentFiles ws={ws} onClose={() => ws.setRecentOpen(false)} />}
       {ws.settingsPage && <SettingsDialog ws={ws} page={ws.settingsPage} onClose={ws.closeSettings} />}
+      <AiDialogs />
       {perfState.open && <StartupPerformance onClose={() => perf.show(false)} />}
       {appDialog && <AboutDialog view={appDialog} onClose={() => openAppDialog(null)} />}
       {ws.searchOpen && (

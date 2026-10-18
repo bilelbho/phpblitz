@@ -4,7 +4,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Workspace } from '../useWorkspace';
-import { getSettings, useSettings } from '../settings';
+import { useSettings } from '../settings';
 import { tabLabel, terminals, useTerminals, type Session, type ShellSpec } from '../terminal/manager';
 import { ContextMenu, type ContextItem } from './ContextMenu';
 import { Icon } from './Icon';

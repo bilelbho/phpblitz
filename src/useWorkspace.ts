@@ -9,7 +9,6 @@ import { baseName } from './backend/types';
 import { languageOf, phpIndex, routesOf, structureOf, type PhpSymbol, type Route } from './php';
 import { symbols } from './symbols';
 import { findUsages as indexFindUsages, setDefinitionOpener, targetAt } from './navigation';
-import { aiReply, type AiMessage } from './mock';
 import { refreshUsageHints } from './monaco';
 import {
   magoAvailable,
@@ -528,7 +527,6 @@ export function useWorkspace(backend: Backend) {
     setProjectProblemsTotal(result.total);
     setProjectProblemsHidden(result.hidden);
   }, [backend]);
-  const lint = checkFile;
 
   /** Forgets an editor document: model, texts, problems, language server sync. */
   const releaseFile = useCallback((path: string) => {
@@ -635,7 +633,7 @@ export function useWorkspace(backend: Backend) {
       }
       if (at) setGoto({ path, ...at, nonce: Date.now() });
     },
-    [backend, lint, notify, releaseFile],
+    [backend, notify, releaseFile, checkFile],
   );
   /** How long reading each opened file took, and whether it was read ahead. */
   const openReadMs = useRef(new Map<string, [number, boolean]>());
@@ -743,7 +741,7 @@ export function useWorkspace(backend: Backend) {
         checkFile(path, text, 0);
       }, ANALYSIS_DELAY);
     },
-    [backend, checkFile],
+    [checkFile, pinTab],
   );
 
   /**
@@ -781,7 +779,7 @@ export function useWorkspace(backend: Backend) {
         checkFile(path, text, 0);
       }, ANALYSIS_DELAY);
     },
-    [backend, checkFile],
+    [checkFile, pinTab],
   );
 
   /**
@@ -904,7 +902,6 @@ export function useWorkspace(backend: Backend) {
         setGitLogRequest((r) => ({ ...r, reload: Date.now() }));
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [refreshGit, notify],
   );
 
@@ -918,12 +915,12 @@ export function useWorkspace(backend: Backend) {
   const showHistory = useCallback((path: string) => {
     setGitLogRequest({ path, nonce: Date.now() });
     showBottom('git');
-  }, []);
+  }, [showBottom]);
   /** A commit in the Git log; `file`: highlighted among its changed files (from an annotation). */
   const showCommit = useCallback((hash: string, file?: string) => {
     setGitLogRequest({ hash, file, nonce: Date.now() });
     showBottom('git');
-  }, []);
+  }, [showBottom]);
 
   /** Git dialogs (Push, New Branch, Stash…), opened from the branches popup, the Log and shortcuts. */
   const [gitDialog, setGitDialog] = useState<GitDialogRequest | null>(null);
@@ -988,7 +985,7 @@ export function useWorkspace(backend: Backend) {
       if (path === `${backend.root}/mago.toml`) reanalyzeRef.current?.();
       refreshGit();
     },
-    [backend, lint, notify, refreshGit, reindexRoutes, refreshProjectProblems],
+    [backend, notify, refreshGit, reindexRoutes, refreshProjectProblems, analyze],
   );
 
   const saveActive = useCallback(() => {
@@ -1021,7 +1018,7 @@ export function useWorkspace(backend: Backend) {
     } finally {
       setComposerBusy(null);
     }
-  }, [backend, notify]);
+  }, [backend, notify, setRightTool]);
 
   const updatePackage = useCallback(
     async (name: string | null) => {
@@ -1098,18 +1095,6 @@ export function useWorkspace(backend: Backend) {
       setTerminal((t) => t.map((x) => (x.id === id ? { ...x, result } : x)));
     },
     [backend],
-  );
-
-  // ── AI assistant (mocked) ─────────────────────────────────────
-  const [aiMessages, setAiMessages] = useState<AiMessage[]>([]);
-  const askAi = useCallback(
-    (question: string) => {
-      const q = question.trim();
-      if (!q) return;
-      const file = activePath ? { name: baseName(activePath), content: liveText.current[activePath] ?? '' } : null;
-      setAiMessages((m) => [...m, { who: 'you', text: q }, aiReply(q, file)]);
-    },
-    [activePath],
   );
 
   // ── Xdebug (mocked listener) ──────────────────────────────────
@@ -1247,7 +1232,6 @@ export function useWorkspace(backend: Backend) {
         }
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [backend, reloadFromDisk],
   );
 
@@ -1643,7 +1627,7 @@ export function useWorkspace(backend: Backend) {
   const composerInstall = useCallback(() => {
     showBottom('terminal');
     void terminals.run('composer install', backend.root);
-  }, [backend]);
+  }, [backend, showBottom]);
 
   /**
    * After the declarations scan (phase 1): checks the open files right away, then analyzes the
@@ -1722,7 +1706,7 @@ export function useWorkspace(backend: Backend) {
       showBottom('debug');
     };
     debug.onMessage = (title, body, tone) => notify({ title, body, tone });
-  }, [openFile, notify]);
+  }, [openFile, notify, showBottom]);
   // Stop debugging (and listening) when the project closes.
   useEffect(() => () => {
     symbols.save();
@@ -2034,14 +2018,6 @@ export function useWorkspace(backend: Backend) {
         action: { label: 'Start listening', run: () => setListening(true) },
       });
       checkOutdated();
-      setAiMessages([
-        { who: 'you', text: 'Why is line 22 in UserController marked as an error?' },
-        {
-          who: 'assistant',
-          text: 'Line 22 ends with $user-> and nothing after it, so PHP expects a method or property name. Type after the arrow to see what User offers. orders() returns HasMany:',
-          code: '$orders = $user->orders()->latest()->get();',
-        },
-      ]);
     }
     return () => {
       cancelled = true;
@@ -2083,7 +2059,7 @@ export function useWorkspace(backend: Backend) {
     lspStatus, restartLanguageServer: startLanguageServer, usages, findUsagesAt, usagesPopup, showUsagesAt, closeUsagesPopup: () => setUsagesPopup(null), setUsagesScope, usagesToToolWindow,
     magoStatus, reanalyzeProject: openWithMago, projectProblems, projectProblemsTotal, projectProblemsHidden, refreshProjectProblems, composerInstall,
     applyFix, suppressProblem, disableMagoRule, openMagoConfig, applyFileEdits, prefetchFile, editorReady,
-    notices, notify, dismissNotice, aiMessages, askAi, listening, setListening, phpVersion, status, setStatus,
+    notices, notify, dismissNotice, listening, setListening, phpVersion, status, setStatus,
   };
 }
 

@@ -25,10 +25,8 @@ function codeOnly(text: string): string {
   while (i < text.length) {
     const c = text[i];
     const next = text[i + 1];
-    if (c === '/' && next === '/') {
-      while (i < text.length && text[i] !== '\n') (out += ' '), i++;
-    } else if (c === '#' && next !== '[') {
-      while (i < text.length && text[i] !== '\n') (out += ' '), i++;
+    if ((c === '/' && next === '/') || (c === '#' && next !== '[')) {
+      for (; i < text.length && text[i] !== '\n'; i++) out += ' ';
     } else if (c === '/' && next === '*') {
       const end = text.indexOf('*/', i + 2);
       const stop = end < 0 ? text.length : end + 2;
@@ -37,12 +35,21 @@ function codeOnly(text: string): string {
       out += c;
       i++;
       while (i < text.length && text[i] !== c) {
-        if (text[i] === '\\') (out += ' '), i++;
+        if (text[i] === '\\') {
+          out += ' ';
+          i++;
+        }
         out += text[i] === '\n' ? '\n' : ' ';
         i++;
       }
-      if (i < text.length) (out += c), i++;
-    } else (out += c), i++;
+      if (i < text.length) {
+        out += c;
+        i++;
+      }
+    } else {
+      out += c;
+      i++;
+    }
   }
   return out;
 }

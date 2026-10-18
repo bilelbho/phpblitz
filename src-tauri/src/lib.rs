@@ -1,3 +1,4 @@
+mod ai;
 mod blitz;
 mod db;
 mod fs;
@@ -5,6 +6,7 @@ mod index;
 mod js;
 mod lsp;
 mod mago;
+mod mcp;
 mod process;
 mod pty;
 mod search;
@@ -27,7 +29,18 @@ pub fn run() {
         .manage(pty::PtyState::default())
         .manage(db::DbState::default())
         .manage(xdebug::XdebugState::default())
+        .manage(mcp::McpState::default())
+        .manage(ai::AiState::default())
         .invoke_handler(tauri::generate_handler![
+            ai::ai_key_status,
+            ai::ai_set_key,
+            ai::ai_stream,
+            ai::ai_cancel,
+            mcp::mcp_start,
+            mcp::mcp_stop,
+            mcp::mcp_status,
+            mcp::mcp_new_token,
+            mcp::mcp_agent_config,
             fs::list_dir,
             fs::list_files,
             fs::read_file,
@@ -54,7 +67,7 @@ pub fn run() {
             index::index_update_text,
             index::index_file_structure,
             index::index_save,
-            index::index_kinds,
+            index::index_kinds_in,
             index::index_class,
             index::index_function,
             index::index_search,

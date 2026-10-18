@@ -11,6 +11,8 @@ import { WorkspaceView } from './components/lazy';
 import { projectStorage } from './projectStorage';
 import { perf } from './perf';
 import { startUpdateChecks } from './updater';
+import { syncMcpServer } from './mcp';
+import { registerGhostText } from './ai/ghost';
 
 /** The welcome window's size (as in tauri.conf.json). */
 const WELCOME_SIZE = { width: 820, height: 620 };
@@ -40,6 +42,14 @@ export default function App() {
 
   useApplyUiSettings();
   useEffect(startUpdateChecks, []);
+  const ghostText = useSettings().ai.ghostText;
+  useEffect(() => {
+    if (ghostText && isTauri) registerGhostText();
+  }, [ghostText]);
+  const ai = useSettings().ai;
+  useEffect(() => {
+    void syncMcpServer(ai);
+  }, [ai]);
   const fullPath = useSettings().ui.fullPathInTitle;
   useEffect(() => {
     const title = backend ? `${fullPath && backend.kind === 'disk' ? backend.root : backend.name} – PHPBlitz` : 'PHPBlitz';

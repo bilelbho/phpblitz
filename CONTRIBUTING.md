@@ -21,7 +21,10 @@ Security problems go through a private report instead: see [SECURITY.md](SECURIT
 
    ```bash
    npx tsc --noEmit                 # types
+   npm run lint                     # ESLint
+   npm test                         # front-end tests (Vitest)
    cd src-tauri && cargo test        # Rust tests
+   cargo clippy --all-targets -- -D warnings
    ```
 
 4. Match the code around you: its naming, its comments (short, saying *why*), its idioms.

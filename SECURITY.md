@@ -28,7 +28,8 @@ An IDE opens projects that may come from anywhere, so these are the rules PHPBli
   a few seconds after startup and every six hours it downloads `latest.json` from this repository's
   GitHub Releases, a plain HTTPS request with nothing about you or your projects in it. Turn it off
   in Settings ▸ Appearance & Behavior ▸ Appearance ▸ Updates. Otherwise the network is used only
-  for what you start: Git push and pull, Composer, a database connection, a link you open.
+  for what you start: Git push and pull, Composer, a database connection, a link you open, an AI
+  request.
 - **Updates are signed.** An update is installed only if its signature matches the PHPBlitz update
   key, whose public half is built into the app (`plugins.updater.pubkey` in `tauri.conf.json`), and
   the signature names the version it was made for, so an old release can't be passed off as a new
@@ -36,6 +37,16 @@ An IDE opens projects that may come from anywhere, so these are the rules PHPBli
 - **Passwords stay in your system's credential store** (Windows Credential Manager, the Secret
   Service on Linux: GNOME Keyring or KWallet), never in project files. `.blitz/workspace.json`
   holds your data sources' host and user name, and is git-ignored.
+- **The MCP server for AI agents is off by default.** When turned on (Settings ▸ Tools ▸ AI
+  Agents), it listens on 127.0.0.1 only, every request must carry its random token (kept in the
+  app's config folder, replaceable from Settings), and requests with an `Origin` header (web pages)
+  or another `Host` (DNS rebinding) are refused. Its tools only read the index and Mago's results;
+  none writes files or runs anything.
+- **The AI assistant uses your own key and asks before changing code.** The Anthropic API key is
+  kept in the system's credential store and only the Rust side reads it; the UI never sees it.
+  Requests go straight to `api.anthropic.com` over HTTPS, only when you use an AI feature. Code
+  from an answer is applied only when you click Apply or accept the diff, as one undoable edit, and
+  nothing the model says is run.
 - **Text from projects is never trusted as HTML.** Markdown previews are sanitized (DOMPurify);
   doc comments, hovers and diffs are escaped before they're shown. On top of that, the app window
   has a strict Content Security Policy: only PHPBlitz's own scripts run (no inline scripts or

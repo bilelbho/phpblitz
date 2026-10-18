@@ -45,11 +45,8 @@ fn list_dir_blocking(path: &str) -> Result<Vec<Entry>, String> {
             .map_or(0, |d| d.as_millis() as u64);
         out.push(Entry { name, path: norm(&entry.path()), is_dir, modified });
     }
-    out.sort_by(|a, b| {
-        b.is_dir
-            .cmp(&a.is_dir)
-            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-    });
+    // Folders first, then by name ignoring case (each name lowered once, not per comparison).
+    out.sort_by_cached_key(|e| (!e.is_dir, e.name.to_lowercase()));
     Ok(out)
 }
 

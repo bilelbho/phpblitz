@@ -1220,61 +1220,383 @@ table.grid .number {
   word-break: break-word;
 }
 
-.chat {
-  padding: 8px 12px;
+/* -- AI tool window: Chat and Agents tabs ------------------ */
+
+.ai-tabs {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  padding: 0 10px 6px;
+}
+
+.ai-tab {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 5px;
+  color: var(--muted-2);
+  font-size: 12.5px;
+}
+
+.ai-tab:hover {
+  background: var(--hover-soft);
+}
+
+.ai-tab.active {
+  background: var(--hover-strong);
+  color: var(--text-strong);
+}
+
+.ai-chat {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  padding: 6px 12px 12px;
 }
-.msg {
+
+.ai-chat > .card {
+  margin: 0;
+}
+
+.ai-empty {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 10px;
 }
-.msg.you {
-  align-items: flex-end;
+
+.ai-note {
+  font-size: 12px;
+  line-height: 1.5;
 }
-.msg .who {
-  color: var(--muted);
+
+.ai-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ai-suggestions .chip-btn {
   font-size: 12px;
 }
-.msg .bubble {
-  max-width: 94%;
-  padding: 8px 11px;
+
+.ai-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ai-turn.you {
+  align-items: flex-end;
+}
+
+.ai-bubble {
+  max-width: 92%;
+  padding: 7px 11px;
   border-radius: 8px;
-  background: var(--raised);
+  background: var(--select);
   color: var(--text);
   line-height: 19px;
   white-space: pre-wrap;
+  word-break: break-word;
   user-select: text;
 }
-.msg.you .bubble {
-  background: var(--select);
+
+.ai-about {
+  font-size: 11.5px;
 }
-.msg pre {
-  max-width: 94%;
+
+.ai-text {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+  user-select: text;
+  word-break: break-word;
+}
+
+.ai-text p {
+  margin: 0 0 8px;
+}
+
+.ai-text p:last-child,
+.ai-text ul:last-child {
+  margin-bottom: 0;
+}
+
+.ai-code {
+  overflow: hidden;
+  border: 1px solid var(--line-mid);
+  border-radius: 6px;
+  background: var(--raised);
+}
+
+.ai-code-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 0 4px 0 10px;
+  border-bottom: 1px solid var(--line-mid);
+  font-size: 11.5px;
+}
+
+.ai-code-head .btn.small {
+  height: 22px;
+  padding: 0 7px;
+}
+
+.ai-code .md-code {
   margin: 0;
   padding: 8px 10px;
-  border-radius: 6px;
-  background: #1a1b1e;
-  border: 1px solid var(--line-strong);
+  overflow-x: auto;
   color: var(--text-code);
   font-family: var(--mono);
   font-size: 12px;
   line-height: 18px;
-  overflow-x: auto;
+  white-space: pre;
+  font-variant-ligatures: none;
   user-select: text;
 }
-.suggestion {
-  height: 24px;
-  padding: 0 9px;
-  border-radius: 12px;
+
+.ai-thinking,
+.ai-usage {
+  font-size: 11.5px;
+}
+
+.ai-error {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-foot {
+  border-top: 1px solid var(--line);
+}
+
+.ai-context,
+.ai-send {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+}
+
+.ai-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  height: 22px;
+  padding: 0 4px 0 8px;
+  overflow: hidden;
   border: 1px solid var(--line-mid);
-  color: var(--text);
+  border-radius: 11px;
+  color: var(--muted-2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.ai-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  color: var(--muted);
+}
+
+.ai-chip-x:hover {
+  background: var(--hover-strong);
+}
+
+.ai-add-file {
   font-size: 12px;
 }
-.suggestion:hover {
-  background: var(--hover-strong);
+
+.ai-model {
+  font-size: 11.5px;
+}
+
+/* Edit with AI and the review of a change. */
+.ai-prompt {
+  width: 520px;
+}
+
+.ai-prompt .textarea {
+  width: calc(100% - 32px);
+  margin: 0 16px;
+}
+
+.ai-dialog-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px 10px;
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.ai-dialog-sub {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-review {
+  display: flex;
+  width: min(1100px, 92vw);
+  height: 70vh;
+  flex-direction: column;
+}
+
+.modal-backdrop:has(.ai-review) {
+  padding-top: 8vh;
+}
+
+.ai-review-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-review-diff {
+  flex: 1 1 auto;
+  min-height: 0;
+  border-top: 1px solid var(--line-mid);
+  border-bottom: 1px solid var(--line-mid);
+}
+
+.ai-review .ai-error {
+  padding: 8px 16px 0;
+}
+
+/* The AI button in the commit message box. */
+.commit-message-box {
+  position: relative;
+}
+
+.commit-message-box .textarea {
+  width: 100%;
+  padding-right: 30px;
+}
+
+.commit-ai {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  color: var(--purple);
+}
+
+.commit-ai.busy {
+  color: var(--text);
+}
+
+/* AI Agents tool window. */
+.agents {
+  padding: 4px 0 10px;
+}
+
+.agents-card-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.agents-card-row .dot {
+  margin-top: 6px;
+}
+
+.agents-card-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.agents-card-action {
+  padding-left: 17px;
+}
+
+.agents-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 26px;
+  margin-top: 8px;
+  padding: 0 10px 0 16px;
+  color: var(--muted-2);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.agents-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  color: var(--muted-2);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.agents-row {
+  min-height: 40px;
+  cursor: default;
+}
+
+.agents-row > svg {
+  flex: none;
+  color: var(--icon);
+}
+
+.agents-name {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.agents-title {
+  color: var(--text-strong);
+}
+
+.agents-path {
+  overflow: hidden;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agents-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 16px;
+}
+
+.agents-prompts .chip-btn {
+  font-size: 12px;
+}
+
+.agents-prompts .chip-btn:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.agents-note {
+  width: 100%;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.agents-pad {
+  padding: 0 16px;
+}
+
+.agents-foot {
+  margin-top: 14px;
 }
 
 .method {
@@ -1994,7 +2316,7 @@ button.item:hover {
 .console,
 .fif-code,
 .textarea,
-.msg pre {
+.ai-code .md-code {
   font-variant-ligatures: none;
 }
 
@@ -2379,6 +2701,30 @@ select.field.select {
 .settings-help {
   margin: 3px 0 0 26px;
   font-size: 12px;
+}
+
+/* Settings text that isn't under a checkbox, and commands to copy (Tools ▸ AI Agents). */
+.settings-note {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.settings-code {
+  margin: 6px 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-mid);
+  border-radius: 6px;
+  background: var(--raised-2);
+  color: var(--text-code);
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}
+
+.settings-error {
+  color: var(--red);
 }
 
 /* -- Lightbulb and intention popup (Alt+Enter) -------------- */

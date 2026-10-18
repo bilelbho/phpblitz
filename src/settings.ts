@@ -120,12 +120,26 @@ export interface DebugSettings {
   inlineValues: boolean;
 }
 
+/** Tools ▸ AI. */
+export interface AiSettings {
+  /** The MCP server AI coding agents ask about the project (mcp.rs). Off by default. */
+  mcpServer: boolean;
+  mcpPort: number;
+  /** Anthropic model for chat and edits. */
+  chatModel: string;
+  /** Faster, cheaper model: commit messages and ghost text. */
+  fastModel: string;
+  /** Ghost-text completion while typing (a request per pause: off by default). */
+  ghostText: boolean;
+}
+
 export interface Settings {
   ui: UiSettings;
   tabs: TabSettings;
   editor: EditorSettings;
   terminal: TerminalSettings;
   debug: DebugSettings;
+  ai: AiSettings;
 }
 
 /** The defaults. */
@@ -213,6 +227,13 @@ export const DEFAULT_SETTINGS: Settings = {
     maxChildren: 100,
     inlineValues: true,
   },
+  ai: {
+    mcpServer: false,
+    mcpPort: 7465,
+    chatModel: 'claude-sonnet-5-5',
+    fastModel: 'claude-haiku-5-5',
+    ghostText: false,
+  },
 };
 
 const KEY = 'phpblitz.settings';
@@ -240,6 +261,7 @@ function load(): Settings {
       editor: { ...DEFAULT_SETTINGS.editor, ...(saved.editor ?? {}) },
       terminal: { ...DEFAULT_SETTINGS.terminal, ...(saved.terminal ?? {}) },
       debug: { ...DEFAULT_SETTINGS.debug, ...(saved.debug ?? {}) },
+      ai: { ...DEFAULT_SETTINGS.ai, ...(saved.ai ?? {}) },
     };
   } catch {
     return DEFAULT_SETTINGS;

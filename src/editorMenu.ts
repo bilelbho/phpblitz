@@ -14,6 +14,7 @@ import type { ContextItem } from './components/ContextMenu';
 import { structureOf } from './php';
 import { symbols } from './symbols';
 import { magoAvailable, suppressionComment } from './mago';
+import { runChatAction, startInlineEdit } from './ai/actions';
 
 type Editor = monaco.editor.IStandaloneCodeEditor;
 
@@ -39,6 +40,7 @@ export const SHORTCUTS = {
   reformat: 'Ctrl+Alt+L',
   runTests: 'Ctrl+Shift+F10',
   commit: 'Ctrl+K',
+  editWithAi: 'Ctrl+Shift+I',
 } as const;
 
 const isRefactor = (a: CodeAction) => a.kind.startsWith('refactor');
@@ -275,6 +277,18 @@ export function buildEditorMenu(
       submenu: [
         { label: 'Rename…', shortcut: SHORTCUTS.rename, run: open.rename },
         ...(refactors.length ? [SEP, ...actionItems(refactors, '', (e) => reportError(ws, e))] : []),
+      ],
+    },
+    {
+      label: 'AI',
+      icon: 'sparkle',
+      submenu: [
+        { label: 'Edit with AI…', shortcut: SHORTCUTS.editWithAi, run: () => startInlineEdit(ws, editor) },
+        SEP,
+        { label: 'Explain', run: () => runChatAction(ws, editor, 'explain') },
+        { label: 'Fix Problems', run: () => runChatAction(ws, editor, 'fix') },
+        { label: 'Write Tests', run: () => runChatAction(ws, editor, 'tests') },
+        { label: 'Add Doc Comments', run: () => runChatAction(ws, editor, 'docs') },
       ],
     },
     {

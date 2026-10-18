@@ -555,7 +555,9 @@ export function DatabasePanel({ ws }: { ws: Workspace }) {
     if (e.key === 'ArrowDown') move(i + 1);
     else if (e.key === 'ArrowUp') move(i < 0 ? 0 : i - 1);
     else if (!n) return;
-    else if (e.key === 'ArrowRight') n.leaf ? undefined : n.open ? move(i + 1) : setNodeOpen(n, true);
+    else if (e.key === 'ArrowRight') {
+      if (!n.leaf) n.open ? move(i + 1) : setNodeOpen(n, true);
+    }
     else if (e.key === 'ArrowLeft') {
       if (n.open && !n.leaf) setNodeOpen(n, false);
       else {

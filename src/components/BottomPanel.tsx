@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualRows } from './useVirtualRows';
 import { toolOfTab, type BottomTab, type Workspace } from '../useWorkspace';
 import { baseName, relativePath, type Problem } from '../backend/types';
-import { Icon, Play } from './Icon';
+import { Icon } from './Icon';
 import { FindResults } from './FindInFiles';
 import { DebugPanel, GitToolWindow, TerminalView, TodoToolWindow } from './lazy';
 import { isTauri } from '../platform';
@@ -144,7 +144,7 @@ function Problems({ ws }: { ws: Workspace }) {
   const [view, setView] = useState<'file' | 'project'>('file');
   const path = ws.activePath;
   const fileProblems = (path ? ws.problems[path] ?? [] : []).slice().sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || a.line - b.line);
-  const project = ws.projectProblems ?? [];
+  const project = useMemo(() => ws.projectProblems ?? [], [ws.projectProblems]);
   // Project Errors as flat rows (a file header, then its problems), so only those in view render.
   const projectRows = useMemo(() => {
     const byFile = new Map<string, Problem[]>();
