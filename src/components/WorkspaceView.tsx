@@ -21,7 +21,7 @@ import { AiDialogs } from './AiDialogs';
 import { setAiDialog } from '../ai/review';
 import { RecentLocations } from './RecentLocations';
 import { ErrorBoundary } from './ErrorBoundary';
-import { DependenciesBanner } from './DependenciesBanner';
+import { NotificationBalloons } from './NotificationBalloons';
 import { ErrorLogDialog } from './ErrorLogDialog';
 import { KeyboardShortcuts } from './KeyboardShortcuts';
 import { mainMenu } from '../mainMenu';
@@ -412,7 +412,6 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
         )}
 
         <div className="center">
-          <DependenciesBanner ws={ws} />
           <ErrorBoundary name="Editor">
             <EditorArea ws={ws} />
           </ErrorBoundary>
@@ -446,6 +445,9 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
       )}
       <ErrorBoundary name="Status bar">
         <StatusBar ws={ws} />
+      </ErrorBoundary>
+      <ErrorBoundary name="Notifications">
+        <NotificationBalloons ws={ws} />
       </ErrorBoundary>
       {ws.findInFiles && (
         <ErrorBoundary name="Find in Files" variant="dialog" onClose={() => ws.closeFindInFiles()}>

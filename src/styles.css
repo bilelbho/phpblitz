@@ -6902,3 +6902,110 @@ body {
   gap: 14px;
   padding-left: 17px;
 }
+
+/* HoverTip: wraps its element without changing the layout around it. */
+.hover-tip-host {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Status bar lock: read-only stands out. */
+.statusbar .item.locked {
+  color: var(--orange);
+}
+
+/* Notification balloons: bottom right, above the status bar, newest at the bottom. */
+.balloons {
+  position: fixed;
+  right: 58px;
+  bottom: 36px;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(400px, calc(100vw - 80px));
+  pointer-events: none;
+}
+.balloon {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 34px 12px 14px;
+  border-radius: 8px;
+  background: var(--popup);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+  animation: balloon-in 160ms ease-out;
+}
+@keyframes balloon-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.balloon > svg {
+  flex: none;
+  margin-top: 1px;
+}
+.balloon.tone-info > svg {
+  color: var(--blue-text);
+}
+.balloon.tone-success > svg {
+  color: var(--green);
+}
+.balloon.tone-warning > svg {
+  color: var(--orange);
+}
+.balloon.tone-error > svg {
+  color: var(--red);
+}
+.balloon-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.balloon-title {
+  color: var(--text-strong);
+  font-weight: 600;
+  line-height: 18px;
+}
+.balloon-body {
+  margin-top: 3px;
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 18px;
+  user-select: text;
+}
+.balloon-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin-top: 8px;
+}
+.balloon-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  visibility: hidden;
+}
+.balloon:hover .balloon-close,
+.balloon-close:focus-visible {
+  visibility: visible;
+}
+
+/* Monaco's read-only message ("This file is read-only…"): the IDE's tooltip, not the blue box.
+   One class more than Monaco's own rule, which loads later. */
+.editor-host .monaco-editor .monaco-editor-overlaymessage .message {
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: #3b3d42;
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+.editor-host .monaco-editor .monaco-editor-overlaymessage .anchor {
+  display: none !important;
+}

@@ -432,6 +432,43 @@ export function useWorkspace(backend: Backend) {
   dirtyRef.current = dirty;
   const activeTab = tabs.find((t) => t.id === activeId) ?? null;
   const activePath = activeTab?.kind === 'file' ? activeTab.path : null;
+
+  // ── Read-only files (the status bar lock) ─────────────────────
+  /** Files that are read-only on disk: the editor doesn't edit them. */
+  const [readOnly, setReadOnly] = useState<Set<string>>(new Set());
+  const canLock = isTauri && backend.kind === 'disk';
+  const markReadOnly = useCallback((path: string, on: boolean) => {
+    setReadOnly((s) => {
+      if (s.has(path) === on) return s;
+      const next = new Set(s);
+      if (on) next.add(path);
+      else next.delete(path);
+      return next;
+    });
+  }, []);
+  // Checked when a file is shown (it can change outside the IDE).
+  useEffect(() => {
+    if (!activePath || !canLock) return;
+    let live = true;
+    invoke<boolean>('is_readonly', { path: activePath }).then((on) => live && markReadOnly(activePath, on), () => {});
+    return () => {
+      live = false;
+    };
+  }, [activePath, canLock, markReadOnly]);
+  /** Make file read-only / writable. */
+  const toggleReadOnly = useCallback(
+    async (path: string) => {
+      const on = !readOnly.has(path);
+      try {
+        await invoke('set_readonly', { path, readonly: on });
+        markReadOnly(path, on);
+        setStatus(on ? `${baseName(path)} is read-only now.` : `${baseName(path)} is writable again.`);
+      } catch (e) {
+        notify({ title: `Couldn't make ${baseName(path)} ${on ? 'read-only' : 'writable'}`, body: String(e), tone: 'error' });
+      }
+    },
+    [readOnly, markReadOnly, notify],
+  );
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
 
@@ -1702,7 +1739,15 @@ export function useWorkspace(backend: Backend) {
     async (scanned: MagoSummary) => {
       setMagoStatus({ state: 'analyzing', summary: scanned });
       for (const [path, text] of Object.entries(liveText.current)) checkFile(path, text);
-      // Missing dependencies: the banner above the editor says so (DependenciesBanner).
+      if (scanned.needsInstall) {
+        notify({
+          title: "Dependencies aren't installed",
+          body: "Classes from packages can't be found, so type checking is off until you run composer install.",
+          tone: 'warning',
+          action: { label: 'Run composer install', run: composerInstall },
+          secondary: { label: 'Ignore', run: () => {} },
+        });
+      }
       try {
         const summary = await perf.time('Mago: whole-project analysis', magoAnalyze(), (s) =>
           s ? `${s.issues.toLocaleString()} errors and warnings` + (s.hidden ? `, ${s.hidden.toLocaleString()} held back (no vendor/)` : '') : 'replaced by a newer run',
@@ -1729,7 +1774,7 @@ export function useWorkspace(backend: Backend) {
         notify({ title: 'Mago could not analyze the project', body: String(e), tone: 'error' });
       }
     },
-    [notify, checkFile, refreshProjectProblems, showBottom],
+    [notify, checkFile, refreshProjectProblems, showBottom, composerInstall],
   );
 
   const openWithMago = useCallback(async () => {
@@ -2126,6 +2171,7 @@ export function useWorkspace(backend: Backend) {
     renameItem, deleteItems, fileClipboard, setFileClipboard, pasteInto, reloadItem,
     // misc
     lspStatus, restartLanguageServer: startLanguageServer, usages, findUsagesAt, usagesPopup, showUsagesAt, closeUsagesPopup: () => setUsagesPopup(null), setUsagesScope, usagesToToolWindow,
+    readOnly, canLock, toggleReadOnly,
     magoStatus, reanalyzeProject: openWithMago, projectProblems, projectProblemsTotal, projectProblemsHidden, refreshProjectProblems, composerInstall,
     applyFix, suppressProblem, disableMagoRule, openMagoConfig, applyFileEdits, prefetchFile, editorReady,
     notices, notify, dismissNotice, listening, setListening, phpVersion, status, setStatus,

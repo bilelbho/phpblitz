@@ -1148,6 +1148,8 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       onMount={onMount}
       loading={<div className="empty">Loading editor…</div>}
       options={{
+        readOnly: ws.readOnly.has(path),
+        readOnlyMessage: { value: 'This file is read-only. Click the lock in the status bar to make it writable.' },
         fontFamily: `'${settings.fontFamily}', 'JetBrains Mono', Consolas, monospace`,
         fontSize: settings.fontSize,
         lineHeight: Math.round(settings.fontSize * settings.lineHeight),

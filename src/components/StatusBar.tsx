@@ -7,6 +7,7 @@ import { useSymbols } from '../symbols';
 import { useCursor } from '../cursorStore';
 import { cachedInspect, composerPhpLevel, interpretersFor, kindLabel, projectPhp, useInterpreters } from '../interpreters';
 import { Icon, Sym } from './Icon';
+import { HoverTip } from './HoverTip';
 import { FileIcon } from './FileIcon';
 import { NavBarPopup, type NavRequest } from './NavBarPopup';
 import { useErrorLog } from '../errorLog';
@@ -59,6 +60,19 @@ function PhpLevel({ ws }: { ws: Workspace }) {
       {noPhp && <Icon name="warning" size={12} />}
       {level ? `PHP ${level}` : 'No PHP'}
     </button>
+  );
+}
+
+/** The lock: whether the file is read-only on disk; a click switches it. */
+function ReadOnlyLock({ ws, path }: { ws: Workspace; path: string }) {
+  const locked = ws.readOnly.has(path);
+  const text = !ws.canLock ? 'Read-only files need a project on disk' : locked ? 'Make file writable' : 'Make file read-only';
+  return (
+    <HoverTip text={text}>
+      <button type="button" className={'item' + (locked ? ' locked' : '')} aria-label={text} aria-pressed={locked} disabled={!ws.canLock} onClick={() => void ws.toggleReadOnly(path)}>
+        <Icon name={locked ? 'lock' : 'lockOpen'} size={13} />
+      </button>
+    </HoverTip>
   );
 }
 
@@ -208,11 +222,7 @@ export function StatusBar({ ws }: { ws: Workspace }) {
       <MagoStatus ws={ws} />
       <LanguageServer ws={ws} />
       <PhpLevel ws={ws} />
-      {tab?.kind === 'file' && (
-        <span className="item" title="File is writable">
-          <Icon name="lockOpen" size={13} />
-        </span>
-      )}
+      {tab?.kind === 'file' && <ReadOnlyLock ws={ws} path={tab.path} />}
     </footer>
   );
 }

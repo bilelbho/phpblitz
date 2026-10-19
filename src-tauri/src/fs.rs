@@ -235,6 +235,31 @@ fn copy_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     }
 }
 
+/// Whether a file is read-only on disk (the status bar lock).
+#[tauri::command]
+pub async fn is_readonly(path: String) -> Result<bool, String> {
+    blocking(move || fs::metadata(&path).map(|m| m.permissions().readonly()).map_err(|e| e.to_string())).await
+}
+
+/// Makes a file read-only, or writable again (on Unix: the owner's write bit).
+#[tauri::command]
+pub async fn set_readonly(path: String, readonly: bool) -> Result<(), String> {
+    blocking(move || set_readonly_flag(Path::new(&path), readonly).map_err(|e| e.to_string())).await
+}
+
+fn set_readonly_flag(path: &Path, readonly: bool) -> std::io::Result<()> {
+    let mut perms = fs::metadata(path)?.permissions();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = perms.mode();
+        perms.set_mode(if readonly { mode & !0o222 } else { mode | 0o200 });
+    }
+    #[cfg(not(unix))]
+    perms.set_readonly(readonly);
+    fs::set_permissions(path, perms)
+}
+
 /// Moves files and folders to the Recycle Bin (Trash on macOS/Linux), so a delete can be undone.
 #[tauri::command]
 pub async fn delete_to_trash(paths: Vec<String>) -> Result<(), String> {
@@ -354,5 +379,21 @@ mod atomic_tests {
         assert_eq!(fs::read_to_string(&real).unwrap(), "#!/bin/sh\necho new\n");
         assert_eq!(fs::metadata(&real).unwrap().permissions().mode() & 0o777, 0o755);
         let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod readonly_tests {
+    use super::*;
+
+    #[test]
+    fn toggles_read_only() {
+        let file = std::env::temp_dir().join(format!("phpblitz-ro-{}.txt", std::process::id()));
+        fs::write(&file, "x").unwrap();
+        set_readonly_flag(&file, true).unwrap();
+        assert!(fs::metadata(&file).unwrap().permissions().readonly());
+        set_readonly_flag(&file, false).unwrap();
+        assert!(!fs::metadata(&file).unwrap().permissions().readonly());
+        fs::remove_file(&file).unwrap();
     }
 }

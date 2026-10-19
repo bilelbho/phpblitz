@@ -55,6 +55,8 @@ pub fn run() {
             fs::rename_path,
             fs::copy_path,
             fs::delete_to_trash,
+            fs::is_readonly,
+            fs::set_readonly,
             process::run_process,
             process::run_shell,
             process::find_executable,
