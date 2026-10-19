@@ -45,6 +45,8 @@ function PhpLevel({ ws }: { ws: Workspace }) {
   }, [JSON.stringify(interpreter), root]);
   const fallback = ws.phpVersion?.split(' ')[0] ?? null;
   const running = version ?? (interpreter ? null : fallback);
+  // No interpreter chosen and none on PATH (once that was checked).
+  const noPhp = !interpreter && ws.phpVersion === null;
   const level = php.languageLevel !== 'auto' ? php.languageLevel : (composerPhpLevel(composer) ?? running?.split('.').slice(0, 2).join('.'));
   const title = [
     `PHP language level: ${level ?? 'unknown'}${php.languageLevel === 'auto' ? ' (auto)' : ''}`,
@@ -52,7 +54,9 @@ function PhpLevel({ ws }: { ws: Workspace }) {
     'Click to open Settings ▸ PHP',
   ].join('\n');
   return (
-    <button type="button" className="item" title={title} onClick={() => ws.openSettings('php')}>
+    <button type="button" className={'item' + (noPhp ? ' warn' : '')} title={title} onClick={() => ws.openSettings('php')}>
+      {/* The language level works without PHP; the icon says nothing can run them. */}
+      {noPhp && <Icon name="warning" size={12} />}
       {level ? `PHP ${level}` : 'No PHP'}
     </button>
   );

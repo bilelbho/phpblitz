@@ -6873,3 +6873,32 @@ body {
   align-self: center;
   font-size: 12px;
 }
+
+/* Above the editor: the project's Composer packages aren't installed. */
+.deps-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 8px;
+  background: rgba(229, 163, 61, 0.1);
+  border: 1px solid rgba(229, 163, 61, 0.35);
+  line-height: 18px;
+}
+.deps-banner > svg {
+  flex: none;
+  color: var(--orange);
+}
+
+/* Status bar: no PHP to run anything with. */
+.statusbar .item.warn {
+  color: var(--orange);
+}
+
+.card-actions {
+  display: flex;
+  gap: 14px;
+  padding-left: 17px;
+}

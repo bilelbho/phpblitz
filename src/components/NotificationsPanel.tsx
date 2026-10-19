@@ -19,18 +19,24 @@ export function NotificationsPanel({ ws }: { ws: Workspace }) {
               <Icon name="close" size={10} />
             </button>
           </div>
-          {n.action && (
-            <div style={{ paddingLeft: 17 }}>
-              <button
-                type="button"
-                className="link-btn"
-                onClick={() => {
-                  n.action!.run();
-                  ws.dismissNotice(n.id);
-                }}
-              >
-                {n.action.label}
-              </button>
+          {(n.action || n.secondary) && (
+            <div className="card-actions">
+              {[n.action, n.secondary].map(
+                (a) =>
+                  a && (
+                    <button
+                      key={a.label}
+                      type="button"
+                      className="link-btn"
+                      onClick={() => {
+                        a.run();
+                        ws.dismissNotice(n.id);
+                      }}
+                    >
+                      {a.label}
+                    </button>
+                  ),
+              )}
             </div>
           )}
         </div>

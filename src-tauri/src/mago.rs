@@ -241,7 +241,9 @@ impl ProjectInfo {
 
 /// Settings from composer.json, then mago.toml on top (the same file the `mago` CLI reads).
 fn project_info(root: &Path) -> ProjectInfo {
-    let mut info = ProjectInfo { vendor: root.join("vendor").is_dir(), ..ProjectInfo::defaults() };
+    // Composer always writes vendor/autoload.php: an empty or half-written vendor/ (a failed
+    // install) doesn't count as installed.
+    let mut info = ProjectInfo { vendor: root.join("vendor/autoload.php").is_file(), ..ProjectInfo::defaults() };
     if let Some(json) = std::fs::read_to_string(root.join("composer.json")).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()) {
         let packages: Vec<String> = ["require", "require-dev"]
             .iter()
@@ -920,6 +922,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("app")).unwrap();
         std::fs::create_dir_all(dir.join("vendor")).unwrap();
+        std::fs::write(dir.join("vendor/autoload.php"), "<?php
+").unwrap();
         std::fs::write(dir.join("composer.json"), r#"{"require":{"php":"^8.2","laravel/framework":"^11.0"},"require-dev":{"phpunit/phpunit":"^11"}}"#).unwrap();
         std::fs::write(
             dir.join("app/Greeter.php"),
@@ -1039,8 +1043,13 @@ final class Greeter
         assert_eq!(summary.issues, 0);
         assert!(summary.hidden >= 1, "held-back problems are counted");
 
-        // With vendor/ (installed): phase 1 analyzes the open file against the scanned declarations.
+        // An empty vendor/ (a failed install) still counts as not installed.
         std::fs::create_dir_all(dir.join("vendor")).unwrap();
+        assert!(Engine::open(&root, &[]).unwrap().1.needs_install, "vendor/ without autoload.php");
+
+        // Installed (vendor/autoload.php): phase 1 analyzes the open file against the scanned declarations.
+        std::fs::write(dir.join("vendor/autoload.php"), "<?php
+").unwrap();
         let (mut engine, summary) = Engine::open(&root, &[]).unwrap();
         assert!(!summary.analyzed && !summary.needs_install);
         assert!(!engine.project_issues(100).analyzed);

@@ -120,6 +120,10 @@ export interface Notice {
   body: string;
   tone: 'info' | 'success' | 'warning' | 'error';
   action?: { label: string; run: () => void };
+  /** A second button, next to `action`. */
+  secondary?: { label: string; run: () => void };
+  /** Success: kept as a notification (a long task finished), not only shown in the status bar. */
+  keep?: boolean;
 }
 
 export interface GotoRequest {
@@ -132,6 +136,9 @@ export interface GotoRequest {
 }
 
 const INDEX_BATCH = 24;
+/** A background task this long (ms) is worth a notification when it finishes; shorter ones only the status bar. */
+const LONG_TASK_MS = 5000;
+const PHP_INSTALL_URL = 'https://www.php.net/manual/en/install.php';
 const MAX_INDEXED = 4000;
 
 export function useWorkspace(backend: Backend) {
@@ -249,7 +256,13 @@ export function useWorkspace(backend: Backend) {
   // ── Notifications ─────────────────────────────────────────────
   const [notices, setNotices] = useState<Notice[]>([]);
   const nextNoticeId = useRef(1);
+  const [status, setStatus] = useState('');
+  /** Failures, warnings and long tasks become notifications; a routine success is a status bar message. */
   const notify = useCallback((n: Omit<Notice, 'id'>) => {
+    if (n.tone === 'success' && !n.keep) {
+      setStatus(n.body ? `${n.title}: ${n.body}` : n.title);
+      return;
+    }
     const id = nextNoticeId.current++;
     setNotices((list) => [{ ...n, id }, ...list.filter((x) => x.title !== n.title || x.body !== n.body)].slice(0, 30));
   }, []);
@@ -412,7 +425,6 @@ export function useWorkspace(backend: Backend) {
   }, []);
   const baseProblems = magoAvailable ? magoProblems : otherProblems;
   const problems = useMemo(() => (Object.keys(scriptProblems).length ? { ...baseProblems, ...scriptProblems } : baseProblems), [baseProblems, scriptProblems]);
-  const [status, setStatus] = useState('');
 
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
@@ -1074,7 +1086,7 @@ export function useWorkspace(backend: Backend) {
           const { [name]: _, ...rest } = o;
           return rest;
         });
-        notify({ title: 'Composer update finished', body: name ?? 'All packages', tone: 'success' });
+        notify({ title: 'Composer update finished', body: name ?? 'All packages', tone: 'success', keep: true });
       } catch (e) {
         notify({ title: 'Composer update failed', body: String(e), tone: 'error' });
       } finally {
@@ -1144,7 +1156,8 @@ export function useWorkspace(backend: Backend) {
   const debugState = useDebug();
   const listening = debugState.listening;
   const setListening = useCallback((on: boolean) => void (on ? debug.startListening() : debug.stopListening()), []);
-  const [phpVersion, setPhpVersion] = useState<string | null>(null);
+  /** PHP on PATH: its version, `null` when not found, `undefined` while still checking. */
+  const [phpVersion, setPhpVersion] = useState<string | null | undefined>(undefined);
 
   // ── Language server lifecycle ─────────────────────────────────
   const latestOpen = useRef(openFile);
@@ -1689,14 +1702,7 @@ export function useWorkspace(backend: Backend) {
     async (scanned: MagoSummary) => {
       setMagoStatus({ state: 'analyzing', summary: scanned });
       for (const [path, text] of Object.entries(liveText.current)) checkFile(path, text);
-      if (scanned.needsInstall) {
-        notify({
-          title: 'Install dependencies to turn on type checking',
-          body: "composer.json lists packages, but vendor/ is missing, so framework and library classes are unknown and type checking would only report noise. Syntax errors and code style are still checked.",
-          tone: 'warning',
-          action: { label: 'Run composer install', run: composerInstall },
-        });
-      }
+      // Missing dependencies: the banner above the editor says so (DependenciesBanner).
       try {
         const summary = await perf.time('Mago: whole-project analysis', magoAnalyze(), (s) =>
           s ? `${s.issues.toLocaleString()} errors and warnings` + (s.hidden ? `, ${s.hidden.toLocaleString()} held back (no vendor/)` : '') : 'replaced by a newer run',
@@ -1707,6 +1713,7 @@ export function useWorkspace(backend: Backend) {
           const rules = summary.integrations.length ? ` · ${summary.integrations.join(', ')} rules` : '';
           notify({
             title: 'Mago analysis finished',
+          keep: summary.millis > LONG_TASK_MS,
             body:
               `${summary.files.toLocaleString()} PHP files analyzed in ${(summary.millis / 1000).toFixed(1)} s · PHP ${summary.phpVersion}${rules}. ` +
               `${summary.issues.toLocaleString()} errors and warnings found.`,
@@ -1722,7 +1729,7 @@ export function useWorkspace(backend: Backend) {
         notify({ title: 'Mago could not analyze the project', body: String(e), tone: 'error' });
       }
     },
-    [notify, checkFile, refreshProjectProblems, showBottom, composerInstall],
+    [notify, checkFile, refreshProjectProblems, showBottom],
   );
 
   const openWithMago = useCallback(async () => {
@@ -1992,8 +1999,10 @@ export function useWorkspace(backend: Backend) {
       if (!v) {
         notify({
           title: 'PHP was not found',
-          body: 'Install PHP and add it to PATH to get syntax checking and to run tests.',
+          body: 'PHP is needed for syntax checking, tests and debugging. Choose an installed PHP, or install it and add it to PATH.',
           tone: 'warning',
+          action: { label: 'Set PHP path…', run: () => setSettingsPage('php') },
+          secondary: { label: 'How to install', run: () => void invoke('open_external', { url: PHP_INSTALL_URL }).catch(() => {}) },
         });
       }
     });
@@ -2028,6 +2037,7 @@ export function useWorkspace(backend: Backend) {
         const cached = stats.files - stats.parsed;
         notify({
           title: 'Indexing finished',
+          keep: stats.ms > LONG_TASK_MS,
           body:
             `${stats.files.toLocaleString()} PHP files (vendor included), ${stats.classes.toLocaleString()} classes and ${stats.functions.toLocaleString()} functions indexed in ${(stats.ms / 1000).toFixed(1)} s` +
             (cached ? ` (${cached.toLocaleString()} from the cache).` : '.'),
@@ -2057,6 +2067,7 @@ export function useWorkspace(backend: Backend) {
       refreshUsageHints();
       notify({
         title: 'Indexing finished',
+        keep: ms > LONG_TASK_MS,
         body: `${all.length.toLocaleString()} files and ${phpIndex.size.toLocaleString()} PHP classes indexed in ${(ms / 1000).toFixed(1)} s.`,
         tone: 'success',
       });

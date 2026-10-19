@@ -1,9 +1,11 @@
 import type { Workspace } from '../useWorkspace';
+import { Icon } from './Icon';
 
 export function ComposerPanel({ ws }: { ws: Workspace }) {
   const outdated = ws.outdated ?? {};
   const updates = Object.keys(outdated).length;
   const busy = !!ws.composerBusy;
+  const notInstalled = !!ws.magoStatus.summary?.needsInstall;
 
   return (
     <>
@@ -32,6 +34,15 @@ export function ComposerPanel({ ws }: { ws: Workspace }) {
           </button>
         )}
       </div>
+      {notInstalled && (
+        <div className="problems-banner">
+          <Icon name="warning" size={14} />
+          <span className="grow">Not installed yet: vendor/ is missing. The versions below are the constraints from composer.json.</span>
+          <button type="button" className="btn small primary" onClick={ws.composerInstall} disabled={busy}>
+            Run composer install
+          </button>
+        </div>
+      )}
       {ws.composerBusy && <div className="empty" style={{ paddingBottom: 0 }}>{ws.composerBusy}</div>}
       <div className="panel-body list">
         {ws.packages.map((p) => {
@@ -63,7 +74,7 @@ export function ComposerPanel({ ws }: { ws: Workspace }) {
         {!ws.packages.length && (
           <div className="empty">{ws.hasComposer ? 'composer.json has no dependencies.' : 'No composer.json found in this project.'}</div>
         )}
-        {!!ws.packages.length && !ws.outdated && !busy && (
+        {!!ws.packages.length && !ws.outdated && !busy && !notInstalled && (
           <div className="empty" style={{ fontSize: 12 }}>
             Versions come from composer.lock. Use “Check for updates” to run composer outdated.
           </div>
