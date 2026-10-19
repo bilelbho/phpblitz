@@ -5,6 +5,7 @@
 // server→client requests servers commonly send.
 
 import { Channel, invoke } from '@tauri-apps/api/core';
+import { getVersion } from '@tauri-apps/api/app';
 import type * as L from './protocol';
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; method: string };
@@ -53,7 +54,8 @@ export class LspClient {
     const rootUri = pathToUri(this.root);
     const result = await this.request<L.InitializeResult>('initialize', {
       processId: null,
-      clientInfo: { name: 'PHPBlitz', version: '0.1.0' },
+      // The app's own version (tauri.conf.json), so it never goes stale.
+      clientInfo: { name: 'PHPBlitz', version: await getVersion().catch(() => undefined) },
       rootUri,
       rootPath: this.root,
       workspaceFolders: [{ uri: rootUri, name: this.root.split('/').pop() }],
