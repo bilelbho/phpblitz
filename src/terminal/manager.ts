@@ -241,7 +241,8 @@ class TerminalManager {
         return false;
       }
       if (ctrl && e.shiftKey && key === 'v') {
-        navigator.clipboard.readText().then((t) => term.paste(t)).catch(() => {});
+        e.preventDefault();
+        void readClipboard().then((t) => t && term.paste(t), () => {});
         return false;
       }
       return true;
@@ -249,7 +250,7 @@ class TerminalManager {
     s.element.addEventListener('mousedown', (e) => {
       if (e.button === 1 && getSettings().terminal.pasteOnMiddleClick) {
         e.preventDefault();
-        navigator.clipboard.readText().then((t) => term.paste(t)).catch(() => {});
+        void readClipboard().then((t) => t && term.paste(t), () => {});
       }
     });
   }
@@ -383,6 +384,14 @@ class TerminalManager {
 }
 
 export const terminals = new TerminalManager();
+
+/**
+ * The clipboard's text, read by the Rust side: the web view's own clipboard read makes the user
+ * allow it first. (The browser preview has no Rust side.)
+ */
+export function readClipboard(): Promise<string> {
+  return '__TAURI_INTERNALS__' in window ? invoke<string>('clipboard_read_text') : navigator.clipboard.readText();
+}
 
 export function useTerminals() {
   return useSyncExternalStore(terminals.subscribe, terminals.getSnapshot);

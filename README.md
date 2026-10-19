@@ -79,11 +79,16 @@ PHP, Git and Composer on your PATH turn on running PHP, tests, the Git tools and
   </tr>
 </table>
 
-<p align="center">
-  <img src=".github/assets/screenshots/agents.png" alt="Claude Code running in a PHPBlitz terminal tab, started from the AI tool window's Agents tab and connected to PHPBlitz's index" width="900">
-  <br>
-  <sub>AI agents: Claude Code started from the AI tool window, in the project, with your own account</sub>
-</p>
+<table>
+  <tr>
+    <td><img src=".github/assets/screenshots/chat.png" alt="The AI chat fixing a selected method with a local model through Ollama: the fixed code with Apply to selection and Show diff, and an explanation"></td>
+    <td><img src=".github/assets/screenshots/agents.png" alt="Claude Code running in a PHPBlitz terminal tab, started from the AI tool window's Agents tab and connected to PHPBlitz's index"></td>
+  </tr>
+  <tr>
+    <td align="center">AI chat: here with a local model through Ollama</td>
+    <td align="center">AI agents: Claude Code with your own account</td>
+  </tr>
+</table>
 
 - **Editor**: PHP highlighting, completion, rendered doc comments, bookmarks, soft wrap, Markdown preview,
   TODO comments (with a TODO tool window).
@@ -111,10 +116,10 @@ PHP, Git and Composer on your PATH turn on running PHP, tests, the Git tools and
 - **Debugging**: Xdebug 3 step debugging with breakpoints, variables, watches and inline values.
 - **Terminal**: real shells in tabs (PowerShell, cmd, Git Bash, WSL, bash, zsh…).
 - **Composer**: installed packages, available updates.
-- **AI assistant** (with your own Anthropic API key): a chat that knows the open file, the
-  selection, its problems and the classes it uses (from the index), with Apply and Show diff on its
-  code; Edit with AI (Ctrl+Shift+I) shows the change as a diff to accept; commit messages from your
-  changes; optional ghost text while typing.
+- **AI assistant** (your own Anthropic, OpenAI or Gemini API key, or local models through Ollama):
+  a chat that knows the open file, the selection, its problems and the classes it uses (from the
+  index), with Apply and Show diff on its code; Edit with AI (Ctrl+Shift+I) shows the change as a
+  diff to accept; commit messages from your changes; optional ghost text while typing.
 - **AI agents**: start Claude Code, Codex or Gemini CLI in a terminal tab, signed in with your own
   account, and send them prompts about the open file. An optional MCP server lets agents use
   PHPBlitz's index (usages, classes, problems) instead of searching files.
@@ -141,8 +146,9 @@ PHPBlitz keeps per-project files in a `.blitz` folder in your project:
   Appearance & Behavior ▸ Appearance. Otherwise the network is used only for what you start, like
   Git push and pull, a database connection or an AI request.
 - Database passwords are kept in your system's credential store, not in files.
-- AI is off until you add your own Anthropic API key (kept in the credential store). Then code goes
-  to Anthropic only when you use a feature: the chat and Edit with AI send the open file, the
+- AI is off until you set up a provider: your own Anthropic, OpenAI or Gemini API key (kept in the
+  credential store), or Ollama, whose models run on your computer and send nothing out. Code goes
+  to the provider only when you use a feature: the chat and Edit with AI send the open file, the
   selection and outlines of the classes it uses; a commit message sends the diff; ghost text (off
   by default) sends the code around the caret. AI agents you start run under your own account; the
   MCP server for them is off until you turn it on, only accepts connections from this computer

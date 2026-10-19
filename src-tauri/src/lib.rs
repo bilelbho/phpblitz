@@ -1,5 +1,6 @@
 mod ai;
 mod blitz;
+mod clipboard;
 mod db;
 mod fs;
 mod index;
@@ -8,6 +9,7 @@ mod lsp;
 mod mago;
 mod mcp;
 mod process;
+mod project;
 mod pty;
 mod search;
 mod watcher;
@@ -32,10 +34,12 @@ pub fn run() {
         .manage(mcp::McpState::default())
         .manage(ai::AiState::default())
         .invoke_handler(tauri::generate_handler![
+            clipboard::clipboard_read_text,
             ai::ai_key_status,
             ai::ai_set_key,
             ai::ai_stream,
             ai::ai_cancel,
+            ai::ai_models,
             mcp::mcp_start,
             mcp::mcp_stop,
             mcp::mcp_status,

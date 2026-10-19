@@ -48,7 +48,7 @@ export async function searchInFiles(
   const within = (p: string) => !dir || p.startsWith(dir + '/');
   const result =
     isTauri && backend.kind === 'disk'
-      ? await invoke<SearchResult>('search_in_files', { root: dir ?? backend.root, options })
+      ? await invoke<SearchResult>('search_in_files', { root: dir ?? backend.root, options: { ...options, excluded: dirMarks.excludedFolders().map((rel) => `${backend.root}/${rel}`) } })
       : await searchInMemory(backend, files.filter(within), options);
   if (!unsaved.size) return withoutExcluded(result, dir);
   const mask = maskToRegExp(options.fileMask);

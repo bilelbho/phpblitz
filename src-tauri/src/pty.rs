@@ -381,27 +381,31 @@ mod frame_tests {
     #[test]
     fn groups_bursts_and_flushes_at_the_end() {
         let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        // The last chunk waits for the burst's frame to go out, not for a fixed time: slow CI
+        // machines may not run the forwarder within any pause the test picks.
+        let (sent_tx, sent_rx) = std::sync::mpsc::channel::<()>();
         let writer = std::thread::spawn(move || {
             // A burst (like `cat big.log`): many small reads at once…
             for i in 0..500u32 {
-                tx.send(format!("line {i}
-").into_bytes()).unwrap();
+                tx.send(format!("line {i}\n").into_bytes()).unwrap();
             }
-            // …then a pause, and one last chunk before the shell exits.
-            std::thread::sleep(Duration::from_millis(60));
+            // …then, after a pause, one last chunk before the shell exits.
+            sent_rx.recv().unwrap();
             tx.send(b"bye".to_vec()).unwrap();
         });
         let mut frames: Vec<Vec<u8>> = Vec::new();
         forward_frames(&rx, Duration::from_millis(20), |f| {
+            let done = f.ends_with(b"line 499\n");
             frames.push(f);
+            if done {
+                let _ = sent_tx.send(());
+            }
             true
         });
         writer.join().unwrap();
         let all: Vec<u8> = frames.concat();
         let text = String::from_utf8(all).unwrap();
-        assert!(text.starts_with("line 0
-") && text.ends_with("line 499
-bye"), "nothing lost, in order");
+        assert!(text.starts_with("line 0\n") && text.ends_with("line 499\nbye"), "nothing lost, in order");
         assert!(frames.len() <= 4, "500 reads became a few frames, not 500: {}", frames.len());
         assert_eq!(frames.last().unwrap(), b"bye", "the chunk after the pause is its own frame");
     }

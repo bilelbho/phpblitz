@@ -1417,7 +1417,7 @@ table.grid .number {
 }
 
 /* Edit with AI and the review of a change. */
-.ai-prompt {
+.pb-dialog.ai-prompt {
   width: 520px;
 }
 
@@ -1443,7 +1443,8 @@ table.grid .number {
   white-space: nowrap;
 }
 
-.ai-review {
+/* .pb-dialog sets 360px further down. */
+.pb-dialog.ai-review {
   display: flex;
   width: min(1100px, 92vw);
   height: 70vh;

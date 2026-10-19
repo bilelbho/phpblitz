@@ -18,6 +18,8 @@ export interface Target {
   path: string;
   /** Decoration over the selection the question was about; none: the whole file. */
   decoration?: string;
+  /** The selected code when the question was asked: checked before applying, to find it again. */
+  original?: string;
 }
 
 export interface ChatTurn {
@@ -107,7 +109,7 @@ function targetOf(editor: monaco.editor.ICodeEditor | null, ctx: CodeContext | n
   if (!model || !ctx) return undefined;
   const sel = editor!.getSelection();
   const decoration = sel && !sel.isEmpty() ? model.deltaDecorations([], [{ range: sel, options: { stickiness: monaco.editor.TrackedRangeStickiness.AlwaysGrowsWhenTypingAtEdges } }])[0] : undefined;
-  return { uri: model.uri.toString(), path: ctx.path, decoration };
+  return { uri: model.uri.toString(), path: ctx.path, decoration, original: decoration && sel ? model.getValueInRange(sel) : undefined };
 }
 
 /** Asks a question; with `withContext`, about the active editor's file and selection. */
@@ -170,13 +172,39 @@ export interface ApplyPlan {
   change?: Change;
 }
 
+const lf = (s: string) => s.replace(/\r\n/g, '\n');
+const sameCode = (a: string, b: string) => lf(a) === lf(b);
+
+/**
+ * Where the question's selection is now: its tracked range while that still holds the selected code
+ * (or this answer's code, once applied). Undo and other edits can leave the range elsewhere: then
+ * the one place the code is found again, or null.
+ */
+function trackedRange(target: Target, model: monaco.editor.ITextModel, code: string): monaco.IRange | null {
+  const range = model.getDecorationRange(target.decoration!);
+  if (range) {
+    const text = model.getValueInRange(range);
+    if ((target.original !== undefined && sameCode(text, target.original)) || sameCode(text, code)) return range;
+  }
+  for (const wanted of [target.original, code]) {
+    if (!wanted?.trim()) continue;
+    const found = model.findMatches(lf(wanted).replace(/\n/g, model.getEOL()), false, false, true, null, false);
+    if (found.length === 1) {
+      target.decoration = model.deltaDecorations([target.decoration!], [{ range: found[0].range, options: { stickiness: monaco.editor.TrackedRangeStickiness.AlwaysGrowsWhenTypingAtEdges } }])[0];
+      return found[0].range;
+    }
+  }
+  return null;
+}
+
 /** Where a code block goes: the question's selection, the whole file, or the active editor's caret. */
 export function planApply(turn: ChatTurn, code: string, language: string): ApplyPlan {
   const target = turn.target;
   const model = target ? monaco.editor.getModel(monaco.Uri.parse(target.uri)) : null;
   if (target?.decoration) {
-    const range = model?.getDecorationRange(target.decoration);
-    if (!model || !range) return { label: 'Apply to selection', disabled: `Open ${target.path.split('/').pop()} again to apply this.` };
+    if (!model) return { label: 'Apply to selection', disabled: `Open ${target.path.split('/').pop()} again to apply this.` };
+    const range = trackedRange(target, model, code);
+    if (!range) return { label: 'Apply to selection', disabled: 'The selected code changed since the question: select it again and ask.' };
     return { label: 'Apply to selection', change: { model, range, text: code } };
   }
   // A whole file: the model was asked to give whole files only when they're short.

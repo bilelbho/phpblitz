@@ -1714,7 +1714,8 @@ export function useWorkspace(backend: Backend) {
     void debug.stopListening();
   }, [backend]);
 
-  // Marking a folder Excluded (or un-excluding it) changes what Mago analyzes: reload it.
+  // Marking a folder Excluded (or un-excluding it) changes what Mago analyzes and what Go to File
+  // lists: reload both.
   const excludedKey = useRef<string | null>(null);
   const excludeTimer = useRef<number>();
   const magoStatusRef = useRef(magoStatus.state);
@@ -1724,9 +1725,12 @@ export function useWorkspace(backend: Backend) {
       const key = dirMarks.excludedFolders().join('\n');
       const before = excludedKey.current;
       excludedKey.current = key;
-      if (before !== null && before !== key && magoStatusRef.current !== 'analyzing') {
-        window.clearTimeout(excludeTimer.current);
-        excludeTimer.current = window.setTimeout(() => reanalyzeRef.current?.(), 800);
+      if (before !== null && before !== key) {
+        void backend.listFiles().then(setFiles, () => {});
+        if (magoStatusRef.current !== 'analyzing') {
+          window.clearTimeout(excludeTimer.current);
+          excludeTimer.current = window.setTimeout(() => reanalyzeRef.current?.(), 800);
+        }
       }
     };
     check();

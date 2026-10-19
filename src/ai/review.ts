@@ -57,7 +57,7 @@ export function changedText(change: Change): string {
   return all.slice(0, start) + text + all.slice(end);
 }
 
-/** Makes the change as one undo step, and selects the new text. */
+/** Makes the change as one undo step, selects the new text and focuses its editor. */
 export function applyChange(change: Change, editor?: monaco.editor.ICodeEditor | null) {
   const { model, range, text } = change;
   if (model.isDisposed()) return;
@@ -70,5 +70,7 @@ export function applyChange(change: Change, editor?: monaco.editor.ICodeEditor |
     const end = model.getPositionAt(endOffset);
     editor.setSelection(new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column));
     editor.revealRangeInCenterIfOutsideViewport(new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column));
+    // Ctrl+Z right after applying undoes it (undo goes to whatever has focus, not to this editor).
+    editor.focus();
   }
 }

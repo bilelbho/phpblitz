@@ -12,12 +12,13 @@ use std::time::Instant;
 use ignore::overrides::OverrideBuilder;
 use ignore::{WalkBuilder, WalkState};
 use regex::{NoExpand, Regex, RegexBuilder};
+
+use crate::project::{skips, Excluded, Purpose};
 use serde::{Deserialize, Serialize};
 
 const MAX_MATCHES: usize = 2000;
 const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
 const PREVIEW_CHARS: usize = 160;
-const SKIPPED_DIRS: [&str; 5] = ["vendor", "node_modules", "storage", "target", ".blitz"];
 
 /// Bumped by every search; a running search stops as soon as a newer one starts.
 static GENERATION: AtomicU64 = AtomicU64::new(0);
@@ -35,6 +36,9 @@ pub struct SearchOptions {
     /// Comma-separated globs, e.g. "*.php, *.blade.php". Empty = all files.
     #[serde(default)]
     file_mask: String,
+    /// Folders marked Excluded (absolute paths).
+    #[serde(default)]
+    excluded: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -159,7 +163,11 @@ pub fn search(root: &Path, options: &SearchOptions, generation: u64) -> Result<S
         }
         walker.overrides(overrides.build().map_err(|e| e.to_string())?);
     }
-    walker.filter_entry(|e| !(e.file_type().is_some_and(|t| t.is_dir()) && SKIPPED_DIRS.contains(&e.file_name().to_str().unwrap_or(""))));
+    let excluded = Excluded::new(&crate::fs::norm(root), &options.excluded);
+    walker.filter_entry(move |e| {
+        let is_dir = e.file_type().is_some_and(|t| t.is_dir());
+        !(is_dir && (skips(e.file_name().to_str().unwrap_or(""), Purpose::Search) || excluded.contains(&crate::fs::norm(e.path()))))
+    });
 
     let results = Mutex::new(Vec::new());
     let budget = AtomicUsize::new(0);
@@ -241,7 +249,7 @@ mod tests {
     use super::*;
 
     fn opts(query: &str) -> SearchOptions {
-        SearchOptions { query: query.into(), regex: false, match_case: false, whole_word: false, file_mask: String::new() }
+        SearchOptions { query: query.into(), regex: false, match_case: false, whole_word: false, file_mask: String::new(), excluded: Vec::new() }
     }
 
     #[test]

@@ -3,7 +3,7 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { Workspace } from '../useWorkspace';
-import { useSettings } from '../settings';
+import { AI_PROVIDERS, useSettings } from '../settings';
 import { isTauri } from '../platform';
 import { colorizeCode, renderMarkdown } from '../editor/markdown';
 import { activeEditor } from '../editor/active';
@@ -18,8 +18,10 @@ const SUGGESTIONS = ['Explain this file', 'Find bugs in this file', 'Write tests
 
 export function AiChat({ ws }: { ws: Workspace }) {
   const chat = useChat();
-  const key = useApiKey();
-  const model = useSettings().ai.chatModel;
+  const ai = useSettings().ai;
+  const key = useApiKey(ai.provider);
+  const model = ai.chatModel;
+  const provider = AI_PROVIDERS[ai.provider].label;
   const [input, setInput] = useState('');
   const [withFile, setWithFile] = useState(true);
   const end = useRef<HTMLDivElement>(null);
@@ -34,8 +36,11 @@ export function AiChat({ ws }: { ws: Workspace }) {
     return (
       <div className="panel-body ai-chat">
         <div className="card">
-          <div className="card-title">Add your Anthropic API key</div>
-          <div className="card-body">The chat, Edit with AI, commit messages and ghost text use your own key, billed to your Anthropic account. It's kept in your system's credential store.</div>
+          <div className="card-title">Add your {provider} API key</div>
+          <div className="card-body">
+            The chat, Edit with AI, commit messages and ghost text use your own key, billed to your {provider} account, and kept in your system&apos;s credential store. Or pick
+            Ollama to use models on this computer, with no key.
+          </div>
           <div>
             <button type="button" className="link-btn" onClick={() => ws.openSettings('ai-agents')}>
               Open AI settings

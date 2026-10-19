@@ -120,12 +120,28 @@ export interface DebugSettings {
   inlineValues: boolean;
 }
 
+export type AiProvider = 'anthropic' | 'openai' | 'gemini' | 'ollama';
+
+/** Each provider's models until the user picks others (Ollama: whatever is installed). */
+export const AI_PROVIDERS: Record<AiProvider, { label: string; chat: string; fast: string; keys?: string }> = {
+  anthropic: { label: 'Anthropic', chat: 'claude-sonnet-5-5', fast: 'claude-haiku-5-5', keys: 'console.anthropic.com' },
+  openai: { label: 'OpenAI', chat: 'gpt-5', fast: 'gpt-5-mini', keys: 'platform.openai.com' },
+  gemini: { label: 'Gemini', chat: 'gemini-2.5-pro', fast: 'gemini-2.5-flash', keys: 'aistudio.google.com' },
+  ollama: { label: 'Ollama (local)', chat: '', fast: '' },
+};
+
 /** Tools ▸ AI. */
 export interface AiSettings {
   /** The MCP server AI coding agents ask about the project (mcp.rs). Off by default. */
   mcpServer: boolean;
   mcpPort: number;
-  /** Anthropic model for chat and edits. */
+  /** Who answers: a provider with the user's own API key, or Ollama on this computer. */
+  provider: AiProvider;
+  /** Ollama's address (or another OpenAI-compatible local server's). */
+  ollamaUrl: string;
+  /** The models picked for the other providers, kept while another one is in use. */
+  savedModels: Partial<Record<AiProvider, { chat: string; fast: string }>>;
+  /** Model for chat and edits. */
   chatModel: string;
   /** Faster, cheaper model: commit messages and ghost text. */
   fastModel: string;
@@ -230,6 +246,9 @@ export const DEFAULT_SETTINGS: Settings = {
   ai: {
     mcpServer: false,
     mcpPort: 7465,
+    provider: 'anthropic',
+    ollamaUrl: 'http://localhost:11434',
+    savedModels: {},
     chatModel: 'claude-sonnet-5-5',
     fastModel: 'claude-haiku-5-5',
     ghostText: false,

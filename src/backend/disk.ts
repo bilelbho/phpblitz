@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { parseStatusV2, toChanges } from '../git/status';
+import { dirMarks } from '../dirMarks';
 import type { Backend, CommitOptions, Entry, GitInfo, Package, Problem, RunResult } from './types';
 
 const PACKAGE_NAME = /^[\w.-]+\/[\w.-]+$/;
@@ -27,8 +28,9 @@ export class DiskBackend implements Backend {
     return invoke<Entry[]>('list_dir', { path });
   }
 
+  /** Every file, without tool and generated folders, vendor/, and the folders marked Excluded. */
   listFiles() {
-    return invoke<string[]>('list_files', { root: this.root });
+    return invoke<string[]>('list_files', { root: this.root, excludes: dirMarks.excludedFolders() });
   }
 
   readFile(path: string) {

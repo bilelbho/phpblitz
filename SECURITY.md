@@ -42,9 +42,11 @@ An IDE opens projects that may come from anywhere, so these are the rules PHPBli
   app's config folder, replaceable from Settings), and requests with an `Origin` header (web pages)
   or another `Host` (DNS rebinding) are refused. Its tools only read the index and Mago's results;
   none writes files or runs anything.
-- **The AI assistant uses your own key and asks before changing code.** The Anthropic API key is
-  kept in the system's credential store and only the Rust side reads it; the UI never sees it.
-  Requests go straight to `api.anthropic.com` over HTTPS, only when you use an AI feature. Code
+- **The AI assistant uses your own key and asks before changing code.** API keys (one per
+  provider) are kept in the system's credential store and only the Rust side reads them; the UI
+  never sees them. Requests go straight to the provider you chose over HTTPS
+  (`api.anthropic.com`, `api.openai.com` or `generativelanguage.googleapis.com`), or to your
+  Ollama address, only when you use an AI feature. Code
   from an answer is applied only when you click Apply or accept the diff, as one undoable edit, and
   nothing the model says is run.
 - **Text from projects is never trusted as HTML.** Markdown previews are sanitized (DOMPurify);

@@ -4,6 +4,7 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { useSyncExternalStore } from 'react';
 import { isTauri } from '../platform';
+import { getSettings, type AiProvider } from '../settings';
 
 export interface AiMessage {
   role: 'user' | 'assistant';
@@ -11,6 +12,9 @@ export interface AiMessage {
 }
 
 export interface AiRequest {
+  /** Defaults to the provider and Ollama address in Settings (the Settings page tests unsaved ones). */
+  provider?: AiProvider;
+  baseUrl?: string;
   model: string;
   maxTokens: number;
   system?: string;
@@ -74,51 +78,72 @@ export function streamAi(request: AiRequest, onText?: (piece: string, all: strin
       settle(() => reject(new Error('The AI assistant needs the desktop app.')));
       return;
     }
-    invoke('ai_stream', { id, request, onEvent: events }).catch((e) => settle(() => reject(new Error(String(e)))));
+    const ai = getSettings().ai;
+    if (!request.model) {
+      settle(() => reject(new Error('Choose a model in Settings ▸ Tools ▸ AI.')));
+      return;
+    }
+    invoke('ai_stream', { id, request: { ...request, provider: request.provider ?? ai.provider, baseUrl: request.baseUrl ?? ai.ollamaUrl }, onEvent: events }).catch((e) => settle(() => reject(new Error(String(e)))));
   });
   return { done, cancel: () => cancel() };
 }
 
-// ── The API key (kept by the Rust side) ─────────────────────────
+// ── API keys (kept by the Rust side, one per provider) ─────────
 
 export interface KeyStatus {
   set: boolean;
   hint: string;
 }
 
-let keyStatus: KeyStatus | null = null;
+const keyStatus: Partial<Record<AiProvider, KeyStatus>> = {};
+const loading = new Set<AiProvider>();
 const listeners = new Set<() => void>();
-const changed = (next: KeyStatus) => {
-  keyStatus = next;
+let version = 0;
+const changed = (provider: AiProvider, next: KeyStatus) => {
+  keyStatus[provider] = next;
+  version++;
   listeners.forEach((l) => l());
 };
 
-export async function loadKeyStatus(): Promise<KeyStatus> {
+export async function loadKeyStatus(provider: AiProvider = getSettings().ai.provider): Promise<KeyStatus> {
   if (!isTauri) return { set: false, hint: '' };
-  const s = await invoke<KeyStatus>('ai_key_status').catch(() => ({ set: false, hint: '' }));
-  changed(s);
+  loading.add(provider);
+  const s = await invoke<KeyStatus>('ai_key_status', { provider }).catch(() => ({ set: false, hint: '' }));
+  loading.delete(provider);
+  changed(provider, s);
   return s;
 }
 
-/** Saves the key (empty: removes it). */
-export async function setApiKey(key: string): Promise<void> {
-  changed(await invoke<KeyStatus>('ai_set_key', { key }));
+/** Saves the provider's key (empty: removes it). */
+export async function setApiKey(provider: AiProvider, key: string): Promise<void> {
+  changed(provider, await invoke<KeyStatus>('ai_set_key', { provider, key }));
 }
 
-/** Whether a key is set; null until known. Loads it the first time. */
-export function useApiKey(): KeyStatus | null {
-  const s = useSyncExternalStore(
+/** Whether the provider has a key (Ollama needs none); null until known. Loads it the first time. */
+export function useApiKey(provider: AiProvider): KeyStatus | null {
+  useSyncExternalStore(
     (l) => {
       listeners.add(l);
       return () => listeners.delete(l);
     },
-    () => keyStatus,
+    () => version,
   );
-  if (s === null && isTauri) void loadKeyStatus();
+  const s = keyStatus[provider] ?? null;
+  if (s === null && isTauri && !loading.has(provider)) void loadKeyStatus(provider);
   return s;
 }
 
-export const hasApiKey = () => !!keyStatus?.set;
+/** Whether the provider in use can answer (a key, or Ollama); asks the first time. */
+export function hasApiKey(): boolean {
+  const provider = getSettings().ai.provider;
+  if (!keyStatus[provider] && isTauri && !loading.has(provider)) void loadKeyStatus(provider);
+  return !!keyStatus[provider]?.set;
+}
+
+/** The provider's models: chat models of its API, or the models installed in Ollama. */
+export function listModels(provider: AiProvider, baseUrl = getSettings().ai.ollamaUrl): Promise<string[]> {
+  return invoke<string[]>('ai_models', { provider, baseUrl });
+}
 
 /** Code from a model answer: the fenced block's contents when it wrapped the code in one. */
 export function stripFences(text: string): string {

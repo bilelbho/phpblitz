@@ -39,7 +39,6 @@ use tauri::{AppHandle, Emitter, Manager};
 const CACHE_VERSION: u32 = 4;
 const CACHE_MAGIC: &[u8; 8] = b"BLITZIDX";
 /// Never indexed (dependencies of JS tooling, caches, build output).
-const SKIPPED_DIRS: [&str; 9] = [".git", ".idea", ".svn", "node_modules", "storage", "var", "dist", "target", ".blitz"];
 const MAX_FILES: usize = 300_000;
 /// Files larger than this are not parsed (generated code, dumps).
 const MAX_FILE_BYTES: u64 = 2_500_000;
@@ -682,7 +681,7 @@ fn save_cache(path: &Path, index: &ProjectIndex) {
 /// PHP files of the project, vendor included (even when .gitignore'd), skipping tool folders and
 /// the folders marked Excluded.
 fn php_files(root: &str, excludes: &[String]) -> Vec<(String, u64, u64)> {
-    let excluded: HashSet<String> = excludes.iter().map(|e| format!("{}/{}", root, e.trim_matches('/'))).collect();
+    let excluded = crate::project::Excluded::new(root, excludes);
     let mut out = Vec::new();
     let mut stack = vec![PathBuf::from(root)];
     while let Some(dir) = stack.pop() {
@@ -692,7 +691,7 @@ fn php_files(root: &str, excludes: &[String]) -> Vec<(String, u64, u64)> {
             let name = entry.file_name().to_string_lossy().to_string();
             let path = crate::fs::norm(&entry.path());
             if t.is_dir() {
-                if !SKIPPED_DIRS.contains(&name.as_str()) && !excluded.contains(&path) {
+                if !crate::project::skips(&name, crate::project::Purpose::Index) && !excluded.contains(&path) {
                     stack.push(entry.path());
                 }
             } else if t.is_file() && name.ends_with(".php") && !name.ends_with(".blade.php") {

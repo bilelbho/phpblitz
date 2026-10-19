@@ -25,10 +25,8 @@ use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher as _};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-/// Never reported: dependencies of JavaScript tooling, build output, Laravel's runtime files.
-const IGNORED_DIRS: [&str; 6] = ["node_modules", "target", ".idea", ".blitz", "storage", "dist"];
-/// Never watched, at any depth.
-const NEVER_WATCHED: [&str; 7] = ["node_modules", ".git", ".idea", ".blitz", ".svn", ".hg", ".cache"];
+// Which folders are skipped: project.rs.
+use crate::project::{NEVER_WATCHED, UNREPORTED as IGNORED_DIRS};
 
 /// The open project's watching: OS watches, and the poller for folders without one.
 struct Session {
@@ -125,7 +123,7 @@ fn folders_to_watch(root: &Path) -> Vec<PathBuf> {
         let name = entry.file_name().to_string_lossy().to_string();
         let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
         if is_dir && name != "vendor" && !IGNORED_DIRS.contains(&name.as_str()) && !NEVER_WATCHED.contains(&name.as_str()) {
-            out.extend(subfolders(&entry.path(), &NEVER_WATCHED));
+            out.extend(subfolders(&entry.path(), NEVER_WATCHED));
         }
     }
     out
@@ -217,7 +215,7 @@ impl Poller {
             changed.push(path);
         }
         for dir in new_dirs {
-            for sub in subfolders(&dir, &NEVER_WATCHED) {
+            for sub in subfolders(&dir, NEVER_WATCHED) {
                 // Files already inside a new folder are new too.
                 for (path, _) in Self::entries(&sub) {
                     if !path.is_dir() {
@@ -398,7 +396,7 @@ fn start(app: AppHandle, shared: Watcher, root: String) -> Result<WatchStatus, S
                 let Ok(mut guard) = shared.lock() else { break };
                 let Some(session) = guard.as_mut() else { continue };
                 let Some(d) = session.debouncer.as_mut() else { continue };
-                let (_, failed) = watch_folders(subfolders(&dir, &NEVER_WATCHED), |sub| d.watch(sub, RecursiveMode::NonRecursive).map_err(|e| e.to_string()));
+                let (_, failed) = watch_folders(subfolders(&dir, NEVER_WATCHED), |sub| d.watch(sub, RecursiveMode::NonRecursive).map_err(|e| e.to_string()));
                 if let (Some((_, dirs)), Some(poller)) = (failed, weak_poller.upgrade()) {
                     if let Ok(mut p) = poller.lock() {
                         for dir in dirs {

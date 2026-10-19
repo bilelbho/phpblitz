@@ -5,7 +5,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Workspace } from '../useWorkspace';
 import { useSettings } from '../settings';
-import { tabLabel, terminals, useTerminals, type Session, type ShellSpec } from '../terminal/manager';
+import { readClipboard, tabLabel, terminals, useTerminals, type Session, type ShellSpec } from '../terminal/manager';
 import { ContextMenu, type ContextItem } from './ContextMenu';
 import { Icon } from './Icon';
 import { useTabDrag } from './useTabDrag';
@@ -124,6 +124,40 @@ export function TerminalView({ ws }: { ws: Workspace }) {
         { label: 'Settings', icon: 'gear' as const, run: () => ws.openSettings('terminal') },
       ],
     });
+  };
+
+  /** Right-click on the terminal itself: copy, paste, clear, split. */
+  const surfaceMenu = (e: React.MouseEvent, s: Session) => {
+    e.preventDefault();
+    const { term } = s;
+    const selection = term.getSelection();
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        { label: 'Copy', icon: 'copy', shortcut: 'Ctrl+Shift+C', disabled: !selection, run: () => void navigator.clipboard.writeText(selection).catch(() => {}) },
+        {
+          label: 'Paste',
+          icon: 'paste',
+          shortcut: 'Ctrl+Shift+V',
+          disabled: s.exited,
+          run: () =>
+            void readClipboard().then(
+              (t) => t && term.paste(t),
+              (err) => ws.setStatus(String(err)),
+            ),
+        },
+        { label: 'Select All', run: () => term.selectAll() },
+        { kind: 'sep' },
+        { label: 'Clear', run: () => term.clear() },
+        { kind: 'sep' },
+        ...splitItems(s.id),
+        { kind: 'sep' },
+        { label: 'New Tab', icon: 'plus', run: () => newTab() },
+        { label: 'Close Session', run: () => terminals.close(s.id) },
+      ],
+    });
+    term.focus();
   };
 
   const splitItems = (id: number | null): ContextItem[] => [
@@ -248,9 +282,9 @@ export function TerminalView({ ws }: { ws: Workspace }) {
         </button>
       </div>
       <div ref={body} className={'terminal-view' + (split ? (horizontal ? ' split-h' : ' split-v') : '')}>
-        {split && second && secondFirst && <Pane session={second} focused={focus === 'second'} onFocus={() => setFocus('second')} />}
-        {active && <Pane session={active} focused={!split || focus === 'main'} onFocus={() => setFocus('main')} />}
-        {split && second && !secondFirst && <Pane session={second} focused={focus === 'second'} onFocus={() => setFocus('second')} />}
+        {split && second && secondFirst && <Pane session={second} focused={focus === 'second'} onFocus={() => setFocus('second')} onMenu={surfaceMenu} />}
+        {active && <Pane session={active} focused={!split || focus === 'main'} onFocus={() => setFocus('main')} onMenu={surfaceMenu} />}
+        {split && second && !secondFirst && <Pane session={second} focused={focus === 'second'} onFocus={() => setFocus('second')} onMenu={surfaceMenu} />}
         {!sessions.length && (
           <div className="empty" style={{ position: 'absolute', top: 12 }}>
             No terminal sessions.{' '}
@@ -273,7 +307,7 @@ export function TerminalView({ ws }: { ws: Workspace }) {
 }
 
 /** One terminal on screen, kept sized to its pane. */
-function Pane({ session, focused, onFocus }: { session: Session; focused: boolean; onFocus: () => void }) {
+function Pane({ session, focused, onFocus, onMenu }: { session: Session; focused: boolean; onFocus: () => void; onMenu: (e: React.MouseEvent, s: Session) => void }) {
   const host = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (!host.current) return;
@@ -292,6 +326,10 @@ function Pane({ session, focused, onFocus }: { session: Session; focused: boolea
       onMouseDown={() => {
         onFocus();
         session.term.focus();
+      }}
+      onContextMenu={(e) => {
+        onFocus();
+        onMenu(e, session);
       }}
     />
   );

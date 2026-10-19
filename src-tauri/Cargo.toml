@@ -73,9 +73,11 @@ keyring = { version = "3", features = ["windows-native", "apple-native"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", features = ["linux-native-sync-persistent", "crypto-rust"] }
 
-# Programs installed while PHPBlitz runs: the PATH saved in the registry (process.rs).
+# Programs installed while PHPBlitz runs: the PATH saved in the registry (process.rs); reading the
+# clipboard without the web view's permission prompt (clipboard.rs).
 [target.'cfg(windows)'.dependencies]
 windows-registry = "0.6"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Memory"] }
 
 # Auto-update from GitHub Releases, and the restart after installing one.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

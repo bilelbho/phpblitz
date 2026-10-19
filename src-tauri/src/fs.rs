@@ -4,8 +4,9 @@ use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::project::{skips, Excluded, Purpose};
+
 /// Directories that are never walked when building the project file list.
-const SKIPPED_DIRS: [&str; 6] = [".git", ".idea", ".blitz", "node_modules", "vendor", "storage"];
 const MAX_FILES: usize = 50_000;
 const MAX_FILE_BYTES: u64 = 5 * 1024 * 1024;
 
@@ -51,8 +52,9 @@ fn list_dir_blocking(path: &str) -> Result<Vec<Entry>, String> {
 }
 
 #[tauri::command]
-pub async fn list_files(root: String) -> Result<Vec<String>, String> {
+pub async fn list_files(root: String, excludes: Option<Vec<String>>) -> Result<Vec<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let excluded = Excluded::new(&root, &excludes.unwrap_or_default());
         let mut out = Vec::new();
         let mut stack = vec![PathBuf::from(&root)];
         while let Some(dir) = stack.pop() {
@@ -61,7 +63,7 @@ pub async fn list_files(root: String) -> Result<Vec<String>, String> {
                 let Ok(kind) = entry.file_type() else { continue };
                 if kind.is_dir() {
                     let name = entry.file_name().to_string_lossy().to_string();
-                    if !SKIPPED_DIRS.contains(&name.as_str()) {
+                    if !skips(&name, Purpose::Files) && !excluded.contains(&norm(&entry.path())) {
                         stack.push(entry.path());
                     }
                 } else {
@@ -290,6 +292,25 @@ pub async fn create_dir(path: String) -> Result<(), String> {
 mod atomic_tests {
     use super::write_atomic;
     use std::fs;
+
+    #[test]
+    fn file_list_skips_dependencies_generated_and_excluded_folders() {
+        let root = temp_dir("list");
+        for f in ["app/User.php", "vendor/x/Y.php", "node_modules/a/b.js", "legacy/Old.php", "public/build/app.js", "public/index.php", ".git/HEAD"] {
+            let p = root.join(f);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, "x").unwrap();
+        }
+        let root_s = super::norm(&root);
+        let mut files: Vec<String> = tauri::async_runtime::block_on(super::list_files(root_s.clone(), Some(vec!["legacy".into(), "public/build".into()])))
+            .unwrap()
+            .into_iter()
+            .map(|f| f.trim_start_matches(&format!("{root_s}/")).to_string())
+            .collect();
+        files.sort();
+        assert_eq!(files, ["app/User.php", "public/index.php"]);
+        let _ = fs::remove_dir_all(&root);
+    }
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("phpblitz-atomic-{name}-{}", std::process::id()));
