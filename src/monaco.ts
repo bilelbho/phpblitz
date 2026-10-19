@@ -80,7 +80,9 @@ const usageLenses: monaco.languages.CodeLensProvider = {
     return { ...lens, command: { id: 'phpblitz.showUsages', title, arguments: [model.uri.toString(), at.line, at.column] } };
   },
 };
-monaco.languages.registerCodeLensProvider('php', usageLenses);
+const usageLensesRegistration = monaco.languages.registerCodeLensProvider('php', usageLenses);
+// Dev reloads: the new module registers again, so the old one goes ("9 usages | 9 usages" otherwise).
+import.meta.hot?.dispose(() => usageLensesRegistration.dispose());
 
 // Remove Monaco keybindings whose popups we replace with our own (see EditorArea).
 const { KeyMod, KeyCode } = monaco;

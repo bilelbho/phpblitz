@@ -132,6 +132,7 @@ export function AppearancePage({ value: ui, onChange, highlight, onEditorScheme 
         <div>
           <Check label="Smooth scrolling" checked={ui.smoothScrolling} onChange={(v) => onChange({ smoothScrolling: v })} hit={hit} />
           <Check label="Display icons in menu items" checked={ui.menuIcons} onChange={(v) => onChange({ menuIcons: v })} hit={hit} />
+          <Check label="Show tool window names under their icons" checked={ui.toolNames} onChange={(v) => onChange({ toolNames: v })} hit={hit} />
         </div>
       </div>
       <div className="settings-grid" style={{ marginTop: 8 }}>

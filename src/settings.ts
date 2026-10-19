@@ -77,6 +77,8 @@ export interface UiSettings {
   projectColors: boolean;
   smoothScrolling: boolean;
   menuIcons: boolean;
+  /** Tool window names under the stripe icons. On for new installs, so the icons are learnable. */
+  toolNames: boolean;
   indentGuides: boolean;
   smallerIndents: boolean;
   toolWindowBars: boolean;
@@ -174,6 +176,7 @@ export const DEFAULT_SETTINGS: Settings = {
     // Off like VS Code: animating each wheel tick makes fast wheels and touchpads trail behind.
     smoothScrolling: false,
     menuIcons: true,
+    toolNames: true,
     indentGuides: false,
     smallerIndents: false,
     toolWindowBars: true,
@@ -228,7 +231,8 @@ export const DEFAULT_SETTINGS: Settings = {
     defaultTabName: 'Local',
     useAppTitle: true,
     audibleBell: true,
-    closeOnExit: true,
+    // Off: a shell that crashes or exits keeps its last output on screen.
+    closeOnExit: false,
     copyOnSelect: false,
     pasteOnMiddleClick: true,
     overrideIdeShortcuts: true,
@@ -274,6 +278,8 @@ function load(): Settings {
       if (saved.editor?.scheme in renamed) saved.editor.scheme = renamed[saved.editor.scheme];
       localStorage.setItem(KEY, JSON.stringify(saved));
     }
+    // Tool window names came later: people who already know the icons keep the narrow stripes.
+    if (saved.ui && saved.ui.toolNames === undefined) saved.ui.toolNames = false;
     return {
       ui: { ...DEFAULT_SETTINGS.ui, ...(saved.ui ?? {}) },
       tabs: { ...DEFAULT_SETTINGS.tabs, ...(saved.tabs ?? {}) },

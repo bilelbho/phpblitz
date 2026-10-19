@@ -1,4 +1,6 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
+import { getSettings, saveSettings, useSettings } from '../settings';
+import { ContextMenu } from './ContextMenu';
 import { Icon, type IconName } from './Icon';
 import { ANCHOR_LABELS, type Anchor, type Tool } from '../toolLayout';
 
@@ -34,6 +36,12 @@ interface Props {
 export function ToolStrip({ side, groups, bottomGroup, onPick, drag, onDragStart }: Props) {
   /** A press that turned into a drag doesn't also click. */
   const dragged = useRef(false);
+  const names = useSettings().ui.toolNames;
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const toggleNames = () => {
+    const s = getSettings();
+    saveSettings({ ...s, ui: { ...s.ui, toolNames: !s.ui.toolNames } });
+  };
 
   const button = (item: StripItem, draggable: boolean) => (
     <button
@@ -74,6 +82,7 @@ export function ToolStrip({ side, groups, bottomGroup, onPick, drag, onDragStart
       }}
     >
       <Icon name={item.icon} size={17} />
+      {names && <span className="strip-name">{item.label}</span>}
       {item.dot && <span className="strip-dot" />}
       {!!item.count && <span className="strip-count">{item.count > 9 ? '9+' : item.count}</span>}
     </button>
@@ -100,7 +109,14 @@ export function ToolStrip({ side, groups, bottomGroup, onPick, drag, onDragStart
   const visible = (g: number) => groups[g].items.some((i) => i.id !== drag?.tool) || drag?.target?.anchor === groups[g].anchor;
 
   return (
-    <nav className={`strip ${side}` + (drag ? ' dragging' : '')} aria-label={side === 'left' ? 'Tool windows' : 'Right tool windows'}>
+    <nav
+      className={`strip ${side}` + (drag ? ' dragging' : '') + (names ? ' with-names' : '')}
+      aria-label={side === 'left' ? 'Tool windows' : 'Right tool windows'}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenu({ x: e.clientX, y: e.clientY });
+      }}
+    >
       {groups.map(({ anchor, items }, g) => (
         <span key={anchor} style={{ display: 'contents' }}>
           {g > 0 && (!!drag || (visible(0) && visible(g))) && <span className="strip-sep" />}
@@ -113,6 +129,7 @@ export function ToolStrip({ side, groups, bottomGroup, onPick, drag, onDragStart
           {group(bottomGroup.anchor, bottomGroup.items)}
         </>
       )}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={[{ label: 'Show Tool Window Names', checked: names, run: toggleNames }]} onClose={() => setMenu(null)} />}
     </nav>
   );
 }

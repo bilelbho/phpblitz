@@ -236,7 +236,9 @@ export function buildEditorMenu(
     editor.trigger('phpblitz', id, {});
   };
   const reference = referenceAt(editor);
-  const className = structureOf(model.getValue()).find((s) => s.depth === 0)?.name ?? baseName(path);
+  const outline = structureOf(model.getValue());
+  const className = outline.find((s) => s.depth === 0)?.name ?? baseName(path);
+  const declaresType = outline.some((s) => s.depth === 0 && ['class', 'interface', 'trait', 'enum'].includes(s.kind));
   const isTest = /Test\.php$/.test(path) || /\/tests\//i.test(path);
   const refactors = actions.filter((a) => isRefactor(a) && !isGenerate(a));
   const contextual = actions.filter((a) => !isGenerate(a) || a.kind.startsWith('quickfix'));
@@ -326,7 +328,8 @@ export function buildEditorMenu(
     SEP,
     // In a test file: run or debug the test at the caret (else the whole file).
     ...(isTest ? testItemsAt(ws, path, model.getValue(), editor.getPosition()?.lineNumber ?? 1, className) : []),
-    ...(path.endsWith('.php') && !isTest ? [{ label: `Debug '${path.split('/').pop()}'`, icon: 'bug' as const, run: () => void debug.debugScript(path) }] : []),
+    // A script (routes, entry points…), not a file that only declares a class: running it does something.
+    ...(path.endsWith('.php') && !isTest && !declaresType ? [{ label: `Debug '${path.split('/').pop()}'`, icon: 'bug' as const, run: () => void debug.debugScript(path) }] : []),
     ...(debug.active?.status === 'break'
       ? [
           { label: 'Run to Cursor', shortcut: 'Alt+F9', icon: 'runToCursor' as const, run: () => void debug.runToCursor(path, editor.getPosition()?.lineNumber ?? 1) },

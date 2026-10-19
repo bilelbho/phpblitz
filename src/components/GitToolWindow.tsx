@@ -394,7 +394,7 @@ function GitLog({ ws }: { ws: Workspace }) {
           </button>
           <span className="grow" />
           <span className="muted" style={{ fontSize: 12 }}>
-            {loading ? 'Loading…' : `${commits.length}${more ? '+' : ''} commits`}
+            {loading ? 'Loading…' : `${commits.length}${more ? '+' : ''} ${commits.length === 1 && !more ? 'commit' : 'commits'}`}
           </span>
         </div>
         {error && <div className="te-error"><pre>{error}</pre></div>}

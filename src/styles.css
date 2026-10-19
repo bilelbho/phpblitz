@@ -3829,8 +3829,10 @@ table.grid tr.row-deleted td {
   border-left: 1px solid var(--line);
   min-height: 0;
 }
+/* The changed files get the room; the message below takes what it needs (up to 45%). */
 .gl-files {
-  flex: 1 1 50%;
+  flex: 1 1 auto;
+  min-height: 72px;
   overflow-y: auto;
   padding: 2px 4px;
   border-bottom: 1px solid var(--line);
@@ -3857,7 +3859,8 @@ table.grid tr.row-deleted td {
   text-overflow: ellipsis;
 }
 .gl-message {
-  flex: 1 1 50%;
+  flex: 0 0 auto;
+  max-height: 45%;
   overflow-y: auto;
   padding: 10px 12px;
 }
@@ -7036,4 +7039,39 @@ body {
 .db-env-what {
   opacity: 0.8;
   font-weight: 400;
+}
+
+/* Tool window stripes with names under the icons (Settings ▸ Appearance, or right-click a stripe). */
+.strip.with-names {
+  width: 72px;
+  gap: 2px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.strip.with-names .strip-btn {
+  width: 68px;
+  height: auto;
+  min-height: 44px;
+  padding: 5px 2px 4px;
+  flex-direction: column;
+  gap: 3px;
+}
+.strip-name {
+  max-width: 100%;
+  overflow: hidden;
+  /* A long name ("Composer Log") takes a second line rather than being cut. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  text-align: center;
+  overflow-wrap: anywhere;
+  font-size: 10px;
+  line-height: 12px;
+}
+.strip.with-names .strip-sep {
+  margin: 4px 0;
+}
+/* Balloons clear the right stripe when it shows names (wider). */
+body:has(.strip.right.with-names) .balloons {
+  right: 88px;
 }

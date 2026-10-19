@@ -6,6 +6,7 @@ import type { Workspace } from '../useWorkspace';
 import { DEFAULT_SETTINGS, getSettings, saveSettings, type AiSettings, type DebugSettings, type EditorSettings, type Settings, type TabSettings, type TerminalSettings, type UiSettings } from '../settings';
 import { terminals, type ShellSpec } from '../terminal/manager';
 import { isTauri } from '../platform';
+import { installedMonoFonts } from '../fonts';
 import { Icon } from './Icon';
 import { AppearancePage, EditorTabsPage } from './SettingsAppearance';
 import { PhpPage } from './PhpSettings';
@@ -342,9 +343,7 @@ function TerminalPage({ ws, value: t, onChange, highlight }: { ws: Workspace; va
       <h3 className="settings-section">Font</h3>
       <div className="settings-grid">
         <label htmlFor="term-font" className={hit('Font')}>Font:</label>
-        <div className="field" style={{ width: 240 }}>
-          <input id="term-font" value={t.fontFamily} spellCheck={false} onChange={(e) => onChange({ fontFamily: e.target.value })} />
-        </div>
+        <FontPicker id="term-font" value={t.fontFamily} onChange={(fontFamily) => onChange({ fontFamily })} />
         <label htmlFor="term-size" className={hit('Size')}>Size:</label>
         <div className="settings-row">
           <div className="field" style={{ width: 80 }}>
@@ -431,9 +430,7 @@ function EditorFontPage({ value: e, onChange, highlight }: { value: EditorSettin
     <>
       <div className="settings-grid" style={{ marginTop: 12 }}>
         <label htmlFor="ed-font" className={hit('Font')}>Font:</label>
-        <div className="field" style={{ width: 240 }}>
-          <input id="ed-font" value={e.fontFamily} spellCheck={false} onChange={(ev) => onChange({ fontFamily: ev.target.value })} />
-        </div>
+        <FontPicker id="ed-font" value={e.fontFamily} onChange={(fontFamily) => onChange({ fontFamily })} />
         <label htmlFor="ed-size" className={hit('Size')}>Size:</label>
         <div className="settings-row">
           <div className="field" style={{ width: 80 }}>
@@ -582,5 +579,40 @@ function DebugPage({ value: d, onChange, highlight }: { value: DebugSettings; on
         For web requests, start listening (the phone icon in the toolbar) and trigger Xdebug with a browser extension, a XDEBUG_SESSION cookie, or xdebug.start_with_request=yes.
       </div>
     </>
+  );
+}
+
+/** The monospaced fonts found on this computer, each shown in itself; Other… types any name. */
+function FontPicker({ id, value, onChange }: { id: string; value: string; onChange: (font: string) => void }) {
+  const fonts = useMemo(installedMonoFonts, []);
+  const [typing, setTyping] = useState(() => !fonts.includes(value));
+  if (typing)
+    return (
+      <div className="settings-row">
+        <div className="field" style={{ width: 240 }}>
+          <input id={id} value={value} spellCheck={false} placeholder="Font name" onChange={(ev) => onChange(ev.target.value)} />
+        </div>
+        {fonts.length > 0 && (
+          <button type="button" className="link-btn" onClick={() => setTyping(false)}>
+            Choose from list
+          </button>
+        )}
+      </div>
+    );
+  return (
+    <select
+      id={id}
+      className="settings-select"
+      style={{ width: 240, fontFamily: `'${value}', monospace` }}
+      value={value}
+      onChange={(ev) => (ev.target.value === '__other__' ? setTyping(true) : onChange(ev.target.value))}
+    >
+      {fonts.map((f) => (
+        <option key={f} value={f} style={{ fontFamily: `'${f}', monospace` }}>
+          {f}
+        </option>
+      ))}
+      <option value={'__other__'}>Other…</option>
+    </select>
   );
 }

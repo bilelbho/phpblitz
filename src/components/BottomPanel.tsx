@@ -176,12 +176,13 @@ function Problems({ ws }: { ws: Workspace }) {
         <Icon name={SEVERITY_ICON[p.severity]} size={13} />
       </span>
       <span className="name">{p.message}</span>
-      {p.code && <span className="detail mono" style={{ fontSize: 11.5 }}>{p.code}</span>}
-      <span className="detail" style={{ marginLeft: 'auto', flex: 'none', paddingLeft: 12 }}>
-        {showFile ? `${baseName(p.path)}:` : ''}
+      {/* Where, right after the message (not across the panel at the far edge). */}
+      <span className="detail" style={{ flex: 'none' }}>
+        {showFile ? `${baseName(p.path)}:` : ':'}
         {p.line}
         {p.column ? `:${p.column}` : ''}
       </span>
+      {p.code && <span className="detail mono" style={{ fontSize: 11.5, flex: 'none' }}>{p.code}</span>}
     </button>
   );
 
