@@ -149,11 +149,11 @@ export function TestResults({ ws }: { ws: Workspace }) {
         <ToolButton icon="bug" label={run ? `Debug '${run.label}'` : 'Debug Tests'} color="#5fb865" disabled={!!run?.running} onClick={() => void runner.start(run?.scope ?? { kind: 'all' }, { debug: true })} />
         <ToolButton icon="stopSquare" label="Stop" keys="Ctrl+F2" color="#db5c5c" disabled={!run?.running} onClick={() => void runner.stop()} />
         <span className="strip-sep" />
-        <ToolButton icon="check" label="Show Passed" pressed={showPassed} onClick={() => setShowPassed(!showPassed)} />
-        <ToolButton icon="minus" label="Show Ignored" pressed={showIgnored} onClick={() => setShowIgnored(!showIgnored)} />
+        <ToolButton icon="check" label="Show Passed" pressed={showPassed} disabled={!run} onClick={() => setShowPassed(!showPassed)} />
+        <ToolButton icon="minus" label="Show Ignored" pressed={showIgnored} disabled={!run} onClick={() => setShowIgnored(!showIgnored)} />
         <span className="strip-sep" />
-        <ToolButton icon="expandAll" label="Expand All" onClick={() => setCollapsed(new Set())} />
-        <ToolButton icon="collapseAll" label="Collapse All" onClick={() => setCollapsed(new Set(rows.filter((r) => r.node.kind !== 'test' && r.node.kind !== 'root').map((r) => r.node.id)))} />
+        <ToolButton icon="expandAll" label="Expand All" disabled={!run} onClick={() => setCollapsed(new Set())} />
+        <ToolButton icon="collapseAll" label="Collapse All" disabled={!run} onClick={() => setCollapsed(new Set(rows.filter((r) => r.node.kind !== 'test' && r.node.kind !== 'root').map((r) => r.node.id)))} />
         {status && (
           <span className={`tr-status ${status.tone}`} title={status.text}>
             {status.tone === 'ok' && <Icon name="check" size={13} />}

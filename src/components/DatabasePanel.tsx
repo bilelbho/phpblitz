@@ -4,7 +4,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Workspace } from '../useWorkspace';
-import { db, useDb } from '../db/store';
+import { dataSourceFromEnv, db, useDb } from '../db/store';
 import { dropSql, qualified, quoteIdent, renameSql } from '../db/dialect';
 import { driverName, isRelation, type Column, type DataSource, type ObjectKind, type TableInfo } from '../db/types';
 import { Icon, type IconName } from './Icon';
@@ -92,7 +92,27 @@ export function DatabasePanel({ ws }: { ws: Workspace }) {
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<string | null>(null);
   const [view, setViewState] = useState<ViewOptions>(loadView);
-  const [dialog, setDialog] = useState<{ source: DataSource | null } | null>(null);
+  const [dialog, setDialog] = useState<{ source: DataSource | null; fromEnv?: boolean } | null>(null);
+  /** Database settings in the project's .env, for Add from .env ("MySQL · shop on 127.0.0.1"). */
+  const [envSource, setEnvSource] = useState<string | null>(null);
+  useEffect(() => {
+    if (ws.backend.kind !== 'disk') return;
+    let live = true;
+    (async () => {
+      for (const name of ['.env.local', '.env']) {
+        const text = await ws.backend.readFile(`${ws.backend.root}/${name}`).catch(() => null);
+        const found = text ? dataSourceFromEnv(text) : null;
+        if (!found?.driver) continue;
+        const what = found.driver === 'sqlite' ? found.file : [found.database, found.host && `on ${found.host}`].filter(Boolean).join(' ');
+        if (live) setEnvSource(`${driverName(found.driver)}${what ? ` · ${what}` : ''}`);
+        return;
+      }
+      if (live) setEnvSource(null);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [ws.backend]);
   const [tableDialog, setTableDialog] = useState<TableDialogRequest | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
   const [prompt, setPrompt] = useState<{ title: string; label: string; value: string; preview: (v: string) => string; run: (v: string) => Promise<void> } | null>(null);
@@ -651,6 +671,7 @@ export function DatabasePanel({ ws }: { ws: Workspace }) {
           className="icon-btn small"
           aria-label="View options"
           title="View Options"
+          disabled={!sources.length}
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             setMenu({ x: r.left, y: r.bottom + 2, items: viewMenu() });
@@ -704,10 +725,16 @@ export function DatabasePanel({ ws }: { ws: Workspace }) {
         {!sources.length && (
           <div className="empty db-empty">
             No data sources yet.
+            {envSource && (
+              <button type="button" className="btn small primary db-env-add" onClick={() => setDialog({ source: null, fromEnv: true })} title="Opens the data source dialog filled in from .env">
+                Add from .env
+                <span className="db-env-what">{envSource}</span>
+              </button>
+            )}
             <button type="button" className="link-btn" onClick={() => setDialog({ source: null })} disabled={ws.backend.kind !== 'disk'}>
-              Add a data source
+              {envSource ? 'Add another data source' : 'Add a data source'}
             </button>
-            <span className="muted">PostgreSQL, MySQL / MariaDB or SQLite. Settings can come from your .env.</span>
+            <span className="muted">PostgreSQL, MySQL / MariaDB or SQLite.{envSource ? '' : ' Settings can also come from your .env.'}</span>
           </div>
         )}
         {sources[0]?.driver === 'sample' && (
@@ -723,6 +750,7 @@ export function DatabasePanel({ ws }: { ws: Workspace }) {
         <DataSourceDialog
           ws={ws}
           source={dialog.source}
+          importFromEnv={dialog.fromEnv}
           onClose={(saved) => {
             setDialog(null);
             if (saved) {

@@ -57,11 +57,13 @@ const usageLenses: monaco.languages.CodeLensProvider = {
     if (!getSettings().editor.codeVision) return { lenses: [], dispose() {} };
     const lines = model.getLinesContent();
     const lenses: UsageLens[] = structureOf(model.getValue())
-      .filter((s) => ['class', 'interface', 'trait', 'enum', 'method', 'property', 'function', 'const'].includes(s.kind) && s.name !== '__construct')
+      // Types, methods and functions. Not properties and constants: a line each, and often used
+      // where references can't be counted (Eloquent attributes, $fillable, config keys).
+      .filter((s) => ['class', 'interface', 'trait', 'enum', 'method', 'function'].includes(s.kind) && s.name !== '__construct')
       .slice(0, 200)
       .flatMap((s) => {
         const text = lines[s.line - 1] ?? '';
-        const column = s.kind === 'property' ? text.indexOf('$' + s.name) + 2 : text.search(new RegExp(String.raw`\b${s.name}\b`)) + 1;
+        const column = text.search(new RegExp(String.raw`\b${s.name}\b`)) + 1;
         if (column <= 0) return [];
         // Above the declaration's attributes (#[Route(...)]) and doc comment.
         let top = s.line;

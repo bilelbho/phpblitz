@@ -343,6 +343,11 @@ textarea:focus-visible {
 .icon-btn:hover:not(:disabled) {
   background: var(--hover-strong);
 }
+/* Icons are grey already: a disabled one has to be clearly dimmer to read as off. */
+.icon-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
 .icon-btn.active {
   background: var(--hover-strong);
 }
@@ -3975,12 +3980,23 @@ table.grid tr.row-deleted td {
 .tree .row .name.excluded {
   color: #d1913c;
 }
-/* Tests green, libraries (vendor/) brown: tree rows and editor tabs. */
-.tree .row.file-color-test:not(.selected) {
-  background: rgba(95, 184, 101, 0.13);
+/* Tests green, libraries (vendor/) brown. In the tree the name and folder icon carry the color
+   (a filled row would look selected); Git status colors on names come first. Tabs are filled. */
+.tree .row.file-color-test:not(.selected) .name:not([class*='status-']) {
+  color: #6fc275;
 }
-.tree .row.file-color-library:not(.selected) {
-  background: rgba(186, 138, 70, 0.15);
+.tree .row.file-color-library:not(.selected) .name:not([class*='status-']) {
+  color: #c9a06a;
+}
+.tree .row.file-color-library .folder-icon:not(.folder-source, .folder-test, .folder-resource, .folder-excluded) {
+  color: #c9a06a;
+}
+:root[data-ui-theme='blitz-light'] .tree .row.file-color-test:not(.selected) .name:not([class*='status-']) {
+  color: #2f8a3a;
+}
+:root[data-ui-theme='blitz-light'] .tree .row.file-color-library:not(.selected) .name:not([class*='status-']),
+:root[data-ui-theme='blitz-light'] .tree .row.file-color-library .folder-icon:not(.folder-source, .folder-test, .folder-resource, .folder-excluded) {
+  color: #94642a;
 }
 .tab.file-color-test {
   background: rgba(95, 184, 101, 0.24);
@@ -7008,4 +7024,16 @@ body {
 }
 .editor-host .monaco-editor .monaco-editor-overlaymessage .anchor {
   display: none !important;
+}
+
+/* Database ▸ Add from .env: the button says what it found. */
+.db-env-add {
+  align-self: flex-start;
+  display: inline-flex;
+  gap: 8px;
+  margin: 2px 0;
+}
+.db-env-what {
+  opacity: 0.8;
+  font-weight: 400;
 }

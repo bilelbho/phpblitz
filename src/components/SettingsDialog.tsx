@@ -473,7 +473,7 @@ function HintsPage({ value: e, onChange, highlight }: { value: EditorSettings; o
   );
   return (
     <div className="settings-checks" style={{ marginTop: 14, gap: 14 }}>
-      {check('codeVision', 'Code vision: usages', '"N usages" above classes, methods and properties. Click it to find them.')}
+      {check('codeVision', 'Code vision: usages', '"N usages" above classes, methods and functions. Click it to find them.')}
       {check('inlayHints', 'Parameter names and types', 'Hints from the language server, such as content: and status: before arguments.')}
       {check('lightbulb', 'Show lightbulb for context actions', 'A bulb on the caret line when Alt+Enter has something to offer.')}
       {check('renderDocs', 'Render documentation comments', 'Show /** */ comments formatted. Click the pencil in the gutter or press Ctrl+Alt+Q to edit one.')}

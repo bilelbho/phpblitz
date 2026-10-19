@@ -12,7 +12,7 @@ import { Icon } from './Icon';
 
 const newId = () => `ds-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
-export function DataSourceDialog({ ws, source, onClose }: { ws: Workspace; source: DataSource | null; onClose: (saved?: DataSource) => void }) {
+export function DataSourceDialog({ ws, source, importFromEnv, onClose }: { ws: Workspace; source: DataSource | null; importFromEnv?: boolean; onClose: (saved?: DataSource) => void }) {
   const [ds, setDs] = useState<DataSource>(
     () =>
       source ?? {
@@ -85,6 +85,13 @@ export function DataSourceDialog({ ws, source, onClose }: { ws: Workspace; sourc
     }
     setEnvNote('No database settings found in .env (DB_CONNECTION or DATABASE_URL).');
   };
+
+  // Database ▸ Add from .env: opens already filled in.
+  useEffect(() => {
+    if (importFromEnv && !source) void importEnv();
+    // Once, when the dialog opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const browseFile = async () => {
     if (!isTauri) return;
