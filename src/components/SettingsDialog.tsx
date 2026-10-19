@@ -459,7 +459,7 @@ function EditorFontPage({ value: e, onChange, highlight }: { value: EditorSettin
 
 function HintsPage({ value: e, onChange, highlight }: { value: EditorSettings; onChange: (patch: Partial<EditorSettings>) => void; highlight: string }) {
   const hit = (label: string) => (highlight && label.toLowerCase().includes(highlight) ? ' hit' : '');
-  const check = (key: 'codeVision' | 'inlayHints' | 'lightbulb' | 'renderDocs', label: string, help: string) => (
+  const check = (key: 'codeVision' | 'inlayHints' | 'lightbulb' | 'renderDocs' | 'spellCheck', label: string, help: string) => (
     <div>
       <label className={'settings-check' + hit(label)}>
         <input type="checkbox" className="checkbox" checked={e[key]} onChange={(ev) => onChange({ [key]: ev.target.checked })} />
@@ -471,6 +471,7 @@ function HintsPage({ value: e, onChange, highlight }: { value: EditorSettings; o
   return (
     <div className="settings-checks" style={{ marginTop: 14, gap: 14 }}>
       {check('codeVision', 'Code vision: usages', '"N usages" above classes, methods and functions. Click it to find them.')}
+      {check('spellCheck', 'Spelling: typos', "Misspelled words in names, comments and strings get a green wavy underline. Alt+Enter: Rename to… or Save to dictionary (the project's, in .blitz/project.json).")}
       {check('inlayHints', 'Parameter names and types', 'Hints from the language server, such as content: and status: before arguments.')}
       {check('lightbulb', 'Show lightbulb for context actions', 'A bulb on the caret line when Alt+Enter has something to offer.')}
       {check('renderDocs', 'Render documentation comments', 'Show /** */ comments formatted. Click the pencil in the gutter or press Ctrl+Alt+Q to edit one.')}

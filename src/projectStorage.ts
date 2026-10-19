@@ -20,6 +20,8 @@ type FileName = 'project.json' | 'workspace.json';
 const FILE_OF: Record<string, FileName> = {
   php: 'project.json',
   dirMarks: 'project.json',
+  /** Spelling: words the project spells its way (Save '…' to dictionary). */
+  dictionary: 'project.json',
   bookmarks: 'workspace.json',
   recentFiles: 'workspace.json',
   dataSources: 'workspace.json',

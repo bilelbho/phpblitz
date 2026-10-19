@@ -13,6 +13,7 @@ mod process;
 mod project;
 mod pty;
 mod search;
+mod spell;
 mod watcher;
 mod xdebug;
 
@@ -88,6 +89,9 @@ pub fn run() {
             blitz::blitz_write,
             history::history_list,
             history::history_read,
+            spell::spell_check,
+            spell::spell_suggest,
+            spell::spell_set_words,
             mago::mago_open,
             mago::mago_analyze,
             mago::mago_close,

@@ -35,6 +35,8 @@ export interface EditorSettings {
   ligatures: boolean;
   /** "N usages" above declarations. */
   codeVision: boolean;
+  /** Typos in names, comments and strings: a green wavy underline. */
+  spellCheck: boolean;
   /** Parameter names and types from the language server, shown inline. */
   inlayHints: boolean;
   /** Lightbulb on the caret line when there are context actions. */
@@ -207,6 +209,7 @@ export const DEFAULT_SETTINGS: Settings = {
     lineHeight: 1.6,
     ligatures: false,
     codeVision: true,
+    spellCheck: true,
     inlayHints: true,
     lightbulb: true,
     renderDocs: true,

@@ -89,7 +89,20 @@ function personName(p) {
   return String(p).replace(/\s*<[^>]*>/, '').replace(/\s*\([^)]*\)/, '').trim();
 }
 
-const all = [...npm.values(), ...crates.values()].sort((a, b) => a.ecosystem.localeCompare(b.ecosystem) || a.name.localeCompare(b.name));
+// ── Data files built into the app (not packages) ──────────────────────────
+const data = [
+  {
+    ecosystem: 'data',
+    name: 'en_US Hunspell dictionary (SCOWL), for spell checking',
+    version: '2020.12.07',
+    license: 'MIT AND BSD',
+    repository: 'http://wordlist.aspell.net',
+    author: 'Kevin Atkinson and others',
+    texts: licenseTexts(join(root, 'src-tauri', 'dictionaries')),
+  },
+];
+
+const all = [...npm.values(), ...crates.values(), ...data].sort((a, b) => a.ecosystem.localeCompare(b.ecosystem) || a.name.localeCompare(b.name));
 
 // Licenses that would need a closer look before shipping under Apache-2.0.
 const copyleft = all.filter((p) => /\b(A?GPL|LGPL|SSPL|EUPL|CC-BY-SA|CC-BY-NC)\b/i.test(p.license) && !/\bOR\b.*\b(MIT|Apache|BSD|ISC|Zlib)\b|\b(MIT|Apache|BSD|ISC|Zlib)\b.*\bOR\b/i.test(p.license));
@@ -103,7 +116,7 @@ let md = `# Third-party notices
 PHPBlitz is built on the open source projects below. Thank you to everyone who made and maintains
 them. Each is used under its own license, reproduced in full in this file.
 
-${all.length} packages: ${npm.size} JavaScript packages (npm) and ${crates.size} Rust crates.
+${all.length} packages: ${npm.size} JavaScript packages (npm), ${crates.size} Rust crates and ${data.length} data file${data.length === 1 ? '' : 's'}.
 
 | License | Packages |
 | --- | --- |
@@ -116,7 +129,7 @@ ${Object.entries(summary)
 
 | Package | Version | License | Source |
 | --- | --- | --- | --- |
-${all.map((p) => `| ${p.ecosystem === 'npm' ? 'npm' : 'crate'}: ${p.name} | ${p.version} | ${p.license} | ${p.repository} |`).join('\n')}
+${all.map((p) => `| ${p.ecosystem}: ${p.name} | ${p.version} | ${p.license} | ${p.repository} |`).join('\n')}
 
 ## License texts
 

@@ -14,6 +14,7 @@ import { BookmarksPopup, MnemonicDialog } from './BookmarkPopups';
 import { gutterMenu } from '../gutterMenu';
 import { todosInText } from '../todo';
 import { planRename, type RenamePlan } from '../rename';
+import { attachSpelling, correctedName, saveToDictionary, suggestionsFor, typoAt, typoMarker, typosOf, useTypoCount, type Typo } from '../editor/spelling';
 import { isScriptModel, scriptRenamePlan, SCRIPT_SOURCE } from '../jsProjects';
 import { setCursor } from '../cursorStore';
 import { isTestFile, scopeOf, setupTestGutter, testMenuItems, type TestGutter } from '../tests/gutter';
@@ -87,6 +88,7 @@ export function EditorArea({ ws }: { ws: Workspace }) {
 /** The editor's top-right widget: problem counts with previous/next arrows. */
 function Inspections({ ws, path, editor }: { ws: Workspace; path: string; editor: monaco.editor.IStandaloneCodeEditor | null }) {
   const list = ws.problems[path] ?? [];
+  const typos = useTypoCount(monaco.Uri.file(path).toString());
   const errors = list.filter((p) => p.severity === 'error').length;
   const warnings = list.filter((p) => p.severity === 'warning').length;
   const weak = list.length - errors - warnings;
@@ -112,15 +114,20 @@ function Inspections({ ws, path, editor }: { ws: Workspace; path: string; editor
           <Icon name="warning" size={13} /> {weak}
         </span>
       )}
-      {list.length === 0 && (
+      {typos > 0 && (
+        <span className="count typo-count" title={`${typos} ${typos === 1 ? 'typo' : 'typos'} (F2 goes through them)`}>
+          <Icon name="spell" size={14} /> {typos}
+        </span>
+      )}
+      {list.length === 0 && !typos && (
         <span className="count" style={{ color: '#5fb865' }} title="No problems found">
           <Icon name="check" size={14} />
         </span>
       )}
-      <button type="button" className="icon-btn small" aria-label="Previous problem" title="Previous Highlighted Error (Shift+F2)" onClick={() => jump('prev')} disabled={!list.length}>
+      <button type="button" className="icon-btn small" aria-label="Previous problem" title="Previous Highlighted Error (Shift+F2)" onClick={() => jump('prev')} disabled={!list.length && !typos}>
         <Icon name="chevronUp" size={12} />
       </button>
-      <button type="button" className="icon-btn small" aria-label="Next problem" title="Next Highlighted Error (F2)" onClick={() => jump('next')} disabled={!list.length}>
+      <button type="button" className="icon-btn small" aria-label="Next problem" title="Next Highlighted Error (F2)" onClick={() => jump('next')} disabled={!list.length && !typos}>
         <Icon name="chevronDown" size={12} />
       </button>
     </div>
@@ -136,6 +143,7 @@ function caretPoint(editor: monaco.editor.IStandaloneCodeEditor) {
 }
 
 /** Soft-wrap changed with Alt+Z, per file, for this session. */
+const SEP_ITEM: ContextItem = { kind: 'sep' };
 const wrapOverrides = new Map<string, boolean>();
 
 function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEditor?: (editor: monaco.editor.IStandaloneCodeEditor) => void }) {
@@ -217,6 +225,8 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
 
   /** Rename (Shift+F6): from the symbol index (fast, no language server needed), else the language server. */
   const [renamePlan, setRenamePlan] = useState<RenamePlan | null>(null);
+  /** The name the Rename dialog starts with (Typo: Rename to… fills in the correction). */
+  const [renameTo, setRenameTo] = useState<string | undefined>(undefined);
   const startRename = async () => {
     const editor = editorRef.current;
     const model = editor?.getModel();
@@ -240,8 +250,51 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     else ws.setStatus('Nothing to rename here: put the caret on a class, method, property, constant, function or variable.');
   };
 
+  /** Typo: Rename to…: corrections of the word, as the whole name they'd make. */
+  const typoRename = async (typo: Typo) => {
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    if (!editor || !model) return;
+    const found = await suggestionsFor(typo.word);
+    setIntentions({
+      ...caretPoint(editor),
+      items: [
+        ...(found.length ? found.map((s) => ({ label: correctedName(model, typo, s), run: () => void applyTypoFix(typo, s) })) : [{ label: `No suggestions for '${typo.word}'`, disabled: true }]),
+        SEP_ITEM,
+        { label: `Save '${typo.word}' to dictionary`, run: () => void saveToDictionary(typo.word) },
+      ],
+    });
+  };
+  /** In a name, the Rename dialog opens with the corrected name (every usage changes); elsewhere just the word. */
+  const applyTypoFix = async (typo: Typo, suggestion: string) => {
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    if (!editor || !model) return;
+    const pos = typo.range.getStartPosition();
+    editor.setPosition(pos);
+    try {
+      const plan = isScriptModel(model) ? await scriptRenamePlan(model, pos) : await planRename(latest.current.ws, model, pos);
+      if (plan && !plan.error) {
+        setRenameTo(correctedName(model, typo, suggestion).replace(/^\$/, ''));
+        setRenamePlan(plan);
+        return;
+      }
+    } catch {
+      // Not a symbol the index knows: replace the word itself.
+    }
+    editor.executeEdits('typo', [{ range: typo.range, text: suggestion }]);
+    editor.pushUndoStop();
+    editor.focus();
+  };
+  const typoItems = (typo: Typo): ContextItem[] => [
+    { label: 'Typo: Rename to…', icon: 'spell', shortcut: 'Alt+Shift+Enter', run: () => void typoRename(typo) },
+    { label: `Save '${typo.word}' to dictionary`, run: () => void saveToDictionary(typo.word) },
+  ];
+
   const onMount: OnMount = (editor) => {
     editorRef.current = editor;
+    const detachSpelling = attachSpelling(editor);
+    editor.onDidDispose(detachSpelling);
     trackActiveEditor(editor);
     perf.mark('First editor ready', baseName(path));
     onEditor?.(editor);
@@ -321,8 +374,8 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       const model = editor.getModel();
       const pos = editor.getPosition();
       if (!model || !pos) return;
-      const markers = monaco.editor
-        .getModelMarkers({ resource: model.uri })
+      // Problems and typos, in the file's order.
+      const markers = [...monaco.editor.getModelMarkers({ resource: model.uri }), ...typosOf(model).map((t) => typoMarker(model, t))]
         .sort((a, b) => a.startLineNumber - b.startLineNumber || a.startColumn - b.startColumn);
       if (!markers.length) return;
       const after = (m: monaco.editor.IMarker) => m.startLineNumber > pos.lineNumber || (m.startLineNumber === pos.lineNumber && m.startColumn > pos.column);
@@ -347,7 +400,9 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         const marker = model && pos ? markersAt(model, pos)[0] : undefined;
         const { ws, path } = latest.current;
         const fix = marker && (await quickFixesFor(editor, ws, path, marker))[0];
+        const typo = !fix && model && pos ? typoAt(model, pos) : null;
         if (fix) fix.run();
+        else if (typo) void typoRename(typo);
         else popupActions('context');
       },
     });
@@ -458,7 +513,12 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       const actions = await codeActionsForSelection(editor);
       const { ws, path } = latest.current;
       const uri = editor.getModel()?.uri.toString();
-      setIntentions({ ...popupPoint(), items: kind === 'context' ? contextActionsMenu(actions, ws, { editor, path }) : generateMenu(actions, ws, uri) });
+      const model = editor.getModel();
+      const pos = editor.getPosition();
+      // A typo at the caret: its actions first.
+      const typo = kind === 'context' && model && pos ? typoAt(model, pos) : null;
+      const items = kind === 'context' ? contextActionsMenu(actions, ws, { editor, path }) : generateMenu(actions, ws, uri);
+      setIntentions({ ...popupPoint(), items: typo ? [...typoItems(typo), SEP_ITEM, ...items.filter((i) => !('disabled' in i && i.disabled && i.label === 'No context actions here'))] : items });
     };
     bulb.addEventListener('mousedown', (e) => {
       e.preventDefault();
@@ -1093,6 +1153,10 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
           onClose={closeHover}
           onEmpty={closeHover}
           onMoreActions={() => moreActions.current(hover.line, hover.column)}
+          typoFixes={(typo) => [
+            { title: 'Typo: Rename to…', run: () => void typoRename(typo) },
+            { title: `Save '${typo.word}' to dictionary`, run: () => void saveToDictionary(typo.word) },
+          ]}
         />
       </div>
     )}
@@ -1129,8 +1193,10 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       <SymbolRenameDialog
         ws={ws}
         plan={renamePlan}
+        initialName={renameTo}
         onClose={() => {
           setRenamePlan(null);
+          setRenameTo(undefined);
           editorRef.current?.focus();
         }}
       />

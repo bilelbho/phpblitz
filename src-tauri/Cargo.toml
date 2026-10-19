@@ -67,6 +67,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 # The MCP server's token (mcp.rs).
 getrandom = "0.3"
 keyring = { version = "3", features = ["windows-native", "apple-native"] }
+spellbook = "0.4.2"
 
 # Linux: the Secret Service (GNOME Keyring, KWallet) over D-Bus; without it keyring keeps
 # passwords in memory only.

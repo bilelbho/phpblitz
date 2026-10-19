@@ -5,6 +5,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import * as monaco from 'monaco-editor';
 import type { Workspace } from '../useWorkspace';
 import { markersAt, quickFixesFor, variableAt, type QuickFix } from '../editorMenu';
+import { typoAt, typoMarker, type Typo } from '../editor/spelling';
 import { debug } from '../debug/manager';
 import type { Property } from '../debug/dbgp';
 import { VarNode } from './VarNode';
@@ -42,9 +43,11 @@ interface Props {
   onClose: () => void;
   /** Called when the popup has nothing to show. */
   onEmpty: () => void;
+  /** A typo's actions (Typo: Rename to…, Save to dictionary). */
+  typoFixes: (typo: Typo) => QuickFix[];
 }
 
-export function EditorHover({ editor, ws, path, request, onMoreActions, onClose, onEmpty }: Props) {
+export function EditorHover({ editor, ws, path, request, onMoreActions, onClose, onEmpty, typoFixes }: Props) {
   const [problem, setProblem] = useState<Problem | null>(null);
   const [doc, setDoc] = useState<string | null>(null);
   /** While stopped in the debugger: the value of the variable under the mouse. */
@@ -58,11 +61,13 @@ export function EditorHover({ editor, ws, path, request, onMoreActions, onClose,
     if (!model) return;
     let live = true;
     const pos = { lineNumber: request.line, column: request.column };
-    const marker = request.docOnly ? undefined : markersAt(model, pos)[0];
-    setProblem(marker ? { marker, fixes: null } : null);
+    // A problem first; else a typo (shown the same way, with its own actions).
+    const typo = request.docOnly ? null : typoAt(model, pos);
+    const marker = request.docOnly ? undefined : markersAt(model, pos)[0] ?? (typo ? typoMarker(model, typo) : undefined);
+    setProblem(marker ? { marker, fixes: marker.owner === 'spelling' && typo ? typoFixes(typo) : null } : null);
     setDoc(null);
     setValue(null);
-    if (marker) quickFixesFor(editor, ws, path, marker).then((fixes) => live && setProblem({ marker, fixes }));
+    if (marker && marker.owner !== 'spelling') quickFixesFor(editor, ws, path, marker).then((fixes) => live && setProblem({ marker, fixes }));
     const expression = !request.docOnly && debug.active?.status === 'break' ? variableAt(model.getLineContent(pos.lineNumber), pos.column) : '';
     const valueLookup = expression ? debug.hoverValue(expression).then((p) => (p ? { ...p, name: expression, fullname: expression } : null)) : Promise.resolve(null);
     const docLookup = (isScriptModel(model) ? scriptHover(model, pos) : hoverAt(model, pos))
@@ -119,7 +124,7 @@ export function EditorHover({ editor, ws, path, request, onMoreActions, onClose,
   const m = problem?.marker;
   const [title, ...rest] = (m?.message ?? '').split(/\n\s*\n/);
   const code = typeof m?.code === 'string' ? m.code : m?.code?.value;
-  const severity = m ? (m.severity === monaco.MarkerSeverity.Error ? 'error' : m.severity === monaco.MarkerSeverity.Warning ? 'warning' : 'info') : null;
+  const severity = m ? (m.owner === 'spelling' ? 'typo' : m.severity === monaco.MarkerSeverity.Error ? 'error' : m.severity === monaco.MarkerSeverity.Warning ? 'warning' : 'info') : null;
   const firstFix = problem?.fixes?.[0];
 
   const optionsMenu = (e: React.MouseEvent) => {

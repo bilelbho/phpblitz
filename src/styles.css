@@ -7075,3 +7075,13 @@ body {
 body:has(.strip.right.with-names) .balloons {
   right: 88px;
 }
+
+/* Spelling: typos get a green wavy underline (not a problem: no squiggle color of its own). */
+.monaco-editor .typo-squiggle {
+  text-decoration: underline wavy rgba(95, 184, 101, 0.85);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.inspections .typo-count {
+  color: #5fb865;
+}

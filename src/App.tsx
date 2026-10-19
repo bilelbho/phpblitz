@@ -9,6 +9,7 @@ import { useSettings } from './settings';
 import { Welcome } from './components/Welcome';
 import { WorkspaceView } from './components/lazy';
 import { projectStorage } from './projectStorage';
+import { openProjectDictionary } from './editor/spelling';
 import { perf } from './perf';
 import { startUpdateChecks } from './updater';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -27,6 +28,7 @@ export default function App() {
     perf.begin(b.root);
     // Its .blitz settings first: the workspace reads them as it opens.
     await perf.time('Project settings (.blitz)', projectStorage.open(b.root));
+    openProjectDictionary(b.root);
     setBackend(b);
   }, []);
 

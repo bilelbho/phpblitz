@@ -148,7 +148,7 @@ function Licenses() {
             <span className="licenses-name">
               {p.name} <span className="muted">{p.version}</span>
             </span>
-            <span className="muted licenses-kind">{p.ecosystem === 'npm' ? 'npm' : 'crate'}</span>
+            <span className="muted licenses-kind">{p.ecosystem}</span>
             <span className="licenses-license">{p.license}</span>
             {p.repository ? (
               <a href="#" onClick={(e) => (e.preventDefault(), openLink(p.repository))} title={p.repository}>

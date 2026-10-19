@@ -6,8 +6,8 @@ import type { Workspace } from '../useWorkspace';
 import { baseName } from '../backend/types';
 import { renameEdits, validName, type RenamePlan } from '../rename';
 
-export function SymbolRenameDialog({ ws, plan, onClose }: { ws: Workspace; plan: RenamePlan; onClose: () => void }) {
-  const [name, setName] = useState(plan.oldName);
+export function SymbolRenameDialog({ ws, plan, initialName, onClose }: { ws: Workspace; plan: RenamePlan; initialName?: string; onClose: () => void }) {
+  const [name, setName] = useState(initialName ?? plan.oldName);
   const [dynamic, setDynamic] = useState(false);
   const [renameFile, setRenameFile] = useState(!!plan.file);
   const [busy, setBusy] = useState(false);
