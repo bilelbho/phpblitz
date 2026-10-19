@@ -66,6 +66,8 @@ export type GitDialogRequest =
   | { kind: 'renameBranch'; branch: string }
   | { kind: 'checkoutRevision' }
   | { kind: 'stash' }
+  /** Rollback Changes: every change listed, these checked. */
+  | { kind: 'rollback'; paths: string[] }
   | { kind: 'unstash' }
   | { kind: 'reset'; hash: string; subject: string }
   | { kind: 'tag'; hash: string };
@@ -1251,14 +1253,22 @@ export function useWorkspace(backend: Backend) {
     }
   }, []);
 
-  /** Rollback: local changes go back to HEAD after a confirmation; open files are reloaded (unsaved edits too). */
-  const rollbackFiles = useCallback(
-    async (changes: { path: string; status: string }[]) => {
-      if (!changes.length) return;
-      const names = changes.length === 1 ? baseName(changes[0].path) : `${changes.length} files`;
-      if (!(await confirmDialog(`Rollback ${names}? Local changes are lost.${changes.some((c) => c.status === 'A') ? ' Added files are unversioned again (kept on disk).' : ''}`))) return;
+  // Set once deleteItems exists (further down).
+  const deleteItemsRef = useRef<(paths: string[]) => Promise<void>>(async () => {});
+  /** Rollback…: the Rollback Changes dialog, with these files checked. */
+  const rollbackFiles = useCallback((changes: { path: string; status: string }[]) => {
+    if (changes.length) setGitDialog({ kind: 'rollback', paths: changes.map((c) => c.path) });
+  }, []);
+
+  /** Local changes go back to HEAD; open files are reloaded (unsaved edits too). Added files are
+   *  unversioned again, or with `deleteAdded` moved to the Recycle Bin. */
+  const rollbackNow = useCallback(
+    async (changes: { path: string; status: string }[], deleteAdded = false) => {
+      if (!changes.length) return false;
       const ok = await runGitRef.current('Rollback', () => gitRepoRef.current.rollback(changes));
-      if (!ok) return;
+      if (!ok) return false;
+      const added = changes.filter((c) => c.status === 'A').map((c) => c.path);
+      if (deleteAdded && added.length) await deleteItemsRef.current(added);
       for (const c of changes) {
         if (!(c.path in liveText.current)) continue;
         const text = await backend.readFile(c.path).catch(() => null);
@@ -1271,6 +1281,7 @@ export function useWorkspace(backend: Backend) {
           });
         }
       }
+      return true;
     },
     [backend, reloadFromDisk],
   );
@@ -1600,6 +1611,7 @@ export function useWorkspace(backend: Backend) {
     },
     [backend, releaseFile, reindexMoved, afterTreeChange],
   );
+  deleteItemsRef.current = deleteItems;
 
   /** Cut / Copy / Paste of files in the Project tree. */
   const [fileClipboard, setFileClipboard] = useState<{ mode: 'copy' | 'cut'; paths: string[] } | null>(null);
@@ -2089,7 +2101,7 @@ export function useWorkspace(backend: Backend) {
     findInFiles, openFindInFiles, closeFindInFiles: () => setFindInFiles(null), findResults, setFindResults,
     savedTextOf: (path: string) => savedText.current[path], liveTextOf: (path: string) => liveText.current[path],
     // git
-    git, gitLoaded, refreshGit, commit, gitRepo, runGit, rollbackFiles, gitLogRequest, showHistory, showCommit, annotated, toggleAnnotate, openDiff, gitDialog, setGitDialog,
+    git, gitLoaded, refreshGit, commit, gitRepo, runGit, rollbackFiles, rollbackNow, gitLogRequest, showHistory, showCommit, annotated, toggleAnnotate, openDiff, gitDialog, setGitDialog,
     // composer
     packages, outdated, composerBusy, checkOutdated, updatePackage, hasComposer,
     // run

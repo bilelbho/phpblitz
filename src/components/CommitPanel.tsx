@@ -12,7 +12,10 @@ import { generateCommitMessage } from '../ai/commitMessage';
 import { AiCancelled, type AiStream } from '../ai/client';
 import type { Commit } from '../git/git';
 import { projectStorage } from '../projectStorage';
+import { copyText, hasLocalHistory } from '../editorMenu';
+import { openLocalHistory } from './LocalHistoryDialog';
 
+const nativePath = (p: string) => (/^[A-Za-z]:\//.test(p) ? p.replace(/\//g, '\\') : p);
 const STATUS_LABEL = { M: 'modified', A: 'added', D: 'deleted', R: 'renamed', U: 'unversioned' } as const;
 
 interface ViewPrefs {
@@ -131,38 +134,110 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
   const selectedChange = all.find((c) => c.path === selected);
   const rollbackTargets = () => (selectedChange ? [selectedChange] : included).filter((c) => c.status !== 'U');
 
+  const rel = (p: string) => relativePath(ws.backend, p);
+  const isDisk = ws.backend.kind === 'disk';
+
+  /** Commit Files…: only these are checked, and the message box gets the focus. */
+  const commitOnly = (list: GitChange[]) => {
+    const only = new Set(list.map((c) => c.path));
+    setToggled(new Set(all.filter((x) => only.has(x.path) !== (x.status !== 'U')).map((x) => x.path)));
+    requestAnimationFrame(() => document.getElementById('commit-message')?.focus());
+  };
+
+  /** Copy as Patch to Clipboard: `git diff HEAD` of tracked changes, ready for `git apply`. */
+  const copyPatch = async (list: GitChange[]) => {
+    const tracked = list.filter((c) => c.status !== 'U');
+    if (!tracked.length) return;
+    const r = await ws.gitRepo.run(['diff', 'HEAD', '--binary', '--', ...tracked.map((c) => rel(c.path))], { quiet: true }).catch((e) => ({ code: 1, stdout: '', stderr: String(e) }));
+    if (r.code !== 0 || !r.stdout) return ws.notify({ title: "Couldn't create the patch", body: r.stderr || 'No differences.', tone: 'error' });
+    await navigator.clipboard.writeText(r.stdout).then(
+      () => ws.setStatus(`Copied the patch of ${tracked.length === 1 ? baseName(tracked[0].path) : `${tracked.length} files`} (${r.stdout.split('\n').length} lines).`),
+      () => ws.setStatus("Couldn't copy the patch."),
+    );
+  };
+
+  const deleteFiles = async (list: GitChange[]) => {
+    const live = list.filter((c) => c.status !== 'D');
+    if (!live.length) return;
+    const what = live.length === 1 ? baseName(live[0].path) : `${live.length} files`;
+    if (!(await confirmDialog(`Move ${what} to the ${navigator.userAgent.includes('Windows') ? 'Recycle Bin' : 'Trash'}?`))) return;
+    await ws.deleteItems(live.map((c) => c.path));
+    ws.refreshGit();
+  };
+
+  /** Add to .gitignore ▸ the file itself, its extension, or its folder. */
+  const ignoreItems = (list: GitChange[]): ContextItem[] => {
+    if (list.length !== 1) return [{ label: `${list.length} files`, run: () => addToGitignore(list.map((c) => '/' + rel(c.path))) }];
+    const path = rel(list[0].path);
+    const name = baseName(path);
+    const dot = name.lastIndexOf('.');
+    const dir = path.split('/').slice(0, -1).join('/');
+    return [
+      { label: `/${path}`, run: () => addToGitignore([`/${path}`]) },
+      ...(dot > 0 ? [{ label: `*${name.slice(dot)}`, run: () => addToGitignore([`*${name.slice(dot)}`]) }] : []),
+      ...(dir ? [{ label: `/${dir}/`, run: () => addToGitignore([`/${dir}/`]) }] : []),
+    ];
+  };
+
+  /** The actions for some changes: one file, a folder of them, or a whole group. */
+  const actions = (list: GitChange[], one: GitChange | null): ContextItem[] => {
+    const tracked = list.filter((c) => c.status !== 'U');
+    const untracked = list.filter((c) => c.status === 'U');
+    return [
+      { label: list.length === 1 ? 'Commit File…' : 'Commit Files…', icon: 'commit', disabled: !list.length, run: () => commitOnly(list) },
+      { label: 'Rollback…', shortcut: 'Ctrl+Alt+Z', icon: 'rollback', disabled: !tracked.length, run: () => ws.rollbackFiles(tracked) },
+      { label: 'Show Diff', shortcut: 'Ctrl+D', icon: 'columns', disabled: !one || one.status === 'U', run: () => one && showDiff(one) },
+      { label: 'Jump to Source', shortcut: 'F4', icon: 'goTo', disabled: !one || one.status === 'D', run: () => one && ws.openFile(one.path) },
+      { kind: 'sep' },
+      { label: 'Delete…', shortcut: 'Delete', disabled: !list.some((c) => c.status !== 'D'), run: () => deleteFiles(list) },
+      { label: 'Add to VCS', shortcut: 'Ctrl+Alt+A', icon: 'plus', disabled: !untracked.length, run: () => ws.runGit('Add to VCS', () => ws.gitRepo.add(untracked.map((c) => c.path))) },
+      { label: 'Add to .gitignore', disabled: !untracked.length, submenu: untracked.length ? ignoreItems(untracked) : [] },
+      { kind: 'sep' },
+      { label: 'Copy as Patch to Clipboard', icon: 'copy', disabled: !tracked.length, run: () => void copyPatch(tracked) },
+      { label: 'Shelve Changes…', icon: 'shelve', disabled: !changes.length, run: () => ws.setGitDialog({ kind: 'stash' }) },
+      ...(one
+        ? [
+            { kind: 'sep' as const },
+            { label: 'Local History…', icon: 'history' as const, disabled: !hasLocalHistory(ws) || one.status === 'D', run: () => openLocalHistory(one.path) },
+            { label: 'Show History', icon: 'history' as const, disabled: one.status === 'A' || one.status === 'U', run: () => ws.showHistory(one.path) },
+            { label: 'Copy Path', icon: 'copy' as const, run: () => copyText(ws, isDisk ? nativePath(one.path) : rel(one.path), 'path') },
+          ]
+        : []),
+      { kind: 'sep' },
+      { label: 'Refresh', icon: 'refresh', run: ws.refreshGit },
+    ];
+  };
+
   const fileMenu = (e: React.MouseEvent, c: GitChange) => {
     e.preventDefault();
     setSelected(c.path);
+    setMenu({ x: e.clientX, y: e.clientY, items: actions([c], c) });
+  };
+
+  /** No separator first, last, or twice in a row. */
+  const tidy = (items: ContextItem[]) =>
+    items.filter((item, i) => !('kind' in item && item.kind === 'sep') || (i > 0 && i < items.length - 1 && !('kind' in items[i - 1] && items[i - 1].kind === 'sep')));
+
+  /** Right-click on a group or folder title: its files' actions, plus expand / collapse. */
+  const groupMenu = (e: React.MouseEvent, key: string, list: GitChange[]) => {
+    e.preventDefault();
     setMenu({
       x: e.clientX,
       y: e.clientY,
       items: [
-        { label: 'Commit File…', icon: 'commit', run: () => setToggled(new Set(all.filter((x) => (x.path === c.path) !== (x.status !== 'U')).map((x) => x.path))) },
+        // Only what applies to this group (a file's menu shows the rest greyed out).
+        ...tidy(actions(list, null).slice(0, -2).filter((i) => !('disabled' in i && i.disabled))),
         { kind: 'sep' },
-        { label: 'Show Diff', shortcut: 'Ctrl+D', icon: 'columns', disabled: c.status === 'U', run: () => showDiff(c) },
-        { label: 'Jump to Source', shortcut: 'F4', icon: 'goTo', disabled: c.status === 'D', run: () => ws.openFile(c.path) },
-        { kind: 'sep' },
-        ...(c.status === 'U'
-          ? [
-              { label: 'Add to VCS', shortcut: 'Ctrl+Alt+A', icon: 'plus' as const, run: () => ws.runGit('Add to VCS', () => ws.gitRepo.add([c.path])) },
-              { label: 'Add to .gitignore', run: () => addToGitignore([c.path]) },
-              { label: 'Delete…', run: () => ws.deleteItems([c.path]) },
-            ]
-          : [
-              { label: 'Rollback…', shortcut: 'Ctrl+Alt+Z', icon: 'rollback' as const, run: () => ws.rollbackFiles([c]) },
-              { label: 'Show History', icon: 'history' as const, disabled: c.status === 'A', run: () => ws.showHistory(c.path) },
-            ]),
-        { kind: 'sep' },
+        ...(list.length ? [{ label: collapsed.has(key) ? 'Expand' : 'Collapse', run: () => toggleOpen(key) }] : []),
         { label: 'Refresh', icon: 'refresh', run: ws.refreshGit },
       ],
     });
   };
 
-  const addToGitignore = async (paths: string[]) => {
+  /** Appends patterns ("/path/file", "*.log", "/dir/") to the project's .gitignore. */
+  const addToGitignore = async (lines: string[]) => {
     const file = `${ws.backend.root}/.gitignore`;
     const current = await ws.backend.readFile(file).catch(() => '');
-    const lines = paths.map((p) => '/' + relativePath(ws.backend, p));
     const text = (current && !current.endsWith('\n') ? current + '\n' : current) + lines.join('\n') + '\n';
     try {
       await ws.backend.writeFile(file, text);
@@ -372,13 +447,19 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
   };
 
   const groupRow = (key: string, label: string, list: GitChange[] | null, count: number, depth = 0, withCheck = true): ReactNode => (
-    <div key={key} className={'row commit-group' + (depth ? ' dir' : ' group')} style={{ paddingLeft: 4 + depth * 18 }} onClick={() => toggleOpen(key)}>
+    <div
+      key={key}
+      className={'row commit-group' + (depth ? ' dir' : ' group') + (key === 'changes' ? ' main' : '')}
+      style={{ paddingLeft: 4 + depth * 18 }}
+      onClick={() => toggleOpen(key)}
+      onContextMenu={(e) => (list ? groupMenu(e, key, list) : e.preventDefault())}
+    >
       <span className={'chev' + (collapsed.has(key) ? '' : ' open')}>
         <Icon name="chevronRight" size={12} />
       </span>
       {withCheck && list && check(list, label)}
       {depth > 0 && <Icon name="folder" size={14} />}
-      <span style={{ fontWeight: depth ? 400 : 500 }}>{label}</span>
+      <span className="commit-group-label">{label}</span>
       <span className="detail">
         {count} {count === 1 ? 'file' : 'files'}
       </span>
@@ -471,6 +552,9 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
           } else if (ctrl && e.altKey && e.key.toLowerCase() === 'z' && c.status !== 'U') {
             e.preventDefault();
             ws.rollbackFiles([c]);
+          } else if (e.key === 'Delete' && c.status !== 'D') {
+            e.preventDefault();
+            void deleteFiles([c]);
           } else if (ctrl && e.altKey && e.key.toLowerCase() === 'a' && c.status === 'U') {
             e.preventDefault();
             ws.runGit('Add to VCS', () => ws.gitRepo.add([c.path]));
@@ -482,9 +566,17 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
           }
         }}
       >
-        {groupRow('changes', 'Changes', changes, changes.length)}
-        {fileRows('changes', changes)}
-        {changes.length === 0 && !collapsed.has('changes') && <div className="empty" style={{ padding: '4px 26px' }}>No changes.</div>}
+        {changes.length ? (
+          <>
+            {groupRow('changes', 'Changes', changes, changes.length)}
+            {fileRows('changes', changes)}
+          </>
+        ) : (
+          // Nothing changed: only the title, nothing to expand, check or count.
+          <div className="row commit-group group commit-group-empty" onContextMenu={(e) => groupMenu(e, 'changes', [])}>
+            <span>Changes</span>
+          </div>
+        )}
         {unversioned.length > 0 && (
           <>
             {groupRow('unversioned', 'Unversioned Files', unversioned, unversioned.length)}

@@ -474,7 +474,6 @@ textarea:focus-visible {
   background: var(--select);
 }
 .row.group {
-  background: var(--select-inactive);
   border-radius: 4px;
 }
 .row .name {
@@ -3896,6 +3895,16 @@ table.grid tr.row-deleted td {
   gap: 6px;
   cursor: default;
 }
+.commit-group-empty {
+  padding-left: 24px;
+}
+/* Section titles: plain rows; the list of changes reads as the main one. */
+.commit-group.group .commit-group-label {
+  font-weight: 400;
+}
+.commit-group.group.main .commit-group-label {
+  font-weight: 600;
+}
 .commit-group.dir .detail,
 .commit-group .detail {
   margin-left: 2px;
@@ -6823,4 +6832,44 @@ body {
 .local-history-same {
   margin-right: auto;
   align-self: center;
+}
+
+/* Rollback Changes: the changes as a checkbox tree. */
+.pb-dialog.rollback-dialog {
+  display: flex;
+  width: min(520px, 92vw);
+  height: min(560px, 80vh);
+  flex-direction: column;
+}
+
+.rollback-toolbar {
+  margin: 0 12px;
+  border: 1px solid var(--line-mid);
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+}
+
+.rollback-tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0 12px;
+  padding: 4px 0;
+  overflow-y: auto;
+  border: 1px solid var(--line-mid);
+  border-radius: 0 0 6px 6px;
+}
+
+.rollback-tree .chev-space {
+  flex: none;
+  width: 12px;
+}
+
+.rollback-delete {
+  margin: 10px 16px 0;
+}
+
+.rollback-count {
+  margin-right: auto;
+  align-self: center;
+  font-size: 12px;
 }

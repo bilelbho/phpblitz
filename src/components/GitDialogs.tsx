@@ -1,10 +1,11 @@
 // Git dialogs: Push (with the outgoing commits), New / Rename Branch, Checkout Revision,
-// Stash / Unstash, Reset Current Branch, New Tag.
+// Stash / Unstash, Reset Current Branch, New Tag, Rollback Changes.
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { GitDialogRequest, Workspace } from '../useWorkspace';
 import type { Commit, Stash } from '../git/git';
 import { Icon } from './Icon';
+import { RollbackDialog } from './RollbackDialog';
 
 export function GitDialogs({ ws }: { ws: Workspace }) {
   const d = ws.gitDialog;
@@ -15,6 +16,8 @@ export function GitDialogs({ ws }: { ws: Workspace }) {
       return <PushDialog ws={ws} onClose={close} />;
     case 'unstash':
       return <UnstashDialog ws={ws} onClose={close} />;
+    case 'rollback':
+      return <RollbackDialog ws={ws} paths={d.paths} onClose={close} />;
     case 'reset':
       return <ResetDialog ws={ws} hash={d.hash} subject={d.subject} onClose={close} />;
     default:
