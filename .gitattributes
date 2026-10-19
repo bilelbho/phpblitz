@@ -1,3 +1,5 @@
 # Shell scripts embedded in the app must keep LF line endings (bash fails on CRLF).
 *.bash text eol=lf
 *.sh text eol=lf
+# The spell checker builds these in as they are: no line-ending conversion on any machine.
+src-tauri/dictionaries/* -text
