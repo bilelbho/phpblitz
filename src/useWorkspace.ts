@@ -32,6 +32,7 @@ import { terminals } from './terminal/manager';
 import { db } from './db/store';
 import { consoleText } from './components/QueryConsole';
 import { ANALYSIS_DELAY, AnalysisQueue, CODE_INSIGHT_LIMIT, lowPriority, markBusy } from './daemon';
+import { caretMoved, fileShown, goBack, goForward, resetHistory, tabClosed, takeClosed, type Place } from './navHistory';
 import { dirMarks } from './dirMarks';
 import { bookmarks } from './bookmarks';
 import { planForTarget, renameEdits } from './rename';
@@ -434,6 +435,7 @@ export function useWorkspace(backend: Backend) {
   /** Files changed in this session ("Show edited only"). */
   const [editedFiles, setEditedFiles] = useState<Set<string>>(new Set());
   const [recentOpen, setRecentOpen] = useState(false);
+  const [locationsOpen, setLocationsOpen] = useState(false);
   useEffect(() => {
     if (!activePath) return;
     setRecentFiles((list) => {
@@ -605,6 +607,8 @@ export function useWorkspace(backend: Backend) {
       tabsRef.current = next;
       setTabs(next);
       if (old?.kind === 'file') releaseFile(old.path);
+      // Back / Forward: opening at a line (search, declaration, usages) is a jump to that line.
+      if (at?.line) caretMoved({ path, line: at.line, column: at.column ?? 1 });
       setActiveId(id);
       activeIdRef.current = id;
       // Opening a file comes first: background work (indexing) waits.
@@ -635,6 +639,25 @@ export function useWorkspace(backend: Backend) {
     },
     [backend, notify, releaseFile, checkFile],
   );
+  // ── Back / Forward, Reopen Closed Tab (navHistory.ts) ─────────
+  // Another file's tab in front is a move too (a click on the tab doesn't touch its caret).
+  useEffect(() => {
+    const tab = tabsRef.current.find((t) => t.id === activeId);
+    if (tab?.kind === 'file') fileShown(tab.path);
+  }, [activeId]);
+  const goToPlace = useCallback((p: Place) => void openFile(p.path, { line: p.line, column: p.column }), [openFile]);
+  const navigateBack = useCallback(() => {
+    if (!goBack(goToPlace)) setStatus('No earlier location.');
+  }, [goToPlace]);
+  const navigateForward = useCallback(() => {
+    if (!goForward(goToPlace)) setStatus('No later location.');
+  }, [goToPlace]);
+  const reopenClosedTab = useCallback(() => {
+    const p = takeClosed((path) => tabsRef.current.some((t) => t.kind === 'file' && t.path === path));
+    if (p) goToPlace(p);
+    else setStatus('No closed tab to reopen.');
+  }, [goToPlace]);
+
   /** How long reading each opened file took, and whether it was read ahead. */
   const openReadMs = useRef(new Map<string, [number, boolean]>());
   /** The editor for a file is ready: Startup Performance records the open. */
@@ -686,7 +709,10 @@ export function useWorkspace(backend: Backend) {
         const discard = await confirmDialog(`${baseName(tab.path)} has unsaved changes. Close it and discard them?`);
         if (!discard) return;
       }
-      if (tab.kind === 'file') releaseFile(tab.path);
+      if (tab.kind === 'file') {
+        releaseFile(tab.path);
+        tabClosed(tab.path);
+      }
       const rest = tabs.filter((t) => t.id !== id);
       setTabs(rest);
       if (activeId === id) setActiveId(nextActive(tabs, [id], activeId, getSettings().tabs, recentRef.current));
@@ -703,7 +729,11 @@ export function useWorkspace(backend: Backend) {
         const names = unsaved.length === 1 ? baseName((unsaved[0] as { path: string }).path) : `${unsaved.length} files`;
         if (!(await confirmDialog(`${names} ${unsaved.length === 1 ? 'has' : 'have'} unsaved changes. Close and discard them?`))) return;
       }
-      for (const t of closing) if (t.kind === 'file') releaseFile(t.path);
+      for (const t of closing) {
+        if (t.kind !== 'file') continue;
+        releaseFile(t.path);
+        tabClosed(t.path);
+      }
       const rest = tabs.filter((t) => !ids.includes(t.id));
       setTabs(rest);
       if (activeId && ids.includes(activeId)) setActiveId(nextActive(tabs, ids, activeId, getSettings().tabs, recentRef.current));
@@ -1924,6 +1954,7 @@ export function useWorkspace(backend: Backend) {
   useEffect(() => {
     let cancelled = false;
     phpIndex.clear();
+    resetHistory();
     bookmarks.open(backend.root);
     void perf.time('Project tree (top folder)', loadDir(backend.root));
     void perf.time('Git status', refreshGit());
@@ -2043,6 +2074,7 @@ export function useWorkspace(backend: Backend) {
     // tool windows
     toolLayout, openTools, bottomSideTool, showTool, toggleTool, hideTool, isToolOpen, placeTool, resetToolLayout, toggleLeft, showLeft, setRightTool, toggleRight, bottomTab, bottomOpen, setBottomOpen, showBottom,
     searchOpen, setSearchOpen, searchTab, openSearch, recentFiles, forgetRecent, editedFiles, recentOpen, setRecentOpen,
+    locationsOpen, setLocationsOpen, goToPlace, navigateBack, navigateForward, reopenClosedTab,
     settingsPage, openSettings: (page = 'terminal') => setSettingsPage(page), closeSettings: () => setSettingsPage(null),
     findInFiles, openFindInFiles, closeFindInFiles: () => setFindInFiles(null), findResults, setFindResults,
     savedTextOf: (path: string) => savedText.current[path], liveTextOf: (path: string) => liveText.current[path],

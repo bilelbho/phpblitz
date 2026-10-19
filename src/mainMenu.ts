@@ -331,6 +331,11 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
           run: () => onSearch('all'),
         },
         { kind: 'sep' },
+        { label: 'Back', mnemonic: 'B', shortcut: 'Ctrl+Alt+Left', run: () => ws.navigateBack() },
+        { label: 'Forward', mnemonic: 'o', shortcut: 'Ctrl+Alt+Right', run: () => ws.navigateForward() },
+        { label: 'Recent Locations', mnemonic: 'L', shortcut: 'Ctrl+Shift+E', run: () => ws.setLocationsOpen(true) },
+        { label: 'Reopen Closed Tab', shortcut: 'Ctrl+Shift+T', run: () => ws.reopenClosedTab() },
+        { kind: 'sep' },
         {
           label: 'Class…',
           mnemonic: 'C',

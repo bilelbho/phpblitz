@@ -94,7 +94,9 @@ PHP, Git and Composer on your PATH turn on running PHP, tests, the Git tools and
   TODO comments (with a TODO tool window).
 - **Navigation without a language server**: Go to Definition (Ctrl+B), Find Usages (Alt+F7), Show
   Usages (Ctrl+Alt+F7) and Rename (Shift+F6) work from PHPBlitz's own index of your project and `vendor/`,
-  cached in the project's `.blitz` folder.
+  cached in the project's `.blitz` folder. Back and Forward (Ctrl+Alt+← / →, or the mouse's side
+  buttons) retrace your jumps, Recent Locations (Ctrl+Shift+E) lists where you've been and what you
+  changed, and Ctrl+Shift+T reopens the last closed tab.
 - **Errors as you type**: Mago's linter and PHPStan-like analyzer are built in. Open files are checked
   right away; the whole project is analyzed in the background. Framework rules (Laravel, Symfony,
   PHPUnit, Doctrine…) come from `composer.json`.

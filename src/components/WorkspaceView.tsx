@@ -18,6 +18,7 @@ import { BottomPanel } from './BottomPanel';
 import { NotificationsPanel } from './NotificationsPanel';
 import { AiPanel } from './AiPanel';
 import { AiDialogs } from './AiDialogs';
+import { RecentLocations } from './RecentLocations';
 import { EndpointsPanel } from './EndpointsPanel';
 import { ComposerPanel } from './ComposerPanel';
 import { NpmPanel } from './NpmPanel';
@@ -132,6 +133,20 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
         return;
       }
       if (forShell(e)) return;
+      // Back / Forward (in the editor, its own keybindings take these first).
+      if (ctrl && e.altKey && !e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault();
+        if (e.key === 'ArrowLeft') latest.current.ws.navigateBack();
+        else latest.current.ws.navigateForward();
+        return;
+      }
+      // Ctrl+Shift+E: Recent Locations. Ctrl+Shift+T: Reopen Closed Tab.
+      if (ctrl && e.shiftKey && !e.altKey && (key === 'e' || key === 't')) {
+        e.preventDefault();
+        if (key === 'e') latest.current.ws.setLocationsOpen(true);
+        else latest.current.ws.reopenClosedTab();
+        return;
+      }
       // Ctrl+E: Recent Files (inside the popup, Ctrl+E toggles "edited only").
       if (ctrl && !e.shiftKey && !e.altKey && key === 'e') {
         e.preventDefault();
@@ -186,9 +201,18 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
       }
       otherKey.current = false;
     };
+    // The mouse's back / forward side buttons.
+    const mouse = (e: MouseEvent) => {
+      if (e.button !== 3 && e.button !== 4) return;
+      e.preventDefault();
+      if (e.button === 3) latest.current.ws.navigateBack();
+      else latest.current.ws.navigateForward();
+    };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
+    window.addEventListener('mouseup', mouse);
     return () => {
+      window.removeEventListener('mouseup', mouse);
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
     };
@@ -397,6 +421,7 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
       {ws.findInFiles && <FindInFiles ws={ws} />}
       <GitDialogs ws={ws} />
       {ws.recentOpen && <RecentFiles ws={ws} onClose={() => ws.setRecentOpen(false)} />}
+      {ws.locationsOpen && <RecentLocations ws={ws} onClose={() => ws.setLocationsOpen(false)} />}
       {ws.settingsPage && <SettingsDialog ws={ws} page={ws.settingsPage} onClose={ws.closeSettings} />}
       <AiDialogs />
       {perfState.open && <StartupPerformance onClose={() => perf.show(false)} />}

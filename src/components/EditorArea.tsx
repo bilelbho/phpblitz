@@ -40,6 +40,7 @@ import { diffLines, type Hunk } from '../git/diff';
 import type { BlameLine } from '../git/git';
 import { Icon } from './Icon';
 import { trackActiveEditor } from '../editor/active';
+import { caretMoved, edited } from '../navHistory';
 import { startInlineEdit } from '../ai/actions';
 
 export function EditorArea({ ws }: { ws: Workspace }) {
@@ -520,6 +521,9 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       });
     }
     editor.addAction({ id: 'phpblitz.softWrap', label: 'Soft-Wrap', keybindings: [KeyMod.Alt | KeyCode.KeyZ], run: toggleSoftWrap });
+    // Back / Forward: Monaco's own Ctrl+Alt+← / → (move by camelCase word part) gives way.
+    editor.addAction({ id: 'phpblitz.back', label: 'Back', keybindings: [KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.LeftArrow], run: () => latest.current.ws.navigateBack() });
+    editor.addAction({ id: 'phpblitz.forward', label: 'Forward', keybindings: [KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.RightArrow], run: () => latest.current.ws.navigateForward() });
     editor.addAction({ id: 'phpblitz.editWithAi', label: 'Edit with AI…', keybindings: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyI], run: (ed) => startInlineEdit(latest.current.ws, ed) });
 
     // Our right-click menu instead of Monaco's.
@@ -687,11 +691,27 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       blameTipLine.current = 0;
       setBlameTip(null);
     });
-    editor.onDidChangeCursorPosition((e) => setCursor({ line: e.position.lineNumber, col: e.position.column }));
+    editor.onDidChangeCursorPosition((e) => {
+      setCursor({ line: e.position.lineNumber, col: e.position.column });
+      // Back / Forward and Recent Locations: only the editor the user works in.
+      if (editor.hasTextFocus() || e.source === 'api') caretMoved({ path: latest.current.path, line: e.position.lineNumber, column: e.position.column });
+    });
+    // Focus coming back to the editor is a move too.
+    editor.onDidFocusEditorText(() => {
+      const pos = editor.getPosition();
+      if (pos) caretMoved({ path: latest.current.path, line: pos.lineNumber, column: pos.column });
+    });
+    // The editor shows another tab's file (one editor, its model swapped): the status bar follows
+    // that file's caret, which a swap doesn't report as a move.
+    editor.onDidChangeModel(() => {
+      const pos = editor.getPosition();
+      if (pos) setCursor({ line: pos.lineNumber, col: pos.column });
+    });
     // Edits go to the workspace with Monaco's change ranges; the text itself is read only when needed.
     editor.onDidChangeModelContent((e) => {
       const model = editor.getModel();
       if (model) latest.current.ws.onModelEdit(latest.current.path, model, e);
+      if (!e.isFlush && e.changes.length) edited(latest.current.path, e.changes[0].range.startLineNumber);
     });
     // The selection before a mouse press in the gutter (Monaco has already changed it when we hear of the press).
     editor.getDomNode()?.addEventListener('mousedown', () => (selectionBeforeClick.current = editor.getSelection()), true);
