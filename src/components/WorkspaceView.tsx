@@ -18,7 +18,10 @@ import { BottomPanel } from './BottomPanel';
 import { NotificationsPanel } from './NotificationsPanel';
 import { AiPanel } from './AiPanel';
 import { AiDialogs } from './AiDialogs';
+import { setAiDialog } from '../ai/review';
 import { RecentLocations } from './RecentLocations';
+import { ErrorBoundary } from './ErrorBoundary';
+import { ErrorLogDialog } from './ErrorLogDialog';
 import { EndpointsPanel } from './EndpointsPanel';
 import { ComposerPanel } from './ComposerPanel';
 import { NpmPanel } from './NpmPanel';
@@ -329,25 +332,31 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
       return (
         <div key={id} className="tool-slot" style={style}>
           <ToolHideContext.Provider value={() => ws.hideTool(id)}>
-            <BottomPanel ws={ws} tab={tabOfTool(id)} />
+            <ErrorBoundary name={toolInfo[id].label}>
+              <BottomPanel ws={ws} tab={tabOfTool(id)} />
+            </ErrorBoundary>
           </ToolHideContext.Provider>
         </div>
       );
     return id === 'project' ? (
       // The Project tool window draws its own header.
       <section key={id} className="island side" aria-label="Project" style={{ position: 'relative', ...style }}>
-        <ProjectTree ws={ws} onHide={() => ws.hideTool('project')} />
+        <ErrorBoundary name="Project">
+          <ProjectTree ws={ws} onHide={() => ws.hideTool('project')} />
+        </ErrorBoundary>
       </section>
     ) : (
       <ToolWindow key={id} title={toolInfo[id].label} hint={toolInfo[id].hint} onHide={() => ws.hideTool(id)} style={style}>
-        {id === 'commit' && <CommitPanel ws={ws} />}
-        {id === 'database' && <DatabasePanel ws={ws} />}
-        {id === 'structure' && <StructurePanel ws={ws} />}
-        {id === 'notifications' && <NotificationsPanel ws={ws} />}
-        {id === 'ai' && <AiPanel ws={ws} />}
-        {id === 'endpoints' && <EndpointsPanel ws={ws} />}
-        {id === 'composer' && <ComposerPanel ws={ws} />}
-        {id === 'npm' && <NpmPanel ws={ws} />}
+        <ErrorBoundary name={toolInfo[id].label}>
+          {id === 'commit' && <CommitPanel ws={ws} />}
+          {id === 'database' && <DatabasePanel ws={ws} />}
+          {id === 'structure' && <StructurePanel ws={ws} />}
+          {id === 'notifications' && <NotificationsPanel ws={ws} />}
+          {id === 'ai' && <AiPanel ws={ws} />}
+          {id === 'endpoints' && <EndpointsPanel ws={ws} />}
+          {id === 'composer' && <ComposerPanel ws={ws} />}
+          {id === 'npm' && <NpmPanel ws={ws} />}
+        </ErrorBoundary>
       </ToolWindow>
     );
   };
@@ -375,7 +384,9 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
 
   return (
     <div className="app" style={{ ['--project-color' as string]: projectColor }}>
-      <TopBar ws={ws} onOpenFolder={onOpenFolder} onOpenPath={onOpenPath} onClose={onClose} onSearch={openSearch} />
+      <ErrorBoundary name="Toolbar">
+        <TopBar ws={ws} onOpenFolder={onOpenFolder} onOpenPath={onOpenPath} onClose={onClose} onSearch={openSearch} />
+      </ErrorBoundary>
       <div className="main" ref={mainRef}>
         <ToolStrip
           side="left"
@@ -394,11 +405,19 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
         )}
 
         <div className="center">
-          <EditorArea ws={ws} />
+          <ErrorBoundary name="Editor">
+            <EditorArea ws={ws} />
+          </ErrorBoundary>
           {bottomShown && (
             <>
               <Splitter dir="h" onDrag={(d) => setBottomHeight((h) => clamp(h - d, 90, window.innerHeight - 200))} />
-              {ws.bottomSideTool ? toolWindow(ws.bottomSideTool, { flex: `0 0 ${bottomHeight}px` }) : <BottomPanel ws={ws} height={bottomHeight} />}
+              {ws.bottomSideTool ? (
+                toolWindow(ws.bottomSideTool, { flex: `0 0 ${bottomHeight}px` })
+              ) : (
+                <ErrorBoundary name="Bottom panel">
+                  <BottomPanel ws={ws} height={bottomHeight} />
+                </ErrorBoundary>
+              )}
             </>
           )}
         </div>
@@ -417,24 +436,52 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
           <Icon name={drag.icon} size={17} />
         </div>
       )}
-      <StatusBar ws={ws} />
-      {ws.findInFiles && <FindInFiles ws={ws} />}
-      <GitDialogs ws={ws} />
-      {ws.recentOpen && <RecentFiles ws={ws} onClose={() => ws.setRecentOpen(false)} />}
-      {ws.locationsOpen && <RecentLocations ws={ws} onClose={() => ws.setLocationsOpen(false)} />}
-      {ws.settingsPage && <SettingsDialog ws={ws} page={ws.settingsPage} onClose={ws.closeSettings} />}
-      <AiDialogs />
-      {perfState.open && <StartupPerformance onClose={() => perf.show(false)} />}
-      {appDialog && <AboutDialog view={appDialog} onClose={() => openAppDialog(null)} />}
-      {ws.searchOpen && (
-        <SearchEverywhere
-          ws={ws}
-          initialTab={ws.searchTab}
-          onClose={() => ws.setSearchOpen(false)}
-          actions={{ openFolder: onOpenFolder, closeProject: onClose }}
-        />
+      <ErrorBoundary name="Status bar">
+        <StatusBar ws={ws} />
+      </ErrorBoundary>
+      {ws.findInFiles && (
+        <ErrorBoundary name="Find in Files" variant="dialog" onClose={() => ws.closeFindInFiles()}>
+          <FindInFiles ws={ws} />
+        </ErrorBoundary>
       )}
-      {ws.usagesPopup && <UsagesPopup ws={ws} />}
+      <ErrorBoundary name="Git" variant="dialog" onClose={() => ws.setGitDialog(null)}>
+        <GitDialogs ws={ws} />
+      </ErrorBoundary>
+      {ws.recentOpen && (
+        <ErrorBoundary name="Recent Files" variant="dialog" onClose={() => ws.setRecentOpen(false)}>
+          <RecentFiles ws={ws} onClose={() => ws.setRecentOpen(false)} />
+        </ErrorBoundary>
+      )}
+      {ws.locationsOpen && (
+        <ErrorBoundary name="Recent Locations" variant="dialog" onClose={() => ws.setLocationsOpen(false)}>
+          <RecentLocations ws={ws} onClose={() => ws.setLocationsOpen(false)} />
+        </ErrorBoundary>
+      )}
+      {ws.settingsPage && (
+        <ErrorBoundary name="Settings" variant="dialog" onClose={ws.closeSettings}>
+          <SettingsDialog ws={ws} page={ws.settingsPage} onClose={ws.closeSettings} />
+        </ErrorBoundary>
+      )}
+      <ErrorBoundary name="AI" variant="dialog" onClose={() => setAiDialog(null)}>
+        <AiDialogs />
+      </ErrorBoundary>
+      {perfState.open && <StartupPerformance onClose={() => perf.show(false)} />}
+      {appDialog === 'errors' ? <ErrorLogDialog onClose={() => openAppDialog(null)} /> : appDialog && <AboutDialog view={appDialog} onClose={() => openAppDialog(null)} />}
+      {ws.searchOpen && (
+        <ErrorBoundary name="Search Everywhere" variant="dialog" onClose={() => ws.setSearchOpen(false)}>
+          <SearchEverywhere
+            ws={ws}
+            initialTab={ws.searchTab}
+            onClose={() => ws.setSearchOpen(false)}
+            actions={{ openFolder: onOpenFolder, closeProject: onClose }}
+          />
+        </ErrorBoundary>
+      )}
+      {ws.usagesPopup && (
+        <ErrorBoundary name="Usages" variant="dialog" onClose={() => ws.closeUsagesPopup()}>
+          <UsagesPopup ws={ws} />
+        </ErrorBoundary>
+      )}
     </div>
   );
 }

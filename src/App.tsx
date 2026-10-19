@@ -11,6 +11,7 @@ import { WorkspaceView } from './components/lazy';
 import { projectStorage } from './projectStorage';
 import { perf } from './perf';
 import { startUpdateChecks } from './updater';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { syncMcpServer } from './mcp';
 import { registerGhostText } from './ai/ghost';
 
@@ -77,17 +78,25 @@ export default function App() {
   }, [hasProject]);
 
   // The demo project is only for the browser preview (npm run dev), where folders cannot be opened.
-  if (!backend) return <Welcome onOpenFolder={openFolder} onOpenPath={openPath} onOpenSample={isTauri ? undefined : openSample} />;
+  // Last resort: anything not caught closer (each panel has its own) shows a message, not a blank window.
+  if (!backend)
+    return (
+      <ErrorBoundary name="PHPBlitz" variant="window">
+        <Welcome onOpenFolder={openFolder} onOpenPath={openPath} onOpenSample={isTauri ? undefined : openSample} />
+      </ErrorBoundary>
+    );
   return (
-    <WorkspaceView
-      key={`${backend.kind}:${backend.root}`}
-      backend={backend}
-      onOpenFolder={openFolder}
-      onOpenPath={openPath}
-      onClose={() => {
-        void projectStorage.close();
-        setBackend(null);
-      }}
-    />
+    <ErrorBoundary name="PHPBlitz" variant="window">
+      <WorkspaceView
+        key={`${backend.kind}:${backend.root}`}
+        backend={backend}
+        onOpenFolder={openFolder}
+        onOpenPath={openPath}
+        onClose={() => {
+          void projectStorage.close();
+          setBackend(null);
+        }}
+      />
+    </ErrorBoundary>
   );
 }

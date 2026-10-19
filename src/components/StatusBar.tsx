@@ -9,6 +9,8 @@ import { cachedInspect, composerPhpLevel, interpretersFor, kindLabel, projectPhp
 import { Icon, Sym } from './Icon';
 import { FileIcon } from './FileIcon';
 import { NavBarPopup, type NavRequest } from './NavBarPopup';
+import { useErrorLog } from '../errorLog';
+import { openAppDialog } from '../appDialogs';
 
 const LSP_STATE: Record<string, [string, string]> = {
   starting: ['#e5a33d', 'starting…'],
@@ -98,6 +100,7 @@ function MagoStatus({ ws }: { ws: Workspace }) {
 
 export function StatusBar({ ws }: { ws: Workspace }) {
   const cursor = useCursor();
+  const errorCount = useErrorLog().length;
   const idx = useSymbols();
   const tab = ws.activeTab;
   const all = Object.values(ws.problems).flat();
@@ -167,6 +170,12 @@ export function StatusBar({ ws }: { ws: Workspace }) {
         </span>
       )}
       {ws.status && <span className="item muted">{ws.status}</span>}
+      {errorCount > 0 && (
+        <button type="button" className="item status-errors" title="Errors in this session: open the Error Log" onClick={() => openAppDialog('errors')}>
+          <Icon name="warning" size={13} />
+          {errorCount === 1 ? '1 error' : `${errorCount} errors`}
+        </button>
+      )}
       {ws.listening && (
         <span className="item" style={{ color: '#5fb865' }}>
           <Icon name="listen" size={13} /> Listening on :{debug.port}

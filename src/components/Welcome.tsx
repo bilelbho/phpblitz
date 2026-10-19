@@ -15,6 +15,7 @@ import { ContextMenu, type ContextItem } from './ContextMenu';
 import { THEMES } from './SettingsAppearance';
 import { WindowControls } from './WindowControls';
 import { AboutDialog } from './lazy';
+import { ErrorLogDialog } from './ErrorLogDialog';
 import { NewProjectDialog } from './NewProjectDialog';
 import { checkForUpdates, RELEASES_URL, restartToUpdate, useUpdateState } from '../updater';
 
@@ -97,7 +98,7 @@ export function Welcome({ onOpenFolder, onOpenPath, onOpenSample }: Props) {
           onClose={() => setGear(null)}
         />
       )}
-      {appDialog && <AboutDialog view={appDialog} onClose={() => openAppDialog(null)} />}
+      {appDialog === 'errors' ? <ErrorLogDialog onClose={() => openAppDialog(null)} /> : appDialog && <AboutDialog view={appDialog} onClose={() => openAppDialog(null)} />}
     </div>
   );
 }

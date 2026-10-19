@@ -720,7 +720,10 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
         { kind: 'sep' },
         {
           label: 'Diagnostic Tools',
-          submenu: [{ label: 'Startup Performance…', run: () => perf.show(true) }],
+          submenu: [
+            { label: 'Startup Performance…', run: () => perf.show(true) },
+            { label: 'Error Log…', run: () => openAppDialog('errors') },
+          ],
         },
         { kind: 'sep' },
         {

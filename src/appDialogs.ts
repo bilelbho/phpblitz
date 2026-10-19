@@ -1,8 +1,8 @@
-// App-wide dialogs opened from menus (Help ▸ About, Help ▸ Open Source Licenses).
+// App-wide dialogs opened from menus (Help ▸ About, Open Source Licenses, Error Log).
 
 import { useSyncExternalStore } from 'react';
 
-export type AppDialog = 'about' | 'licenses' | null;
+export type AppDialog = 'about' | 'licenses' | 'errors' | null;
 
 let current: AppDialog = null;
 const listeners = new Set<() => void>();
