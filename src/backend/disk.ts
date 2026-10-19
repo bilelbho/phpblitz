@@ -38,7 +38,7 @@ export class DiskBackend implements Backend {
   }
 
   writeFile(path: string, content: string) {
-    return invoke<void>('write_file', { path, content });
+    return invoke<void>('write_file', { path, content, root: this.root });
   }
 
   createFile(path: string, content: string) {

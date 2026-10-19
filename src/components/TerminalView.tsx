@@ -8,6 +8,7 @@ import { useSettings } from '../settings';
 import { readClipboard, tabLabel, terminals, useTerminals, type Session, type ShellSpec } from '../terminal/manager';
 import { ContextMenu, type ContextItem } from './ContextMenu';
 import { Icon } from './Icon';
+import { TerminalFind } from './TerminalFind';
 import { useTabDrag } from './useTabDrag';
 import { terminalStartDir } from '../terminal/startDir';
 import { useHideTool } from './toolHide';
@@ -23,7 +24,7 @@ interface Split {
 
 export function TerminalView({ ws }: { ws: Workspace }) {
   const hide = useHideTool(() => ws.setBottomOpen(false));
-  const { sessions, activeId } = useTerminals();
+  const { sessions, activeId, findId, findRequests } = useTerminals();
   useSettings(); // re-render tab labels when "use application title" changes
   const strip = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -36,6 +37,8 @@ export function TerminalView({ ws }: { ws: Workspace }) {
   const [zone, setZone] = useState<Zone | null>(null);
   const active = sessions.find((s) => s.id === activeId) ?? null;
   const second = split ? sessions.find((s) => s.id === split.second) ?? null : null;
+  // The find bar shows while its session is on screen.
+  const finding = findId !== null && (findId === active?.id || findId === second?.id) ? sessions.find((s) => s.id === findId) ?? null : null;
 
   useEffect(() => {
     terminals.shells().then(setShells);
@@ -148,7 +151,19 @@ export function TerminalView({ ws }: { ws: Workspace }) {
             ),
         },
         { label: 'Select All', run: () => term.selectAll() },
+        {
+          label: 'Copy Last Command Output',
+          disabled: s.commands.length < 2,
+          run: () => {
+            const out = terminals.lastOutput(s.id);
+            if (out === null) ws.setStatus('No finished command yet.');
+            else void navigator.clipboard.writeText(out).then(() => ws.setStatus(out ? `Copied ${out.split('\n').length} lines of output.` : 'The last command printed nothing.'), () => {});
+          },
+        },
         { kind: 'sep' },
+        { label: 'Find…', shortcut: 'Ctrl+F', icon: 'search', run: () => terminals.openFind(s.id) },
+        { label: 'Previous Command', shortcut: 'Ctrl+Up', disabled: !s.commands.length, run: () => terminals.jumpToCommand(s.id, -1) },
+        { label: 'Next Command', shortcut: 'Ctrl+Down', disabled: !s.commands.length, run: () => terminals.jumpToCommand(s.id, 1) },
         { label: 'Clear', run: () => term.clear() },
         { kind: 'sep' },
         ...splitItems(s.id),
@@ -281,6 +296,7 @@ export function TerminalView({ ws }: { ws: Workspace }) {
           <Icon name="minus" size={14} />
         </button>
       </div>
+      {finding && <TerminalFind key={finding.id} session={finding} requests={findRequests} />}
       <div ref={body} className={'terminal-view' + (split ? (horizontal ? ' split-h' : ' split-v') : '')}>
         {split && second && secondFirst && <Pane session={second} focused={focus === 'second'} onFocus={() => setFocus('second')} onMenu={surfaceMenu} />}
         {active && <Pane session={active} focused={!split || focus === 'main'} onFocus={() => setFocus('main')} onMenu={surfaceMenu} />}

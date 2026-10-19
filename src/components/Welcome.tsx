@@ -98,7 +98,8 @@ export function Welcome({ onOpenFolder, onOpenPath, onOpenSample }: Props) {
           onClose={() => setGear(null)}
         />
       )}
-      {appDialog === 'errors' ? <ErrorLogDialog onClose={() => openAppDialog(null)} /> : appDialog && <AboutDialog view={appDialog} onClose={() => openAppDialog(null)} />}
+      {appDialog === 'errors' && <ErrorLogDialog onClose={() => openAppDialog(null)} />}
+      {(appDialog === 'about' || appDialog === 'licenses') && <AboutDialog view={appDialog} onClose={() => openAppDialog(null)} />}
     </div>
   );
 }

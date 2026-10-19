@@ -33,6 +33,7 @@ import { db } from './db/store';
 import { consoleText } from './components/QueryConsole';
 import { ANALYSIS_DELAY, AnalysisQueue, CODE_INSIGHT_LIMIT, lowPriority, markBusy } from './daemon';
 import { caretMoved, fileShown, goBack, goForward, resetHistory, tabClosed, takeClosed, type Place } from './navHistory';
+import { FileResolver } from './terminal/fileLinks';
 import { dirMarks } from './dirMarks';
 import { bookmarks } from './bookmarks';
 import { planForTarget, renameEdits } from './rename';
@@ -882,6 +883,15 @@ export function useWorkspace(backend: Backend) {
 
   // ── Indexing ──────────────────────────────────────────────────
   const [files, setFiles] = useState<string[]>([]);
+
+  // File paths in terminal output open here (terminal/fileLinks.ts).
+  useEffect(() => {
+    const resolver = new FileResolver(backend.root, files);
+    terminals.fileLinks = {
+      resolve: (ref, cwd) => resolver.resolve(ref, cwd),
+      open: (path, line, column) => void openFile(path, line ? { line, column } : undefined),
+    };
+  }, [backend, files, openFile]);
   // Laravel completion (route names, config keys, views…) reads the project's files.
   useEffect(() => {
     setLaravelProject({ root: backend.root, files, read: (path) => backend.readFile(path) });

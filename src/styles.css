@@ -6685,3 +6685,142 @@ body {
   gap: 5px;
   color: var(--orange);
 }
+
+/* Help ▸ Keyboard Shortcuts. */
+.pb-dialog.shortcuts {
+  display: flex;
+  width: min(760px, 92vw);
+  height: 76vh;
+  flex-direction: column;
+}
+
+.shortcuts-search {
+  margin: 0 16px 10px;
+}
+
+.shortcuts-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 10px 12px;
+  overflow-y: auto;
+  border-top: 1px solid var(--line-mid);
+}
+
+.shortcuts-group-title {
+  padding: 12px 8px 4px;
+  color: var(--muted-2);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.shortcuts-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  min-height: 28px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  color: var(--text);
+  text-align: left;
+}
+
+.shortcuts-row:not(:disabled):hover {
+  background: var(--hover-soft);
+}
+
+/* Not runnable right now (Save with no file open): still a shortcut worth reading. */
+.shortcuts-row:disabled {
+  color: var(--text);
+  cursor: default;
+  opacity: 1;
+}
+
+.shortcuts-keys {
+  display: inline-flex;
+  flex: none;
+  gap: 6px;
+}
+
+.shortcuts-keys kbd {
+  padding: 1px 7px;
+  border: 1px solid var(--line-mid);
+  border-radius: 4px;
+  background: rgba(var(--ov), 0.05);
+  color: var(--text-soft);
+  font-family: var(--sans);
+  font-size: 12px;
+}
+
+.shortcuts-empty {
+  padding: 16px 8px;
+}
+
+/* Files dragged in from the system: the folder they'll be copied into (fileDrop.ts). */
+.row.drop-target {
+  outline: 1px solid var(--blue);
+  outline-offset: -1px;
+  background: rgba(53, 116, 240, 0.18);
+}
+
+/* Local History: versions on the left, the diff against now on the right. */
+.pb-dialog.local-history {
+  display: flex;
+  width: min(1200px, 94vw);
+  height: 76vh;
+  flex-direction: column;
+}
+
+.local-history-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  border-top: 1px solid var(--line-mid);
+  border-bottom: 1px solid var(--line-mid);
+}
+
+.local-history-list {
+  flex: 0 0 220px;
+  padding: 6px;
+  overflow-y: auto;
+  border-right: 1px solid var(--line-mid);
+}
+
+.local-history-item {
+  display: flex;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  cursor: default;
+  font-size: 12px;
+  outline: none;
+}
+
+.local-history-item:hover {
+  background: var(--hover);
+}
+
+.local-history-item[aria-selected='true'] {
+  background: var(--select);
+}
+
+.local-history-item:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.local-history-diff.ai-review-diff {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+}
+
+.local-history-empty {
+  padding: 24px 16px;
+  border-top: 1px solid var(--line-mid);
+}
+
+.local-history-same {
+  margin-right: auto;
+  align-self: center;
+}

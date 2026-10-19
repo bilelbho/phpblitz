@@ -3,6 +3,7 @@ mod blitz;
 mod clipboard;
 mod db;
 mod fs;
+mod history;
 mod index;
 mod js;
 mod lsp;
@@ -83,6 +84,8 @@ pub fn run() {
             js::js_type_files,
             blitz::blitz_read,
             blitz::blitz_write,
+            history::history_list,
+            history::history_read,
             mago::mago_open,
             mago::mago_analyze,
             mago::mago_close,

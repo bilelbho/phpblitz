@@ -6,8 +6,10 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 import type { IMarker, ITheme, Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
+import type { SearchAddon } from '@xterm/addon-search';
 import { useSyncExternalStore } from 'react';
 import { getSettings, parseEnv, type TerminalSettings } from '../settings';
+import { findFileRefs } from './fileLinks';
 
 export interface ShellSpec {
   name: string;
@@ -28,8 +30,11 @@ export interface Session {
   exited: boolean;
   term: Terminal;
   fit: FitAddon;
+  search: SearchAddon;
   element: HTMLDivElement;
   opened: boolean;
+  /** Each prompt (OSC 133 A) and where its command was typed (B), oldest first. */
+  commands: { prompt: IMarker; input?: IMarker }[];
 }
 
 // The dark terminal palette.
@@ -91,10 +96,16 @@ class TerminalManager {
   creating = 0;
   private nextId = 1;
   private listeners = new Set<() => void>();
-  private snapshot = { sessions: this.sessions, activeId: this.activeId };
+  /** The session the find bar (Ctrl+F) searches, while it's open. */
+  findId: number | null = null;
+  /** Bumped by every Ctrl+F, so an open find bar selects its text again. */
+  findRequests = 0;
+  private snapshot = { sessions: this.sessions, activeId: this.activeId, findId: this.findId, findRequests: this.findRequests };
   private shellsPromise: Promise<ShellSpec[]> | null = null;
   /** The view element the active session is shown in. */
   private host: HTMLElement | null = null;
+  /** File paths in output open in the editor; set by the workspace, which knows the project's files. */
+  fileLinks: { resolve(ref: string, cwd: string): string | null; open(path: string, line?: number, column?: number): void } | null = null;
 
   subscribe = (l: () => void) => {
     this.listeners.add(l);
@@ -104,8 +115,24 @@ class TerminalManager {
   getSnapshot = () => this.snapshot;
 
   private changed() {
-    this.snapshot = { sessions: [...this.sessions], activeId: this.activeId };
+    if (this.findId !== null && !this.sessions.some((s) => s.id === this.findId)) this.findId = null;
+    this.snapshot = { sessions: [...this.sessions], activeId: this.activeId, findId: this.findId, findRequests: this.findRequests };
     this.listeners.forEach((l) => l());
+  }
+
+  /** Opens the find bar on a session (it takes the focus). */
+  openFind(id: number) {
+    this.findId = id;
+    this.findRequests++;
+    this.changed();
+  }
+
+  closeFind() {
+    const s = this.sessions.find((x) => x.id === this.findId);
+    s?.search.clearDecorations();
+    this.findId = null;
+    this.changed();
+    s?.term.focus();
   }
 
   shells(): Promise<ShellSpec[]> {
@@ -129,7 +156,7 @@ class TerminalManager {
     const shell = opts.shell ?? configured ?? shells[0];
     if (!shell) return null;
     const isDefault = !opts.shell || opts.shell.path === (configured ?? shells[0])?.path;
-    const { Terminal, FitAddon, WebLinksAddon } = await import('./xterm');
+    const { Terminal, FitAddon, WebLinksAddon, SearchAddon } = await import('./xterm');
 
     const term = new Terminal({
       ...termOptions(settings),
@@ -141,6 +168,8 @@ class TerminalManager {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    const search = new SearchAddon();
+    term.loadAddon(search);
     if (settings.highlightLinks) term.loadAddon(new WebLinksAddon((_e, uri) => invoke('open_external', { url: uri }).catch(() => {})));
 
     const element = document.createElement('div');
@@ -156,10 +185,14 @@ class TerminalManager {
       exited: false,
       term,
       fit,
+      search,
       element,
       opened: false,
+      commands: [],
     };
     this.wire(session);
+    this.linkFiles(session);
+    this.trackCommands(session);
     this.sessions.push(session);
     this.activeId = session.id;
     this.changed();
@@ -215,6 +248,84 @@ class TerminalManager {
     });
   }
 
+  /** Remembers the shell's prompts (OSC 133 A, B) for previous / next command and the last output. */
+  private trackCommands(s: Session) {
+    s.term.parser.registerOscHandler(133, (data) => {
+      const kind = data.split(';')[0];
+      if (kind === 'A') {
+        const prompt = s.term.registerMarker(0);
+        if (prompt) s.commands.push({ prompt });
+        // Markers of lines that scrolled out of the buffer are disposed.
+        s.commands = s.commands.filter((c) => !c.prompt.isDisposed);
+      } else if (kind === 'B') {
+        const last = s.commands[s.commands.length - 1];
+        if (last && !last.input) last.input = s.term.registerMarker(0) ?? undefined;
+      }
+      // Not handled here only: the command blocks read these too.
+      return false;
+    });
+  }
+
+  /** Scrolls to the previous (-1) or next (1) prompt above / below the top of the view. */
+  jumpToCommand(id: number, direction: -1 | 1): boolean {
+    const s = this.sessions.find((x) => x.id === id);
+    if (!s) return false;
+    const top = s.term.buffer.active.viewportY;
+    const lines = s.commands.map((c) => c.prompt.line).filter((l) => l >= 0);
+    const target = direction < 0 ? [...lines].reverse().find((l) => l < top) : lines.find((l) => l > top);
+    if (target === undefined) {
+      if (direction > 0) s.term.scrollToBottom();
+      return false;
+    }
+    s.term.scrollToLine(target);
+    return true;
+  }
+
+  /** The output of the last command that finished: the lines between its command and the next prompt. */
+  lastOutput(id: number): string | null {
+    const s = this.sessions.find((x) => x.id === id);
+    if (!s) return null;
+    const done = s.commands.filter((c) => !c.prompt.isDisposed);
+    // The last prompt is the one waiting for a command; the one before it ran the last command.
+    const ran = done[done.length - 2];
+    const next = done[done.length - 1];
+    if (!ran?.input || !next) return null;
+    const buffer = s.term.buffer.active;
+    const lines: string[] = [];
+    for (let y = ran.input.line + 1; y < next.prompt.line; y++) {
+      const line = buffer.getLine(y);
+      if (!line) continue;
+      // A wrapped line continues the one before it.
+      if (line.isWrapped && lines.length) lines[lines.length - 1] += line.translateToString(true);
+      else lines.push(line.translateToString(true));
+    }
+    return lines.join('\n').replace(/\s+$/, '');
+  }
+
+  /** `app/Models/User.php:42` and the like in the output: click to open the file at that line. */
+  private linkFiles(s: Session) {
+    s.term.registerLinkProvider({
+      provideLinks: (y, callback) => {
+        const links = this.fileLinks;
+        if (!links) return callback(undefined);
+        const text = s.term.buffer.active.getLine(y - 1)?.translateToString(true) ?? '';
+        const found = findFileRefs(text).flatMap((ref) => {
+          const path = links.resolve(ref.path, s.cwd);
+          if (!path) return [];
+          return [
+            {
+              range: { start: { x: ref.start + 1, y }, end: { x: ref.end, y } },
+              text: text.slice(ref.start, ref.end),
+              decorations: { underline: true, pointerCursor: true },
+              activate: () => links.open(path, ref.line, ref.column),
+            },
+          ];
+        });
+        callback(found.length ? found : undefined);
+      },
+    });
+  }
+
   private wire(s: Session) {
     const { term } = s;
     this.commandBlocks(term);
@@ -238,6 +349,16 @@ class TerminalManager {
       if (ctrl && key === 'c' && (e.shiftKey || term.hasSelection())) {
         navigator.clipboard.writeText(term.getSelection()).catch(() => {});
         term.clearSelection();
+        return false;
+      }
+      if (ctrl && !e.shiftKey && !e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        e.preventDefault();
+        this.jumpToCommand(s.id, e.key === 'ArrowUp' ? -1 : 1);
+        return false;
+      }
+      if (ctrl && !e.shiftKey && !e.altKey && key === 'f') {
+        e.preventDefault();
+        this.openFind(s.id);
         return false;
       }
       if (ctrl && e.shiftKey && key === 'v') {

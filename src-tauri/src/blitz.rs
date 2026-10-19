@@ -5,7 +5,7 @@
 //!   .gitignore       cache/ and workspace.json: machine-specific, never committed
 //!   project.json     project settings to share (PHP, excluded folders, data sources…)
 //!   workspace.json   this machine's state (bookmarks, recent files, debugger watches…)
-//!   cache/           rebuildable data (index.bin: the symbol index)
+//!   cache/           this machine's data: index.bin (the symbol index, rebuildable), history/ (Local History)
 //! ```
 
 use std::path::{Path, PathBuf};

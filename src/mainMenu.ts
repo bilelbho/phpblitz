@@ -707,6 +707,7 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
           run: () => onSearch('actions'),
         },
         { label: 'Help', mnemonic: 'H', run: openUrl(`${REPO}#readme`) },
+        { label: 'Keyboard Shortcuts…', mnemonic: 'K', run: () => openAppDialog('shortcuts') },
         { kind: 'sep' },
         {
           label: "What's New in PHPBlitz",

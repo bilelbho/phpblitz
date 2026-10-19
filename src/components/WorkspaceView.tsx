@@ -22,6 +22,9 @@ import { setAiDialog } from '../ai/review';
 import { RecentLocations } from './RecentLocations';
 import { ErrorBoundary } from './ErrorBoundary';
 import { ErrorLogDialog } from './ErrorLogDialog';
+import { KeyboardShortcuts } from './KeyboardShortcuts';
+import { mainMenu } from '../mainMenu';
+import { useFileDrop } from '../fileDrop';
 import { EndpointsPanel } from './EndpointsPanel';
 import { ComposerPanel } from './ComposerPanel';
 import { NpmPanel } from './NpmPanel';
@@ -30,6 +33,7 @@ import { SearchEverywhere } from './SearchEverywhere';
 import { FindInFiles } from './FindInFiles';
 import { AboutDialog, DatabasePanel, SettingsDialog, StartupPerformance } from './lazy';
 import { openAppDialog, useAppDialog } from '../appDialogs';
+import { LocalHistoryDialog, openLocalHistory, useLocalHistory } from './LocalHistoryDialog';
 import { perf, usePerf } from '../perf';
 import { GitDialogs } from './GitDialogs';
 import { useProjectColor } from '../projectColors';
@@ -69,8 +73,10 @@ function ToolWindow({ title, hint, onHide, children, style }: { title: string; h
 
 export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Props) {
   const ws = useWorkspace(backend);
+  useFileDrop(ws);
   const perfState = usePerf();
   const appDialog = useAppDialog();
+  const localHistory = useLocalHistory();
   useEffect(() => perf.mark('Workspace shown', 'UI and code editor loaded'), []);
 
   // Updates: a notification once a new version is downloaded (or found, for copies that can't
@@ -457,6 +463,11 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
           <RecentLocations ws={ws} onClose={() => ws.setLocationsOpen(false)} />
         </ErrorBoundary>
       )}
+      {localHistory && (
+        <ErrorBoundary name="Local History" variant="dialog" onClose={() => openLocalHistory(null)}>
+          <LocalHistoryDialog ws={ws} path={localHistory} onClose={() => openLocalHistory(null)} />
+        </ErrorBoundary>
+      )}
       {ws.settingsPage && (
         <ErrorBoundary name="Settings" variant="dialog" onClose={ws.closeSettings}>
           <SettingsDialog ws={ws} page={ws.settingsPage} onClose={ws.closeSettings} />
@@ -466,7 +477,13 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
         <AiDialogs />
       </ErrorBoundary>
       {perfState.open && <StartupPerformance onClose={() => perf.show(false)} />}
-      {appDialog === 'errors' ? <ErrorLogDialog onClose={() => openAppDialog(null)} /> : appDialog && <AboutDialog view={appDialog} onClose={() => openAppDialog(null)} />}
+      {appDialog === 'errors' && <ErrorLogDialog onClose={() => openAppDialog(null)} />}
+      {appDialog === 'shortcuts' && (
+        <ErrorBoundary name="Keyboard Shortcuts" variant="dialog" onClose={() => openAppDialog(null)}>
+          <KeyboardShortcuts ws={ws} menus={mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch: openSearch, onBranches: () => {} })} onClose={() => openAppDialog(null)} />
+        </ErrorBoundary>
+      )}
+      {(appDialog === 'about' || appDialog === 'licenses') && <AboutDialog view={appDialog} onClose={() => openAppDialog(null)} />}
       {ws.searchOpen && (
         <ErrorBoundary name="Search Everywhere" variant="dialog" onClose={() => ws.setSearchOpen(false)}>
           <SearchEverywhere

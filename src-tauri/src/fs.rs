@@ -96,10 +96,17 @@ pub async fn read_file(path: String) -> Result<String, String> {
     .map_err(|e| e.to_string())?
 }
 
-/// Saves a file atomically (see [`write_atomic`]), off the async workers.
+/// Saves a file atomically (see [`write_atomic`]), off the async workers. With the project's
+/// `root`, the save is kept in Local History (see [`crate::history`]).
 #[tauri::command]
-pub async fn write_file(path: String, content: String) -> Result<(), String> {
-    blocking(move || write_atomic(Path::new(&path), content.as_bytes()).map_err(|e| e.to_string())).await
+pub async fn write_file(path: String, content: String, root: Option<String>) -> Result<(), String> {
+    blocking(move || {
+        if let Some(root) = root {
+            crate::history::record(&root, &path, &content);
+        }
+        write_atomic(Path::new(&path), content.as_bytes()).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 /// Runs blocking file work on a blocking thread, so the async workers stay free for the UI.

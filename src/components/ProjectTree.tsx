@@ -2,7 +2,8 @@
 // Expand/Collapse and ⋮ options; a tree with selection, keyboard navigation and speed search.
 
 import { FileIcon } from './FileIcon';
-import { gitSubmenu } from '../editorMenu';
+import { gitSubmenu, hasLocalHistory } from '../editorMenu';
+import { openLocalHistory } from './LocalHistoryDialog';
 import { useSettings } from '../settings';
 import { MARK_LABELS, useDirMarks, type DirMark } from '../dirMarks';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -389,6 +390,7 @@ export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void 
         ],
       },
       { label: 'Reload from Disk', icon: 'refresh', run: () => ws.reloadItem(row.path, row.isDir) },
+      ...(!row.isDir ? [{ label: 'Local History…', icon: 'history' as const, disabled: !hasLocalHistory(ws), run: () => openLocalHistory(row.path) }] : []),
       ...(row.isDir && !row.root ? [markMenu(row.path)] : []),
       ...(ws.git ? [{ kind: 'sep' as const }, { label: 'Git', icon: 'git' as const, submenu: gitSubmenu(ws, row.path, row.isDir) }] : []),
     ];
@@ -464,6 +466,7 @@ export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void 
         aria-expanded={row.isDir && prefs.view === 'project' ? open_ : undefined}
         aria-level={row.depth + 1}
         data-path={row.path}
+        data-dir={row.isDir || undefined}
         className={'row' + (isSelected ? ' selected' : '') + (color ? ` file-color-${color}` : '') + (ws.fileClipboard?.mode === 'cut' && ws.fileClipboard.paths.includes(row.path) ? ' cut' : '')}
         style={{ paddingLeft: 4 + row.depth * indent, ['--depth-px' as string]: `${row.depth * indent}px`, ['--indent' as string]: `${indent}px` }}
         onContextMenu={(e) => openRowMenu(e, row)}

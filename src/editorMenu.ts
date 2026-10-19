@@ -15,6 +15,7 @@ import { structureOf } from './php';
 import { symbols } from './symbols';
 import { magoAvailable, suppressionComment } from './mago';
 import { runChatAction, startInlineEdit } from './ai/actions';
+import { openLocalHistory } from './components/LocalHistoryDialog';
 
 type Editor = monaco.editor.IStandaloneCodeEditor;
 
@@ -355,9 +356,13 @@ export function buildEditorMenu(
         { label: 'Terminal', icon: 'terminal', run: () => ws.showBottom('terminal') },
       ],
     },
+    { label: 'Local History…', icon: 'history', disabled: !hasLocalHistory(ws), run: () => openLocalHistory(path) },
     { label: 'Git', icon: 'git', disabled: !ws.git, submenu: gitSubmenu(ws, path, false) },
   ];
 }
+
+/** Local History is kept for projects on disk, by the desktop app. */
+export const hasLocalHistory = (ws: Workspace) => isTauri && ws.backend.kind === 'disk';
 
 /** Right-click ▸ Git, in the editor and the Project tree. */
 export function gitSubmenu(ws: Workspace, path: string, isDir: boolean): ContextItem[] {
