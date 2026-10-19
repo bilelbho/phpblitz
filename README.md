@@ -91,7 +91,13 @@ PHP, Git and Composer on your PATH turn on running PHP, tests, the Git tools and
 </table>
 
 - **Editor**: PHP highlighting, completion, rendered doc comments, bookmarks, soft wrap, Markdown preview,
-  TODO comments (with a TODO tool window).
+  TODO comments (with a TODO tool window). Typos in names, comments and strings get a green wavy
+  underline (camelCase and snake_case names are split into words); Alt+Enter renames to the
+  correction or saves the word to the project's dictionary. The lock in the status bar makes a
+  file read-only.
+- **Local History**: every save is kept, also the versions you never committed. Right-click a file ▸
+  *Local History…* shows each version as a diff against the current text and reverts to it in one
+  undoable step.
 - **Navigation without a language server**: Go to Definition (Ctrl+B), Find Usages (Alt+F7), Show
   Usages (Ctrl+Alt+F7) and Rename (Shift+F6) work from PHPBlitz's own index of your project and `vendor/`,
   cached in the project's `.blitz` folder. Back and Forward (Ctrl+Alt+← / →, or the mouse's side
@@ -107,17 +113,26 @@ PHP, Git and Composer on your PATH turn on running PHP, tests, the Git tools and
   packages in `node_modules`. The **npm** tool window lists each `package.json` with its scripts
   and runs them in the terminal.
 - **Git**: change markers, diff viewer, commit, push and pull, branches, log with graph, annotations
-  (blame), stash.
+  (blame), stash. The Commit window has amend and fixup commits, AI commit messages and a menu on
+  every file and group (commit only these, Add to .gitignore, Copy as Patch…); *Rollback…* opens a
+  panel where you check the files to put back.
 - **Databases**: PostgreSQL, MySQL/MariaDB and SQLite: schema tree, query consoles, table data, table
-  editing. Passwords stay in your system's credential store.
+  editing. *Add from .env* fills in the connection from Laravel's `DB_*` or Symfony's `DATABASE_URL`.
+  Passwords stay in your system's credential store.
 - **Tests**: PHPUnit and Pest. ▶ in the gutter beside each test class, test method and Pest test
   (green or red after a run), Ctrl+Shift+F10 runs the test at the caret, and the Run window shows
   the results as a tree with failures, expected / actual values, clickable stack traces and output.
   Rerun failed tests, rerun one data set, or debug a test. Runs with the project's PHP interpreter,
   local or in Docker.
 - **Debugging**: Xdebug 3 step debugging with breakpoints, variables, watches and inline values.
-- **Terminal**: real shells in tabs (PowerShell, cmd, Git Bash, WSL, bash, zsh…).
-- **Composer**: installed packages, available updates.
+- **Terminal**: real shells in tabs and splits (PowerShell, cmd, Git Bash, WSL, bash, zsh…). File paths
+  in the output (`User.php:12`, stack traces) open in the editor on click, Ctrl+F finds in the
+  output, Ctrl+↑ / ↓ jump between commands, and *Copy Last Command Output* is one right-click away.
+- **Composer**: installed packages, available updates. A project without `vendor/` says so and offers
+  *Run composer install* instead of showing errors about unknown classes.
+- **Comfort**: *Help ▸ Keyboard Shortcuts* lists every shortcut, searchable by name or keys. Drag files
+  from Explorer or Finder onto the Project tree to copy them in, or onto the editor to open them.
+  Tool windows can show their names under the icons (right-click a stripe).
 - **AI assistant** (your own Anthropic, OpenAI or Gemini API key, or local models through Ollama):
   a chat that knows the open file, the selection, its problems and the classes it uses (from the
   index), with Apply and Show diff on its code; Edit with AI (Ctrl+Shift+I) shows the change as a
@@ -135,9 +150,9 @@ PHPBlitz keeps per-project files in a `.blitz` folder in your project:
 
 | File | What | Commit it? |
 | --- | --- | --- |
-| `project.json` | PHP settings, Excluded folders | Yes, to share them |
+| `project.json` | PHP settings, Excluded folders, the spelling dictionary | Yes, to share them |
 | `workspace.json` | Bookmarks, recent files, data sources, debugger watches | No (git-ignored) |
-| `cache/` | The symbol index | No (git-ignored) |
+| `cache/` | The symbol index, Local History | No (git-ignored) |
 
 ## Your code and privacy
 
@@ -164,6 +179,9 @@ More in [SECURITY.md](SECURITY.md).
   project and each file you open; *Copy Report* and attach it to an issue.
 - **Many problems about unknown classes:** run `composer install` so `vendor/` exists; until then
   PHPBlitz holds back type checking and says so.
+- **Something went wrong:** a panel that fails shows *Reload panel* instead of taking the window
+  down. **Help ▸ Diagnostic Tools ▸ Error Log** lists what failed; *Copy Report* and attach it to an
+  issue.
 - **Linux: "External file changes sync may be slow":** the system's file watch limit is too low for
   the project. The notification has a button that copies the command to raise it.
 - **Linux: blank or flickering window** (seen with some graphics drivers): set the environment
