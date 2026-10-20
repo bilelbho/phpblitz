@@ -707,7 +707,7 @@ fn php_files(root: &str, excludes: &[String]) -> Vec<(String, u64, u64)> {
             let name = entry.file_name().to_string_lossy().to_string();
             let path = crate::fs::norm(&entry.path());
             if t.is_dir() {
-                if !crate::project::skips(&name, crate::project::Purpose::Index) && !excluded.contains(&path) {
+                if !crate::project::skips(&name, crate::project::Purpose::Index) && !excluded.contains(&path) && !crate::project::is_vendor_data(&path) {
                     stack.push(entry.path());
                 }
             } else if t.is_file() && name.ends_with(".php") && !name.ends_with(".blade.php") {

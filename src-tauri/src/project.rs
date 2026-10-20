@@ -14,6 +14,16 @@ pub const GENERATED_DIRS: &[&str] = &["node_modules", "storage", "target", "dist
 /// Composer's dependencies.
 pub const DEPENDENCY_DIR: &str = "vendor";
 
+/// Data folders inside packages (`vendor/symfony/intl/Resources/data`: locale tables as PHP arrays).
+/// No classes or functions, yet about half of a Symfony app's vendor source: the index and Mago
+/// skip them.
+pub const VENDOR_DATA_GLOB: &str = "**/vendor/**/Resources/data/**";
+
+/// Whether a folder is a package's data folder (see [`VENDOR_DATA_GLOB`]); `path` with `/`.
+pub fn is_vendor_data(path: &str) -> bool {
+    path.ends_with("/Resources/data") && path.contains("/vendor/")
+}
+
 /// The file watcher: folders it never watches, at any depth (huge, or tool state).
 pub const NEVER_WATCHED: &[&str] = &["node_modules", ".cache", ".git", ".svn", ".hg", ".idea", ".blitz"];
 
@@ -70,6 +80,16 @@ impl Excluded {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+    #[test]
+    fn package_data_folders_are_skipped() {
+        assert!(is_vendor_data("C:/p/vendor/symfony/intl/Resources/data"));
+        // The project's own data, and vendor code folders, are not.
+        assert!(!is_vendor_data("C:/p/src/Resources/data"));
+        assert!(!is_vendor_data("C:/p/vendor/symfony/intl/Resources"));
+        assert!(!is_vendor_data("C:/p/vendor/acme/lib/src/Data"));
+    }
 
     #[test]
     fn purposes_differ_only_where_they_should() {

@@ -334,7 +334,8 @@ fn lowest_php_version(constraint: &str) -> Option<PHPVersion> {
 fn configuration(root: &str, info: &ProjectInfo, excluded: &[String]) -> OrchestratorConfiguration<'static> {
     // The configuration lives as long as the leaked orchestrator that borrows it.
     // Generated code and caches (Laravel, Symfony), excluded.
-    let mut excludes: Vec<&'static str> = vec!["node_modules", "storage", "bootstrap/cache", "var/cache", "var/log", ".blitz"];
+    // Packages' data folders (locale tables) hold no declarations: not read at all.
+    let mut excludes: Vec<&'static str> = vec!["node_modules", "storage", "bootstrap/cache", "var/cache", "var/log", ".blitz", crate::project::VENDOR_DATA_GLOB];
     excludes.extend(excluded.iter().filter(|e| !e.is_empty() && !e.contains("..")).map(|e| &*Box::leak(e.clone().into_boxed_str())));
     let mut linter_settings = mago_linter::settings::Settings { php_version: info.php, integrations: info.integrations, ..Default::default() };
     if let Some(rules) = &info.rules {
