@@ -125,6 +125,20 @@ pub fn run() {
             search::replace_in_files,
             search::replace_in_text,
         ])
+        .setup(|app| {
+            // The window starts hidden and the UI shows it once it knows what to show (the welcome
+            // screen, or the reopened project maximized). If the page never gets that far, it
+            // shows anyway: an empty window beats an invisible app.
+            if let Some(window) = app.get_webview_window("main") {
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    if !window.is_visible().unwrap_or(true) {
+                        let _ = window.show();
+                    }
+                });
+            }
+            Ok(())
+        })
         .build(tauri::generate_context!())
         .expect("error while building PHPBlitz")
         .run(|app, event| {

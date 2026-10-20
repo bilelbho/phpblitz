@@ -1,26 +1,47 @@
 import { useCallback, useEffect, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
 import type { Backend } from './backend/types';
 import { DiskBackend } from './backend/disk';
 import { SampleBackend } from './backend/sample';
 import { isTauri, pickFolder, rememberProject } from './platform';
 import { useApplyUiSettings } from './uiSettings';
-import { useSettings } from './settings';
+import { getSettings, useSettings } from './settings';
 import { Welcome } from './components/Welcome';
 import { WorkspaceView } from './components/lazy';
 import { projectStorage } from './projectStorage';
-import { openProjectDictionary } from './editor/spelling';
 import { perf } from './perf';
 import { startUpdateChecks } from './updater';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { syncMcpServer } from './mcp';
-import { registerGhostText } from './ai/ghost';
+
+const OPEN_PROJECT_KEY = 'phpblitz.openProject';
+
+/** The project open when PHPBlitz last closed (none: it was on the welcome screen). */
+function openProjectAtExit(): string | null {
+  try {
+    return localStorage.getItem(OPEN_PROJECT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function setOpenProject(root: string | null) {
+  try {
+    if (root) localStorage.setItem(OPEN_PROJECT_KEY, root);
+    else localStorage.removeItem(OPEN_PROJECT_KEY);
+  } catch {
+    // Only a convenience.
+  }
+}
 
 /** The welcome window's size (as in tauri.conf.json). */
 const WELCOME_SIZE = { width: 820, height: 620 };
 
 export default function App() {
   const [backend, setBackend] = useState<Backend | null>(null);
+  /** Startup: deciding whether to reopen the project that was open when PHPBlitz closed. */
+  const [starting, setStarting] = useState(() => isTauri && getSettings().ui.reopenLastProject && !!openProjectAtExit());
 
   const openPath = useCallback(async (path: string) => {
     const b = new DiskBackend(path);
@@ -28,7 +49,9 @@ export default function App() {
     perf.begin(b.root);
     // Its .blitz settings first: the workspace reads them as it opens.
     await perf.time('Project settings (.blitz)', projectStorage.open(b.root));
-    openProjectDictionary(b.root);
+    // The spell checker (and with it the code editor) loads with the project, not at startup.
+    void import('./editor/spelling').then((m) => m.openProjectDictionary(b.root));
+    setOpenProject(b.root);
     setBackend(b);
   }, []);
 
@@ -38,16 +61,29 @@ export default function App() {
   }, [openPath]);
 
   const openSample = useCallback(() => {
+    setOpenProject(null);
     void projectStorage.close();
     perf.begin('sample project');
     setBackend(new SampleBackend());
+  }, []);
+
+  // The project open when PHPBlitz was closed opens again (not if the welcome screen was showing).
+  useEffect(() => {
+    if (!starting) return;
+    const root = openProjectAtExit()!;
+    invoke('list_dir', { path: root })
+      .then(() => openPath(root))
+      .catch(() => setOpenProject(null))
+      .finally(() => setStarting(false));
+    // Once, at startup.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useApplyUiSettings();
   useEffect(startUpdateChecks, []);
   const ghostText = useSettings().ai.ghostText;
   useEffect(() => {
-    if (ghostText && isTauri) registerGhostText();
+    if (ghostText && isTauri) void import('./ai/ghost').then((m) => m.registerGhostText());
   }, [ghostText]);
   const ai = useSettings().ai;
   useEffect(() => {
@@ -63,7 +99,7 @@ export default function App() {
   // A small centered welcome window, maximized once a project is open.
   const hasProject = !!backend;
   useEffect(() => {
-    if (!isTauri) return;
+    if (!isTauri || starting) return;
     const win = getCurrentWindow();
     const apply = hasProject
       ? async () => {
@@ -76,11 +112,17 @@ export default function App() {
           await win.setSize(new LogicalSize(WELCOME_SIZE.width, WELCOME_SIZE.height));
           await win.center();
         };
-    apply().catch(() => {});
-  }, [hasProject]);
+    // The window starts hidden (tauri.conf.json): shown once it has its size, so a reopened project
+    // never flashes a small empty window first.
+    apply()
+      .catch(() => {})
+      .finally(() => void win.show().catch(() => {}));
+  }, [hasProject, starting]);
 
   // The demo project is only for the browser preview (npm run dev), where folders cannot be opened.
   // Last resort: anything not caught closer (each panel has its own) shows a message, not a blank window.
+  // Reopening the last project: nothing to show for the few milliseconds that takes.
+  if (!backend && starting) return null;
   if (!backend)
     return (
       <ErrorBoundary name="PHPBlitz" variant="window">
@@ -95,6 +137,7 @@ export default function App() {
         onOpenFolder={openFolder}
         onOpenPath={openPath}
         onClose={() => {
+          setOpenProject(null);
           void projectStorage.close();
           setBackend(null);
         }}

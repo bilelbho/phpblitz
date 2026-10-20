@@ -81,6 +81,8 @@ export interface UiSettings {
   menuIcons: boolean;
   /** Tool window names under the stripe icons. On for new installs, so the icons are learnable. */
   toolNames: boolean;
+  /** Startup: the project that was open when PHPBlitz closed opens again (else the welcome screen). */
+  reopenLastProject: boolean;
   indentGuides: boolean;
   smallerIndents: boolean;
   toolWindowBars: boolean;
@@ -193,6 +195,7 @@ export const DEFAULT_SETTINGS: Settings = {
     smoothScrolling: false,
     menuIcons: true,
     toolNames: true,
+    reopenLastProject: true,
     indentGuides: false,
     smallerIndents: false,
     toolWindowBars: true,
