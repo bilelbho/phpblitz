@@ -9,7 +9,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { ShellSpec } from './terminal/manager';
 import { getSettings } from './settings';
-import { interpretersFor, projectPhp } from './interpreters';
+import { projectLocalPhp } from './interpreters';
 import { commandLine } from './agents';
 import { isTauri } from './platform';
 
@@ -31,15 +31,9 @@ async function exists(path: string): Promise<boolean> {
   return entries.some((e) => e.name.toLowerCase() === name);
 }
 
-/** The project's local PHP interpreter, if one is set. */
-function projectPhpPath(root: string): string | null {
-  const id = projectPhp(root).interpreterId;
-  const i = interpretersFor(root).find((x) => x.id === id);
-  return i?.kind === 'local' && i.phpPath ? i.phpPath : null;
-}
 
 /** `php`: the PHP to run a .phar with, when not the project's saved interpreter (Settings shows its draft). */
-export async function composerRunner(root: string, php: string | null = projectPhpPath(root)): Promise<ComposerRunner> {
+export async function composerRunner(root: string, php: string | null = projectLocalPhp(root)): Promise<ComposerRunner> {
   const withPhp = (phar: string, from: string): ComposerRunner => ({ program: php ?? 'php', prefix: [phar], description: `${phar} (${from}), run with ${php ?? 'php from PATH'}` });
   const configured = getSettings().composer.path.trim().replace(/\\/g, '/');
   if (configured) return /\.phar$/i.test(configured) ? withPhp(configured, 'Settings') : { program: configured, prefix: [], description: `${configured} (Settings)` };

@@ -46,7 +46,7 @@ import type { SearchOptions, SearchResult } from './search';
 import { applyEditNow, findUsages as lspFindUsages, renameSymbol, setActiveLsp, type Usage } from './lsp/monacoBridge';
 import type { Diagnostic, WorkspaceEdit } from './lsp/protocol';
 import { debug, useDebug } from './debug/manager';
-import { useInterpreters } from './interpreters';
+import { projectLocalPhp, useInterpreters } from './interpreters';
 import { projectStorage } from './projectStorage';
 
 /** `preview`: the preview tab (italic), replaced by the next previewed file. */
@@ -268,6 +268,8 @@ export function useWorkspace(backend: Backend) {
     setNotices((list) => [{ ...n, id }, ...list.filter((x) => x.title !== n.title || x.body !== n.body)].slice(0, 30));
   }, []);
   const dismissNotice = useCallback((id: number) => setNotices((list) => list.filter((n) => n.id !== id)), []);
+  /** A notice whose cause is gone (PHP was set up, vendor/ installed…). */
+  const dismissNoticeTitled = useCallback((title: string) => setNotices((list) => (list.some((n) => n.title === title) ? list.filter((n) => n.title !== title) : list)), []);
 
   // ── Tool windows ──────────────────────────────────────────────
   // Side tool windows: where each lives (draggable between the strips) and which is open in each place.
@@ -1207,6 +1209,16 @@ export function useWorkspace(backend: Backend) {
   const setListening = useCallback((on: boolean) => void (on ? debug.startListening() : debug.stopListening()), []);
   /** PHP on PATH: its version, `null` when not found, `undefined` while still checking. */
   const [phpVersion, setPhpVersion] = useState<string | null | undefined>(undefined);
+  // Notices that resolved themselves go away: vendor/ installed, PHP set up for the project.
+  const needsInstall = magoStatus.summary?.needsInstall;
+  useEffect(() => {
+    if (needsInstall === false) dismissNoticeTitled("Dependencies aren't installed");
+  }, [needsInstall, dismissNoticeTitled]);
+  const interpretersVersion = useInterpreters();
+  const hasPhp = !!phpVersion || !!projectLocalPhp(backend.root);
+  useEffect(() => {
+    if (hasPhp) dismissNoticeTitled('PHP was not found');
+  }, [hasPhp, interpretersVersion, dismissNoticeTitled]);
 
   // ── Language server lifecycle ─────────────────────────────────
   const latestOpen = useRef(openFile);
@@ -1807,7 +1819,6 @@ export function useWorkspace(backend: Backend) {
   reanalyzeRef.current = openWithMago;
 
   // The debugger follows the project (interpreter → path mappings) and the editor's breakpoints.
-  const interpretersVersion = useInterpreters();
   useEffect(() => {
     void debug.setProject(backend.root);
   }, [backend]);
@@ -2054,7 +2065,8 @@ export function useWorkspace(backend: Backend) {
     perf.time('PHP version', backend.phpVersion(), (v) => v || 'PHP not found').then((v) => {
       if (cancelled) return;
       setPhpVersion(v);
-      if (!v) {
+      // With an interpreter set for the project, PHP on the PATH isn't needed.
+      if (!v && !projectLocalPhp(backend.root)) {
         notify({
           title: 'PHP was not found',
           body: 'PHP is needed for syntax checking, tests and debugging. Choose an installed PHP, or install it and add it to PATH.',

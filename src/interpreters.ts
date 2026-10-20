@@ -132,6 +132,13 @@ export function saveProjectPhp(root: string, value: ProjectPhp) {
 }
 
 /** Re-renders when interpreters or a project's PHP settings change. */
+/** The project's local PHP interpreter (its php executable), if one is set. */
+export function projectLocalPhp(root: string): string | null {
+  const id = projectPhp(root).interpreterId;
+  const i = interpretersFor(root).find((x) => x.id === id);
+  return i?.kind === 'local' && i.phpPath ? i.phpPath : null;
+}
+
 export function useInterpreters() {
   return useSyncExternalStore(
     (l) => {

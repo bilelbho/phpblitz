@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { parseStatusV2, toChanges } from '../git/status';
 import { dirMarks } from '../dirMarks';
 import { composerShellLine } from '../composer';
+import { projectLocalPhp } from '../interpreters';
 import type { Backend, CommitOptions, Entry, GitInfo, Package, Problem, RunResult } from './types';
 
 const PACKAGE_NAME = /^[\w.-]+\/[\w.-]+$/;
@@ -147,7 +148,7 @@ export class DiskBackend implements Backend {
   async lint(path: string): Promise<Problem[]> {
     let r: RunResult;
     try {
-      r = await this.proc('php', ['-l', path]);
+      r = await this.proc(projectLocalPhp(this.root) ?? 'php', ['-l', path]);
     } catch {
       return []; // PHP is not installed; reported once through notifications.
     }
