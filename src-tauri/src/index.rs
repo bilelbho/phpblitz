@@ -635,6 +635,22 @@ pub(crate) fn overview(state: &IndexState) -> Result<(String, usize, usize), Str
     Ok((idx.root.clone(), idx.files.len(), idx.by_fqn.len()))
 }
 
+/// The names the project declares, as written: classes (`App\Entity\User`), their methods,
+/// properties and constants (`hasTeamleadRole`), and functions; with a value that changes with the
+/// index (the spell checker rebuilds its known words when it does).
+pub(crate) fn declared_names(state: &IndexState) -> Result<(usize, Vec<String>), String> {
+    let idx = state.index.read().map_err(|e| e.to_string())?;
+    let mut names = Vec::new();
+    for f in idx.files.values() {
+        for c in &f.symbols.classes {
+            names.push(c.fqn.clone());
+            names.extend(c.members.iter().map(|m| m.name.clone()));
+        }
+        names.extend(f.symbols.functions.iter().map(|func| func.name.clone()));
+    }
+    Ok((idx.files.len() ^ idx.by_fqn.len().rotate_left(20), names))
+}
+
 /// The cache file: in the project's `.blitz/cache`, or in the app's cache
 /// folder when the project can't be written to.
 fn cache_path(app: &AppHandle, root: &str) -> Option<PathBuf> {

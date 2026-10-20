@@ -30,6 +30,7 @@ import {
 } from '../interpreters';
 import { ContextMenu, type ContextItem } from './ContextMenu';
 import { Icon } from './Icon';
+import { useDialogFocus } from './useDialogFocus';
 
 const nativePath = (p: string) => (/^[A-Za-z]:\//.test(p) ? p.replace(/\//g, '\\') : p);
 
@@ -310,13 +311,14 @@ function CliInterpreters({ ws, selected, onClose }: { ws: Workspace; selected: s
 
   const apply = () => saveInterpreters(list);
 
+  const dialogRef = useDialogFocus();
   return (
     <div className="modal-backdrop settings-backdrop" style={{ zIndex: 90 }} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
         className="pb-dialog cli-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="CLI Interpreters"
+        ref={dialogRef} tabIndex={-1} aria-label="CLI Interpreters"
         onKeyDown={(e) => {
           if (e.key === 'Escape' && !remote && !menu) {
             e.stopPropagation();
@@ -639,13 +641,14 @@ function RemoteInterpreterDialog({ ws, onClose }: { ws: Workspace; onClose: (cre
     onClose({ ...value, name: `PHP (${name})` });
   };
 
+  const dialogRef = useDialogFocus();
   return (
     <div className="modal-backdrop" style={{ zIndex: 95 }} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
         className="pb-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="Configure Remote PHP Interpreter"
+        ref={dialogRef} tabIndex={-1} aria-label="Configure Remote PHP Interpreter"
         style={{ width: 620 }}
         onKeyDown={(e) => {
           if (e.key === 'Escape') {

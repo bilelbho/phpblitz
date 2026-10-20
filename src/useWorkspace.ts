@@ -39,7 +39,7 @@ import { bookmarks } from './bookmarks';
 import { planForTarget, renameEdits } from './rename';
 import { perf } from './perf';
 import { insertTab, nextActive, overLimit } from './tabPolicy';
-import { getSettings } from './settings';
+import { getSettings, useSettings } from './settings';
 import { Git } from './git/git';
 import type { SearchOptions, SearchResult } from './search';
 import { applyEditNow, findUsages as lspFindUsages, renameSymbol, setActiveLsp, type Usage } from './lsp/monacoBridge';
@@ -572,6 +572,17 @@ export function useWorkspace(backend: Backend) {
     if (!path.endsWith('.php') || largeFiles.current.has(path)) return;
     analysisQueue.current!.request(path, text, delay);
   }, []);
+
+  // Settings ▸ PHP ▸ Mago: the lint levels go to Mago (it applies them unless the project has a
+  // mago.toml), and the open files are checked again with them.
+  const magoLevels = JSON.stringify(useSettings().mago);
+  useEffect(() => {
+    if (!magoAvailable || !isTauri) return;
+    void invoke('mago_set_levels', { levels: JSON.parse(magoLevels) }).then(
+      () => Object.entries(liveText.current).forEach(([path, text]) => checkFile(path, text)),
+      () => {},
+    );
+  }, [magoLevels, checkFile]);
 
   const refreshProjectProblems = useCallback(async () => {
     if (!magoAvailable || backend.kind !== 'disk') return;

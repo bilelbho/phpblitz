@@ -6,6 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Workspace } from '../useWorkspace';
 import { isTauri } from '../platform';
 import { EXPORT_FORMATS, exportText, type ExportData, type ExportFormat, type ExportOptions } from '../db/export';
+import { useDialogFocus } from './useDialogFocus';
 
 export interface ExportScope {
   id: string;
@@ -70,9 +71,10 @@ export function ExportDialog({ ws, scopes, fileName, options, onClose }: { ws: W
     }
   };
 
+  const dialogRef = useDialogFocus();
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="pb-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title" style={{ width: 420 }} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      <div className="pb-dialog" role="dialog" aria-modal="true" ref={dialogRef} tabIndex={-1} aria-labelledby="export-title" style={{ width: 420 }} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
         <div className="pb-dialog-title" id="export-title">
           Export Data
         </div>

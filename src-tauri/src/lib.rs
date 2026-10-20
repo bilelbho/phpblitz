@@ -101,6 +101,8 @@ pub fn run() {
             mago::mago_disable_rule,
             mago::mago_ensure_config,
             mago::mago_sync,
+            mago::mago_set_levels,
+            mago::mago_rules,
             watcher::watch_start,
             watcher::watch_stop,
             pty::terminal_shells,

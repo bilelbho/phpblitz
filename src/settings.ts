@@ -153,6 +153,17 @@ export interface AiSettings {
   ghostText: boolean;
 }
 
+/** A lint rule's level in the editor: "error", "warning", "weak" (weak warning) or "off". */
+export type MagoLevel = 'error' | 'warning' | 'weak' | 'off';
+
+/** Mago's lint levels for projects without their own mago.toml (Settings ▸ PHP ▸ Mago). */
+export interface MagoSettings {
+  /** By Mago's rule category ("maintainability", "security"…); missing: as Mago sets it. */
+  categories: Record<string, MagoLevel>;
+  /** By rule code ("sensitive-parameter"); wins over the category. */
+  rules: Record<string, MagoLevel>;
+}
+
 export interface Settings {
   ui: UiSettings;
   tabs: TabSettings;
@@ -160,6 +171,7 @@ export interface Settings {
   terminal: TerminalSettings;
   debug: DebugSettings;
   ai: AiSettings;
+  mago: MagoSettings;
 }
 
 /** The defaults. */
@@ -260,6 +272,8 @@ export const DEFAULT_SETTINGS: Settings = {
     fastModel: 'claude-haiku-5-5',
     ghostText: false,
   },
+  // Design hints (complexity, too many methods…) and a style-like security hint are advice, not errors.
+  mago: { categories: { maintainability: 'weak' }, rules: { 'sensitive-parameter': 'weak' } },
 };
 
 const KEY = 'phpblitz.settings';
@@ -290,6 +304,8 @@ function load(): Settings {
       terminal: { ...DEFAULT_SETTINGS.terminal, ...(saved.terminal ?? {}) },
       debug: { ...DEFAULT_SETTINGS.debug, ...(saved.debug ?? {}) },
       ai: { ...DEFAULT_SETTINGS.ai, ...(saved.ai ?? {}) },
+      // Saved levels replace the defaults as a whole (an empty list means "as Mago sets them").
+      mago: saved.mago ? { categories: saved.mago.categories ?? {}, rules: saved.mago.rules ?? {} } : DEFAULT_SETTINGS.mago,
     };
   } catch {
     return DEFAULT_SETTINGS;

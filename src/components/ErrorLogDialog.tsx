@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { clearErrors, errorReport, systemLine, useErrorLog } from '../errorLog';
 import { Icon } from './Icon';
+import { useDialogFocus } from './useDialogFocus';
 
 export function ErrorLogDialog({ onClose }: { onClose: () => void }) {
   const entries = useErrorLog();
@@ -19,9 +20,10 @@ export function ErrorLogDialog({ onClose }: { onClose: () => void }) {
       () => show('failed'),
     );
 
+  const dialogRef = useDialogFocus();
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="pb-dialog error-log" role="dialog" aria-modal="true" aria-label="Error Log" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      <div className="pb-dialog error-log" role="dialog" aria-modal="true" ref={dialogRef} tabIndex={-1} aria-label="Error Log" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
         <div className="ai-dialog-title">
           <Icon name="warning" size={14} />
           Error Log

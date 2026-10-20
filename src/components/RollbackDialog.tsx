@@ -7,6 +7,7 @@ import type { Workspace } from '../useWorkspace';
 import { baseName, relativePath, type GitChange } from '../backend/types';
 import { FileIcon } from './FileIcon';
 import { Icon } from './Icon';
+import { useDialogFocus } from './useDialogFocus';
 
 const STATUS_LABEL = { M: 'modified', A: 'added', D: 'deleted', R: 'renamed', U: 'unversioned' } as const;
 
@@ -97,13 +98,14 @@ export function RollbackDialog({ ws, paths, onClose }: { ws: Workspace; paths: s
     </div>
   );
 
+  const dialogRef = useDialogFocus();
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
         className="pb-dialog rollback-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="Rollback Changes"
+        ref={dialogRef} tabIndex={-1} aria-label="Rollback Changes"
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
             e.stopPropagation();

@@ -16,6 +16,7 @@
 //! Framework rules (Laravel, Symfony, PHPUnit, …) and the PHP version come from composer.json.
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -43,6 +44,18 @@ use serde::Serialize;
 const PRELUDE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/prelude.bin"));
 
 /// PHP's built-in declarations, decoded once; each analysis gets its own copy.
+/// PHP's own classes and functions with their methods, as written (`SimpleXMLElement`,
+/// `getPathname`, `realpath`): words the spell checker knows.
+pub(crate) fn builtin_names() -> Vec<String> {
+    let Ok(prelude) = prelude() else { return Vec::new() };
+    let meta = &prelude.metadata;
+    meta.class_likes
+        .values()
+        .map(|c| c.original_name.to_string())
+        .chain(meta.function_likes.values().map(|f| f.original_name.to_string()))
+        .collect()
+}
+
 fn prelude() -> Result<mago_prelude::Prelude, String> {
     static DECODED: OnceLock<Result<mago_prelude::Prelude, String>> = OnceLock::new();
     DECODED.get_or_init(|| mago_prelude::Prelude::decode(PRELUDE).map_err(|e| format!("Mago prelude: {e}"))).clone()
@@ -740,10 +753,103 @@ pub async fn mago_close(state: tauri::State<'_, MagoState>) -> Result<(), String
 pub async fn mago_check(state: tauri::State<'_, MagoState>, path: String, content: String) -> Result<Vec<Diagnostic>, String> {
     state
         .with(move |slot| match slot.as_mut().filter(|e| relative(&e.root, &path).is_some()) {
-            Some(engine) => engine.check(&path, content),
-            None => Ok(lint_standalone(&path, content)),
+            // A project with its own mago.toml: its levels, as the mago CLI applies them.
+            Some(engine) if engine.summary.config_file.is_some() => engine.check(&path, content),
+            Some(engine) => engine.check(&path, content).map(apply_levels),
+            None => Ok(apply_levels(lint_standalone(&path, content))),
         })
         .await
+}
+
+// ── Lint levels from PHPBlitz's settings (projects without mago.toml) ───────
+//
+// Mago's defaults are tuned for CI, where a design hint ("too many methods") failing the build is
+// a choice. In the editor that reads as an error on code that works, so PHPBlitz's settings can
+// change a rule's level by category (Maintainability → weak warning by default) or one by one.
+
+#[derive(Default, serde::Deserialize)]
+pub struct Levels {
+    /// Category ("maintainability", "security"…) → "error", "warning", "weak" or "off".
+    #[serde(default)]
+    categories: HashMap<String, String>,
+    /// Rule code ("sensitive-parameter") → the same; wins over its category.
+    #[serde(default)]
+    rules: HashMap<String, String>,
+}
+
+static LEVELS: std::sync::LazyLock<std::sync::RwLock<Levels>> = std::sync::LazyLock::new(Default::default);
+
+/// Every lint rule's category, by code.
+static CATEGORIES: std::sync::LazyLock<HashMap<&'static str, &'static str>> = std::sync::LazyLock::new(|| {
+    let settings = mago_linter::settings::Settings { integrations: IntegrationSet::all(), ..Default::default() };
+    mago_linter::registry::RuleRegistry::build(&settings, None, true).rules().iter().map(|r| (r.meta().code, category_key(r.meta().category))).collect()
+});
+
+fn category_key(c: mago_linter::category::Category) -> &'static str {
+    use mago_linter::category::Category::*;
+    match c {
+        Clarity => "clarity",
+        BestPractices => "best-practices",
+        Consistency => "consistency",
+        Deprecation => "deprecation",
+        Maintainability => "maintainability",
+        Redundancy => "redundancy",
+        Security => "security",
+        Safety => "safety",
+        Correctness => "correctness",
+    }
+}
+
+fn apply_levels(mut out: Vec<Diagnostic>) -> Vec<Diagnostic> {
+    let levels = LEVELS.read().unwrap();
+    if levels.categories.is_empty() && levels.rules.is_empty() {
+        return out;
+    }
+    out.retain_mut(|d| {
+        if d.source != "lint" {
+            return true;
+        }
+        let level = levels.rules.get(&d.code).or_else(|| CATEGORIES.get(d.code.as_str()).and_then(|c| levels.categories.get(*c)));
+        match level.map(String::as_str) {
+            Some("off") => false,
+            Some("error") => (d.severity = "error", true).1,
+            Some("warning") => (d.severity = "warning", true).1,
+            Some("weak") => (d.severity = "info", true).1,
+            _ => true,
+        }
+    });
+    out
+}
+
+/// PHPBlitz's lint levels (Settings ▸ PHP ▸ Mago), for projects without a mago.toml.
+#[tauri::command]
+pub async fn mago_set_levels(levels: Levels) -> Result<(), String> {
+    *LEVELS.write().unwrap() = levels;
+    Ok(())
+}
+
+#[derive(Serialize)]
+pub struct RuleInfo {
+    code: &'static str,
+    name: &'static str,
+    category: &'static str,
+    description: &'static str,
+}
+
+/// Mago's lint rules, for the settings page.
+#[tauri::command]
+pub async fn mago_rules() -> Result<Vec<RuleInfo>, String> {
+    let settings = mago_linter::settings::Settings { integrations: IntegrationSet::all(), ..Default::default() };
+    let mut rules: Vec<RuleInfo> = mago_linter::registry::RuleRegistry::build(&settings, None, true)
+        .rules()
+        .iter()
+        .map(|r| {
+            let m = r.meta();
+            RuleInfo { code: m.code, name: m.name, category: category_key(m.category), description: m.description }
+        })
+        .collect();
+    rules.sort_by_key(|r| r.code);
+    Ok(rules)
 }
 
 /// Project files changed or deleted on disk: reads the changed ones, drops the deleted ones, and
@@ -889,6 +995,30 @@ pub async fn mago_format(state: tauri::State<'_, MagoState>, content: String) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+    #[test]
+    fn settings_change_lint_levels() {
+        assert_eq!(CATEGORIES.get("too-many-methods"), Some(&"maintainability"));
+        assert_eq!(CATEGORIES.get("sensitive-parameter"), Some(&"security"));
+        let d = |code: &str, severity: &'static str, source: &'static str| Diagnostic {
+            line: 1, column: 1, end_line: 1, end_column: 2, severity, code: code.into(), message: String::new(), help: None, source, fixes: Vec::new(),
+        };
+        *LEVELS.write().unwrap() = Levels {
+            categories: [("maintainability".to_string(), "weak".to_string())].into(),
+            rules: [("sensitive-parameter".to_string(), "off".to_string()), ("cyclomatic-complexity".to_string(), "warning".to_string())].into(),
+        };
+        let out = apply_levels(vec![
+            d("too-many-methods", "error", "lint"),
+            d("cyclomatic-complexity", "error", "lint"),
+            d("sensitive-parameter", "error", "lint"),
+            d("too-many-methods", "error", "analysis"),
+        ]);
+        *LEVELS.write().unwrap() = Levels::default();
+        let got: Vec<_> = out.iter().map(|d| (d.code.as_str(), d.severity, d.source)).collect();
+        // Category, then the rule's own level (it wins); "off" removes it; analysis isn't touched.
+        assert_eq!(got, [("too-many-methods", "info", "lint"), ("cyclomatic-complexity", "warning", "lint"), ("too-many-methods", "error", "analysis")]);
+    }
 
     #[test]
     fn reads_php_version_from_constraints() {

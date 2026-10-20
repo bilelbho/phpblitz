@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import { isTauri } from '../platform';
 import { usePerf, windowReadyMs, type Span } from '../perf';
+import { useDialogFocus } from './useDialogFocus';
 
 const ms = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)} s` : `${n} ms`);
 
@@ -43,9 +44,10 @@ export function StartupPerformance({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const dialogRef = useDialogFocus();
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="pb-dialog perf-dialog" role="dialog" aria-modal="true" aria-labelledby="perf-title" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      <div className="pb-dialog perf-dialog" role="dialog" aria-modal="true" ref={dialogRef} tabIndex={-1} aria-labelledby="perf-title" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
         <div className="pb-dialog-title" id="perf-title">
           Startup Performance
         </div>

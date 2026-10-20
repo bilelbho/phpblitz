@@ -43,6 +43,11 @@ const CODE_WORDS: &str = "
     namespaced unicode wildcard wildcards rollback rollbacks changelog changelogs refactor refactors
     refactoring dataset datasets substring substrings whitelist blacklist allowlist denylist
     unprocessable unauthorized unauthenticated csrf xss cors cookie cookies favicon viewport
+    const goto insteadof enddeclare declare require include once endswitch elseif finally namespace
+    schemas gmail expr
+    href src srcset alt autofocus autocomplete autoplay nowrap maxlength minlength readonly novalidate
+    colspan rowspan tabindex onclick onchange onsubmit enctype formaction textarea iframe noopener
+    noreferrer nofollow viewbox stylesheet charset doctype tbody thead tfoot
     ";
 
 struct Speller {
@@ -67,12 +72,41 @@ impl Speller {
         }
         let known = self.code.contains(&lower)
             || self.project.contains(&lower)
+            || BUILTIN_WORDS.contains(&lower)
             || self.dict.check(word)
             || self.dict.check(&lower)
-            || self.dict.check(&capitalize(&lower));
+            || self.dict.check(&capitalize(&lower))
+            || american(&lower).is_some_and(|us| self.dict.check(&us));
         CACHE.lock().unwrap().insert(lower, known);
         known
     }
+}
+
+/// Words of PHP's own class, function and method names (`SimpleXMLElement` → simple, xml, element).
+static BUILTIN_WORDS: LazyLock<HashSet<String>> = LazyLock::new(|| {
+    let mut words = HashSet::new();
+    for name in crate::mago::builtin_names() {
+        for part in name.split('\\') {
+            words.extend(split_words(part).into_iter().map(|(s, e)| part[s..e].to_ascii_lowercase()));
+        }
+    }
+    words
+});
+
+/// The American spelling of a British one, to check that instead: behaviour → behavior,
+/// initialise → initialize, centre → center, cancelled → canceled.
+fn american(lower: &str) -> Option<String> {
+    let swaps: [(&str, &str); 8] = [
+        ("our", "or"),
+        ("ours", "ors"),
+        ("ise", "ize"),
+        ("ised", "ized"),
+        ("ising", "izing"),
+        ("isation", "ization"),
+        ("tre", "ter"),
+        ("lled", "led"),
+    ];
+    swaps.iter().find_map(|(gb, us)| lower.strip_suffix(gb).filter(|stem| stem.len() >= 3).map(|stem| format!("{stem}{us}")))
 }
 
 fn capitalize(word: &str) -> String {
@@ -126,47 +160,108 @@ pub struct Typo {
     word: String,
 }
 
-fn find_typos(speller: &Speller, text: &str) -> Vec<Typo> {
-    let mut typos = Vec::new();
-    // Runs of letters, digits and _ (names and words); a run with non-ASCII letters is skipped.
+/// Byte ranges of the lines that only name things from elsewhere: `use` and `namespace` (PHP),
+/// `import … from` (JavaScript). Their words aren't checked, and count as known in the file.
+fn import_lines(text: &str) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    for line in text.split_inclusive('\n') {
+        let t = line.trim_start();
+        if ["use ", "namespace ", "import ", "export * from", "} from "].iter().any(|p| t.starts_with(p)) {
+            out.push((start, start + line.len()));
+        }
+        start += line.len();
+    }
+    out
+}
+
+/// The tokens (runs of letters, digits and `_`) of a text: byte start, end and UTF-16 start.
+fn tokens(text: &str) -> Vec<(usize, usize, usize)> {
+    let mut out = Vec::new();
     let mut utf16 = 0;
-    let mut token_start: Option<(usize, usize)> = None; // (byte, utf16)
-    let mut ascii = true;
-    let flush = |start: Option<(usize, usize)>, end_byte: usize, ascii: bool, typos: &mut Vec<Typo>| {
-        let Some((byte, u16_start)) = start else { return };
-        if !ascii {
-            return;
-        }
-        let token = &text[byte..end_byte];
-        for (s, e) in split_words(token) {
-            let word = &token[s..e];
-            if worth_checking(word) && !speller.known(word) {
-                // ASCII: bytes and UTF-16 units are the same inside the token.
-                typos.push(Typo { offset: u16_start + s, length: e - s, word: word.to_string() });
-            }
-        }
-    };
+    let mut start: Option<(usize, usize)> = None;
     for (i, ch) in text.char_indices() {
-        let part_of_token = ch.is_alphanumeric() || ch == '_';
-        if part_of_token {
-            if token_start.is_none() {
-                token_start = Some((i, utf16));
-                ascii = true;
-            }
-            ascii &= ch.is_ascii();
-        } else if token_start.is_some() {
-            flush(token_start.take(), i, ascii, &mut typos);
+        if ch.is_alphanumeric() || ch == '_' {
+            start.get_or_insert((i, utf16));
+        } else if let Some((b, u)) = start.take() {
+            out.push((b, i, u));
         }
         utf16 += ch.len_utf16();
     }
-    flush(token_start.take(), text.len(), ascii, &mut typos);
+    if let Some((b, u)) = start {
+        out.push((b, text.len(), u));
+    }
+    out
+}
+
+#[cfg(test)]
+fn find_typos(speller: &Speller, text: &str) -> Vec<Typo> {
+    find_typos_with(speller, text, &HashSet::new())
+}
+
+/// `known`: more words that are spelled right (lowercase): the project's class names.
+fn find_typos_with(speller: &Speller, text: &str, known: &HashSet<String>) -> Vec<Typo> {
+    let skipped = import_lines(text);
+    let in_skipped = |b: usize| skipped.iter().any(|&(s, e)| b >= s && b < e);
+    let all = tokens(text);
+    // Words of imported and declared names count as known in the whole file (Totp, Scheb…).
+    let mut local: HashSet<String> = HashSet::new();
+    for &(b, e, _) in &all {
+        if in_skipped(b) {
+            let token = &text[b..e];
+            local.extend(split_words(token).into_iter().map(|(s, e)| token[s..e].to_ascii_lowercase()));
+        }
+    }
+    let mut typos = Vec::new();
+    for &(b, e, u16_start) in &all {
+        let token = &text[b..e];
+        // Names with a digit are identifiers, not words: kimai2_users, md5, utf8mb4.
+        if in_skipped(b) || !token.is_ascii() || token.bytes().any(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        for (s, e) in split_words(token) {
+            let word = &token[s..e];
+            if !worth_checking(word) {
+                continue;
+            }
+            let lower = word.to_ascii_lowercase();
+            // A project word in the plural counts too: teamlead → teamleads.
+            let project = |w: &str| local.contains(w) || known.contains(w);
+            let plural_of_project = ["es", "s"].iter().any(|end| lower.strip_suffix(end).is_some_and(|stem| stem.len() >= 3 && project(stem)));
+            if project(&lower) || plural_of_project || speller.known(word) {
+                continue;
+            }
+            // ASCII: bytes and UTF-16 units are the same inside the token.
+            typos.push(Typo { offset: u16_start + s, length: e - s, word: word.to_string() });
+        }
+    }
     typos
+}
+
+/// Words of the names the project declares (`App\Entity\TimesheetMeta` → app, entity, timesheet,
+/// meta; `hasTeamleadRole` → has, teamlead, role), rebuilt when the index changes.
+static INDEX_WORDS: LazyLock<Mutex<(usize, std::sync::Arc<HashSet<String>>)>> = LazyLock::new(|| Mutex::new((usize::MAX, Default::default())));
+
+fn index_words(state: &crate::index::IndexState) -> std::sync::Arc<HashSet<String>> {
+    let Ok((version, names)) = crate::index::declared_names(state) else { return Default::default() };
+    let mut cache = INDEX_WORDS.lock().unwrap();
+    if cache.0 != version {
+        let mut words = HashSet::new();
+        for name in &names {
+            for part in name.split('\\') {
+                words.extend(split_words(part).into_iter().map(|(s, e)| part[s..e].to_ascii_lowercase()));
+            }
+        }
+        *cache = (version, std::sync::Arc::new(words));
+    }
+    cache.1.clone()
 }
 
 /// The misspelled words of a text (a whole file).
 #[tauri::command]
-pub async fn spell_check(text: String) -> Result<Vec<Typo>, String> {
-    tauri::async_runtime::spawn_blocking(move || find_typos(&SPELLER.read().unwrap(), &text)).await.map_err(|e| e.to_string())
+pub async fn spell_check(index: tauri::State<'_, crate::index::IndexState>, text: String) -> Result<Vec<Typo>, String> {
+    let known = index_words(&index);
+    tauri::async_runtime::spawn_blocking(move || find_typos_with(&SPELLER.read().unwrap(), &text, &known)).await.map_err(|e| e.to_string())
 }
 
 /// Corrections for a word, in its capitalization (Stito → Stint, Stipo…), at most `max`.
@@ -246,5 +341,37 @@ mod tests {
         tauri::async_runtime::block_on(spell_set_words(vec!["Qwertz".into()])).unwrap();
         assert!(typos("loadQwertzLayout").is_empty());
         tauri::async_runtime::block_on(spell_set_words(vec![])).unwrap();
+    }
+
+    #[test]
+    fn imports_project_names_and_identifiers_are_not_typos() {
+        let file = r#"<?php
+
+namespace App\Entity;
+
+use Scheb\TwoFactorBundle\Model\Totp\TotpConfiguration;
+use KevinPapst\TablerBundle\Model\UserInterface;
+
+#[ORM\Table(name: 'kimai2_users')]
+class User
+{
+    // Recieve the TOTP secret for Scheb's bundle
+    public function getTotpSecret(): string { return md5('x'); }
+    public function getTimesheetMeta(): TimesheetMeta {}
+}
+"#;
+        // Imported names count in the whole file; kimai2_users and md5 are identifiers.
+        let index: HashSet<String> = ["app", "entity", "timesheet", "meta"].map(String::from).into();
+        let found: Vec<String> = find_typos_with(&SPELLER.read().unwrap(), file, &index).into_iter().map(|t| t.word).collect();
+        assert_eq!(found, ["Recieve"]);
+    }
+
+    #[test]
+    fn php_builtins_and_british_spellings_are_words() {
+        let code = r##"$path = realpath(dirname($file)); ksort($list); $n = intval($s);
+// The behaviour of colour handling: initialise it once (Recieve stays a typo).
+try { $x = new SimpleXMLElement($xml); $f->getPathname(); } catch (Throwable $e) {}
+<input autofocus maxlength="5" href="#">"##;
+        assert_eq!(typos(code), ["Recieve"]);
     }
 }

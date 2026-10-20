@@ -7085,3 +7085,48 @@ body:has(.strip.right.with-names) .balloons {
 .inspections .typo-count {
   color: #5fb865;
 }
+
+/* Settings ▸ PHP ▸ Mago */
+.mago-config-note {
+  margin: 0 0 12px;
+}
+.mago-grid,
+.mago-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mago-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mago-row > span:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mago-row .settings-select {
+  flex: none;
+  width: 160px;
+}
+.mago-grid,
+.mago-rules {
+  max-width: 640px;
+}
+.mago-row > span:first-child {
+  text-align: left;
+}
+.mago-help {
+  font-size: 12px;
+}
+.mago-add {
+  margin-top: 10px;
+}
+
+/* Dialogs take the focus when they open (Escape works): no focus ring on the box itself. */
+[role='dialog']:focus {
+  outline: none;
+}

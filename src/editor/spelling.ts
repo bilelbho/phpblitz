@@ -73,18 +73,41 @@ function readWords(): string[] {
   }
 }
 
-/** The open project changed: its dictionary goes to the checker. */
+/** The project's own name (its folder, composer.json's "name"): known without being saved. */
+let projectWords: string[] = [];
+
+const sendWords = () => (isTauri ? invoke('spell_set_words', { words: [...words, ...projectWords] }).catch(() => {}) : Promise.resolve());
+
+/** The open project changed: its dictionary (and its name) go to the checker. */
 export function openProjectDictionary(projectRoot: string) {
   root = projectRoot;
   words = readWords();
-  if (isTauri) void invoke('spell_set_words', { words }).catch(() => {});
+  projectWords = nameWords(projectRoot.split('/').pop() ?? '');
+  void sendWords();
+  if (!isTauri) return;
+  void invoke<string>('read_file', { path: `${projectRoot}/composer.json` })
+    .then((text) => {
+      const name = (JSON.parse(text) as { name?: unknown }).name;
+      if (typeof name !== 'string' || root !== projectRoot) return;
+      projectWords = [...new Set([...projectWords, ...nameWords(name)])];
+      return sendWords().then(recheckAll);
+    })
+    .catch(() => {});
+}
+
+/** "kimai/kimai", "acme-shop", "MyApp" → its words. */
+function nameWords(name: string): string[] {
+  return name
+    .split(/[^A-Za-z]+/)
+    .flatMap((part) => part.split(/(?<=[a-z])(?=[A-Z])/))
+    .filter((w) => w.length >= 3);
 }
 
 /** Save '…' to dictionary: it counts as spelled right in this project (and for the team). */
 export async function saveToDictionary(word: string) {
   if (!words.some((w) => w.toLowerCase() === word.toLowerCase())) words = [...words, word].sort((a, b) => a.localeCompare(b));
   projectStorage.setItem(dictKey(), JSON.stringify(words));
-  if (isTauri) await invoke('spell_set_words', { words }).catch(() => {});
+  await sendWords();
   recheckAll();
 }
 

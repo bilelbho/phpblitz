@@ -13,6 +13,7 @@ import { PhpPage } from './PhpSettings';
 import { projectPhp, saveProjectPhp, type ProjectPhp } from '../interpreters';
 import { SCHEMES, schemeOf, schemePreview, type SchemeId } from '../editor/themes';
 import { AiAgentsPage } from './SettingsAi';
+import { MagoPage } from './SettingsMago';
 
 interface Page {
   id: string;
@@ -30,6 +31,13 @@ const PAGES: Page[] = [
     label: 'PHP',
     group: 'PHP',
     keywords: 'language level cli interpreter php executable docker compose ssh xdebug debugger extension configuration options include path runtime extensions composer files',
+  },
+  {
+    id: 'mago',
+    label: 'Mago',
+    group: 'PHP',
+    section: 'mago',
+    keywords: 'mago lint linter rules levels severity error warning weak off maintainability complexity too many methods properties sensitive parameter security correctness clarity consistency redundancy deprecation best practices mago.toml',
   },
   {
     id: 'debug',
@@ -135,6 +143,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
       terminal: { ...t, fontSize: clamp(t.fontSize, 6, 48, 13), lineHeight: clamp(t.lineHeight, 0.8, 3, 1) },
       debug: { ...draft.debug, port: clamp(draft.debug.port, 1, 65535, 9003), maxChildren: clamp(draft.debug.maxChildren, 10, 1000, 100) },
       ai: { ...draft.ai, mcpPort: clamp(draft.ai.mcpPort, 1024, 65535, 7465) },
+      mago: draft.mago,
     };
     saveSettings(next);
     saveProjectPhp(root, php);
@@ -208,6 +217,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
               {active.label}
             </div>
             <div className="settings-content">
+              {active.id === 'mago' && <MagoPage ws={ws} value={draft.mago} onChange={(mago) => setDraft((d) => ({ ...d, mago }))} />}
               {active.id === 'debug' && <DebugPage value={draft.debug} onChange={setDebug} highlight={query.trim().toLowerCase()} />}
               {active.id === 'php' && <PhpPage ws={ws} draft={php} onChange={(patch) => setPhp((p) => ({ ...p, ...patch }))} />}
               {active.id === 'appearance' && <AppearancePage value={draft.ui} onChange={setUi} highlight={query.trim().toLowerCase()} onEditorScheme={() => setCurrent('color-scheme')} />}
