@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { parseStatusV2, toChanges } from '../git/status';
 import { dirMarks } from '../dirMarks';
+import { composerShellLine } from '../composer';
 import type { Backend, CommitOptions, Entry, GitInfo, Package, Problem, RunResult } from './types';
 
 const PACKAGE_NAME = /^[\w.-]+\/[\w.-]+$/;
@@ -129,7 +130,7 @@ export class DiskBackend implements Backend {
   }
 
   async checkOutdated(): Promise<Record<string, string>> {
-    const r = await this.shell('composer outdated --direct --format=json');
+    const r = await this.shell(await composerShellLine(this.root, ['outdated', '--direct', '--format=json']));
     if (!r.stdout.trim()) throw new Error(r.stderr.trim() || 'composer outdated failed. Is Composer installed?');
     const data = JSON.parse(r.stdout);
     const out: Record<string, string> = {};
@@ -139,7 +140,7 @@ export class DiskBackend implements Backend {
 
   async updatePackage(name: string | null): Promise<void> {
     if (name !== null && !PACKAGE_NAME.test(name)) throw new Error(`Invalid package name: ${name}`);
-    const r = await this.shell(name ? `composer update ${name}` : 'composer update');
+    const r = await this.shell(await composerShellLine(this.root, name ? ['update', name] : ['update']));
     if (r.code !== 0) throw new Error(r.stderr || r.stdout);
   }
 

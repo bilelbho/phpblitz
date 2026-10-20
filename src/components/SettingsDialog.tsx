@@ -144,6 +144,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
       debug: { ...draft.debug, port: clamp(draft.debug.port, 1, 65535, 9003), maxChildren: clamp(draft.debug.maxChildren, 10, 1000, 100) },
       ai: { ...draft.ai, mcpPort: clamp(draft.ai.mcpPort, 1024, 65535, 7465) },
       mago: draft.mago,
+      composer: { path: draft.composer.path.trim() },
     };
     saveSettings(next);
     saveProjectPhp(root, php);
@@ -219,7 +220,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
             <div className="settings-content">
               {active.id === 'mago' && <MagoPage ws={ws} value={draft.mago} onChange={(mago) => setDraft((d) => ({ ...d, mago }))} />}
               {active.id === 'debug' && <DebugPage value={draft.debug} onChange={setDebug} highlight={query.trim().toLowerCase()} />}
-              {active.id === 'php' && <PhpPage ws={ws} draft={php} onChange={(patch) => setPhp((p) => ({ ...p, ...patch }))} />}
+              {active.id === 'php' && <PhpPage ws={ws} draft={php} onChange={(patch) => setPhp((p) => ({ ...p, ...patch }))} composerPath={draft.composer.path} onComposerPath={(path) => setDraft((d) => ({ ...d, composer: { path } }))} />}
               {active.id === 'appearance' && <AppearancePage value={draft.ui} onChange={setUi} highlight={query.trim().toLowerCase()} onEditorScheme={() => setCurrent('color-scheme')} />}
               {active.id === 'editor-tabs' && <EditorTabsPage value={draft.tabs} onChange={setTabs} highlight={query.trim().toLowerCase()} />}
               {active.id === 'color-scheme' && <ColorSchemePage value={draft.editor} onChange={setEditor} />}

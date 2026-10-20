@@ -172,6 +172,8 @@ export interface Settings {
   debug: DebugSettings;
   ai: AiSettings;
   mago: MagoSettings;
+  /** Composer: its path when it isn't found by itself (composer.phar, or a composer executable). */
+  composer: { path: string };
 }
 
 /** The defaults. */
@@ -274,6 +276,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   // Design hints (complexity, too many methods…) and a style-like security hint are advice, not errors.
   mago: { categories: { maintainability: 'weak' }, rules: { 'sensitive-parameter': 'weak' } },
+  composer: { path: '' },
 };
 
 const KEY = 'phpblitz.settings';
@@ -305,6 +308,7 @@ function load(): Settings {
       debug: { ...DEFAULT_SETTINGS.debug, ...(saved.debug ?? {}) },
       ai: { ...DEFAULT_SETTINGS.ai, ...(saved.ai ?? {}) },
       // Saved levels replace the defaults as a whole (an empty list means "as Mago sets them").
+      composer: { ...DEFAULT_SETTINGS.composer, ...(saved.composer ?? {}) },
       mago: saved.mago ? { categories: saved.mago.categories ?? {}, rules: saved.mago.rules ?? {} } : DEFAULT_SETTINGS.mago,
     };
   } catch {

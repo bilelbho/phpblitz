@@ -7130,3 +7130,7 @@ body:has(.strip.right.with-names) .balloons {
 [role='dialog']:focus {
   outline: none;
 }
+.php-composer-found {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}

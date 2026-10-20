@@ -40,6 +40,7 @@ import { planForTarget, renameEdits } from './rename';
 import { perf } from './perf';
 import { insertTab, nextActive, overLimit } from './tabPolicy';
 import { getSettings, useSettings } from './settings';
+import { composerTerminalLine } from './composer';
 import { Git } from './git/git';
 import type { SearchOptions, SearchResult } from './search';
 import { applyEditNow, findUsages as lspFindUsages, renameSymbol, setActiveLsp, type Usage } from './lsp/monacoBridge';
@@ -1737,9 +1738,10 @@ export function useWorkspace(backend: Backend) {
 
   // ── Mago project analysis ─────────────────────────────────────
   /** `composer install` in the terminal; vendor/ appearing re-analyzes the project. */
-  const composerInstall = useCallback(() => {
+  const composerInstall = useCallback(async () => {
     showBottom('terminal');
-    void terminals.run('composer install', backend.root);
+    // In its own tab, with the project's PHP when composer.bat would need PHP on the PATH.
+    await terminals.start({ cwd: backend.root, name: 'Composer', command: await composerTerminalLine(backend.root, ['install']) });
   }, [backend, showBottom]);
 
   /**

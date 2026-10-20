@@ -31,15 +31,30 @@ import {
 import { ContextMenu, type ContextItem } from './ContextMenu';
 import { Icon } from './Icon';
 import { useDialogFocus } from './useDialogFocus';
+import { composerRunner } from '../composer';
 
 const nativePath = (p: string) => (/^[A-Za-z]:\//.test(p) ? p.replace(/\//g, '\\') : p);
 
 /** The PHP page. `draft` is saved by the Settings dialog's OK / Apply. */
-export function PhpPage({ ws, draft, onChange }: { ws: Workspace; draft: ProjectPhp; onChange: (patch: Partial<ProjectPhp>) => void }) {
+export function PhpPage({ ws, draft, onChange, composerPath, onComposerPath }: { ws: Workspace; draft: ProjectPhp; onChange: (patch: Partial<ProjectPhp>) => void; composerPath: string; onComposerPath: (path: string) => void }) {
   useInterpreters();
   const root = ws.backend.root;
   const list = interpretersFor(root);
   const current = list.find((i) => i.id === draft.interpreterId) ?? null;
+  // What runs Composer when its path is left empty (found on the PATH or next to composer.bat).
+  const [composerFound, setComposerFound] = useState('');
+  const localPhp = current?.kind === 'local' && current.phpPath ? current.phpPath : null;
+  useEffect(() => {
+    let live = true;
+    if (!composerPath.trim()) composerRunner(root, localPhp).then((r) => live && setComposerFound(r.description), () => {});
+    return () => {
+      live = false;
+    };
+  }, [root, composerPath, localPhp]);
+  const browseComposer = async () => {
+    const picked = await open({ multiple: false, title: 'Composer (composer.phar or composer)', filters: [{ name: 'Composer', extensions: ['phar', 'bat', 'cmd', 'exe', ''] }] });
+    if (typeof picked === 'string') onComposerPath(picked.replace(/\\/g, '/'));
+  };
   const [dialog, setDialog] = useState(false);
   const [tab, setTab] = useState<'include' | 'runtime' | 'composer'>('include');
   const [composerJson, setComposerJson] = useState<string | null>(null);
@@ -97,6 +112,17 @@ export function PhpPage({ ws, draft, onChange }: { ws: Workspace; draft: Project
         </div>
         <span />
         <InterpreterStatus info={info} />
+        <label htmlFor="php-composer">Composer:</label>
+        <div className="settings-row">
+          <div className="field grow">
+            <input id="php-composer" value={composerPath} spellCheck={false} placeholder="Found by itself (leave empty)" onChange={(e) => onComposerPath(e.target.value)} />
+          </div>
+          <button type="button" className="btn small" disabled={!isTauri} onClick={() => void browseComposer()}>
+            Browse…
+          </button>
+        </div>
+        <span />
+        <span className="muted php-composer-found">{composerPath.trim() ? 'A composer.phar runs with the CLI interpreter above.' : composerFound}</span>
       </div>
 
       <div className="php-tabs" role="tablist">
