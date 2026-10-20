@@ -28,6 +28,9 @@ let travelling: { to: Place; until: number } | null = null;
 const lastIn = new Map<string, Place>();
 let recent: RecentPlace[] = [];
 let closed: Place[] = [];
+/** Where the user edited, newest last; Last Edit Location walks it backwards. */
+let edits: Place[] = [];
+let editStep = 0;
 
 const near = (a: Place, b: Place) => a.path === b.path && Math.abs(a.line - b.line) <= JUMP;
 
@@ -71,7 +74,22 @@ export function fileShown(path: string) {
 
 /** Text was typed or pasted at `line`. */
 export function edited(path: string, line: number) {
-  remember({ path, line, column: lastIn.get(path)?.column ?? 1 }, true);
+  const place = { path, line, column: lastIn.get(path)?.column ?? 1 };
+  remember(place, true);
+  edits = edits.filter((e) => !near(e, place));
+  edits.push(place);
+  if (edits.length > MAX_RECENT) edits.shift();
+  editStep = 0;
+}
+
+/** Last Edit Location: where the user last edited; pressed again, the edit before that. */
+export function lastEditPlace(): Place | null {
+  if (!edits.length) return null;
+  // Not where the caret already is: the edit before it.
+  if (editStep === 0 && current && near(current, edits[edits.length - 1]) && edits.length > 1) editStep = 1;
+  const place = edits[Math.max(0, edits.length - 1 - editStep)];
+  editStep = Math.min(editStep + 1, edits.length - 1);
+  return place;
 }
 
 function travel(to: Place, open: (p: Place) => void) {
@@ -128,6 +146,8 @@ export function resetHistory() {
   forward = [];
   current = null;
   travelling = null;
+  edits = [];
+  editStep = 0;
   lastIn.clear();
   recent = [];
   closed = [];

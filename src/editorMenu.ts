@@ -1,4 +1,5 @@
 // The editor's right-click menu.
+import { shortcut } from './keymap/store';
 import { debug } from './debug/manager';
 
 import * as monaco from 'monaco-editor';
@@ -21,28 +22,66 @@ type Editor = monaco.editor.IStandaloneCodeEditor;
 
 const SEP: ContextItem = { kind: 'sep' };
 
-/** Shortcuts shown in menus; each one is also bound in EditorArea. */
+/** The keymap's keys for the menu's commands (Settings ▸ Keymap). */
 export const SHORTCUTS = {
-  contextActions: 'Alt+Enter',
-  copyPath: 'Ctrl+Shift+C',
-  copyReference: 'Ctrl+Alt+Shift+C',
-  columnSelection: 'Alt+Shift+Insert',
-  findUsages: 'Alt+F7',
-  rename: 'Shift+F6',
-  expand: 'Ctrl+NumPad +',
-  collapse: 'Ctrl+NumPad -',
-  expandAll: 'Ctrl+Shift+NumPad +',
-  collapseAll: 'Ctrl+Shift+NumPad -',
-  declaration: 'Ctrl+B',
-  implementation: 'Ctrl+Alt+B',
-  typeDeclaration: 'Ctrl+Shift+B',
-  line: 'Ctrl+G',
-  generate: 'Alt+Insert',
-  reformat: 'Ctrl+Alt+L',
-  runTests: 'Ctrl+Shift+F10',
-  commit: 'Ctrl+K',
-  editWithAi: 'Ctrl+Shift+I',
-} as const;
+  get contextActions() {
+    return shortcut('phpblitz.contextActions');
+  },
+  get copyPath() {
+    return shortcut('phpblitz.copyPath');
+  },
+  get copyReference() {
+    return shortcut('phpblitz.copyReference');
+  },
+  get columnSelection() {
+    return shortcut('phpblitz.columnSelection');
+  },
+  get findUsages() {
+    return shortcut('phpblitz.findUsages');
+  },
+  get rename() {
+    return shortcut('phpblitz.rename');
+  },
+  get expand() {
+    return shortcut('phpblitz.expand');
+  },
+  get collapse() {
+    return shortcut('phpblitz.collapse');
+  },
+  get expandAll() {
+    return shortcut('phpblitz.expandAll');
+  },
+  get collapseAll() {
+    return shortcut('phpblitz.collapseAll');
+  },
+  get declaration() {
+    return shortcut('phpblitz.gotoDeclaration');
+  },
+  get implementation() {
+    return shortcut('phpblitz.gotoImplementation');
+  },
+  get typeDeclaration() {
+    return shortcut('phpblitz.typeDeclaration');
+  },
+  get line() {
+    return shortcut('phpblitz.gotoLine');
+  },
+  get generate() {
+    return shortcut('phpblitz.generate');
+  },
+  get reformat() {
+    return shortcut('phpblitz.reformat');
+  },
+  get runTests() {
+    return shortcut('phpblitz.runTests');
+  },
+  get commit() {
+    return shortcut('phpblitz.commit');
+  },
+  get editWithAi() {
+    return shortcut('phpblitz.editWithAi');
+  },
+};
 
 const isRefactor = (a: CodeAction) => a.kind.startsWith('refactor');
 const isGenerate = (a: CodeAction) => a.kind.startsWith('source') || /^(generate|add|implement|create)\b/i.test(a.title);

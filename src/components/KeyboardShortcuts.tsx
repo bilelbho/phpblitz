@@ -1,12 +1,15 @@
-// Help ▸ Keyboard Shortcuts: every shortcut in one searchable list. The main menu's entries (their
-// shortcuts are the ones bound), the tool windows', and the editor's and terminal's own keys.
-// Typing filters by name, menu or keys ("ctrl+e"); clicking an entry runs it.
+// Help ▸ Keyboard Shortcuts: every shortcut in one searchable list. The active keymap's commands
+// (Settings ▸ Keymap), and the keys that work without one (mouse, terminal, popups).
+// Typing filters by name, group or keys ("ctrl+e"); clicking an entry runs it.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Workspace } from '../useWorkspace';
-import type { ContextItem } from './ContextMenu';
 import type { TopMenu } from '../mainMenu';
-import { TOOL_WINDOWS } from './RecentFiles';
+import { COMMANDS } from '../keymap/catalog';
+import { runCommand } from '../keymap/commands';
+import { displayKeys } from '../keymap/keys';
+import { keysFor } from '../keymap/store';
+import { editorAction } from '../editorCommands';
 import { Icon } from './Icon';
 
 interface Entry {
@@ -16,16 +19,12 @@ interface Entry {
   run?: () => void;
 }
 
-/** Keys that work without a menu entry. */
+/** Keys that aren't in the keymap. */
 const MORE: Entry[] = [
-  { group: 'Editor', label: 'Show Context Actions (fixes, refactorings)', shortcut: 'Alt+Enter' },
-  { group: 'Editor', label: 'Edit with AI', shortcut: 'Ctrl+Shift+I' },
-  { group: 'Editor', label: 'Find Usages', shortcut: 'Alt+F7' },
-  { group: 'Editor', label: 'Rename', shortcut: 'Shift+F6' },
-  { group: 'Editor', label: 'Go to Declaration', shortcut: 'Ctrl+B' },
   { group: 'Editor', label: 'Go to Declaration', shortcut: 'Ctrl+Click' },
-  { group: 'Editor', label: 'Next / Previous Highlighted Error', shortcut: 'F2 / Shift+F2' },
+  { group: 'Editor', label: 'Add Caret', shortcut: 'Alt+Click' },
   { group: 'Editor', label: 'Accept ghost text', shortcut: 'Tab' },
+  { group: 'Editor', label: 'Back to one caret', shortcut: 'Escape' },
   { group: 'Navigation', label: 'Back / Forward', shortcut: 'Mouse side buttons' },
   { group: 'Terminal', label: 'Copy selection', shortcut: 'Ctrl+Shift+C' },
   { group: 'Terminal', label: 'Copy selection (when text is selected)', shortcut: 'Ctrl+C' },
@@ -37,35 +36,24 @@ const MORE: Entry[] = [
   { group: 'Recent Locations', label: 'Show changed places only', shortcut: 'Ctrl+Shift+E (in Recent Locations)' },
 ];
 
-/** The menu's items with a shortcut, submenus included. */
-function fromMenu(group: string, items: ContextItem[], out: Entry[]) {
-  for (const item of items) {
-    if (item.kind === 'sep' || !('label' in item)) continue;
-    // Menu labels can carry a live value ("Zoom IDE (Current: 100%)"): not part of the name.
-    if (item.submenu) fromMenu(`${group} ▸ ${item.label.replace(/\s*\(.*\)$/, '')}`, item.submenu, out);
-    if (item.shortcut) out.push({ group, label: item.label.replace(/…$/, ''), shortcut: item.shortcut, run: item.disabled ? undefined : item.run });
-  }
-}
-
-export function KeyboardShortcuts({ ws, menus, onClose }: { ws: Workspace; menus: TopMenu[]; onClose: () => void }) {
+// The props stay as they were for the callers; the list comes from the keymap now.
+export function KeyboardShortcuts({ onClose }: { ws: Workspace; menus: TopMenu[]; onClose: () => void }) {
   const [query, setQuery] = useState('');
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => input.current?.focus(), []);
 
   const all = useMemo(() => {
     const out: Entry[] = [];
-    for (const m of menus) fromMenu(m.label, m.items(), out);
-    for (const t of TOOL_WINDOWS) if (t.shortcut) out.push({ group: 'Tool Windows', label: t.label, shortcut: t.shortcut, run: () => t.run(ws) });
+    for (const c of COMMANDS) {
+      const keys = keysFor(c.id);
+      if (!keys.length) continue;
+      // Run where it applies: the workspace's handler, else in the code editor.
+      const run = () => void (runCommand(c.id, null) || editorAction(c.id)?.());
+      out.push({ group: c.group, label: c.label.replace(/…$/, ''), shortcut: keys.map(displayKeys).join(' / '), run });
+    }
     out.push(...MORE);
-    // The same command can be in two menus: once is enough.
-    const seen = new Set<string>();
-    return out.filter((e) => {
-      const key = `${e.label}|${e.shortcut}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }, [menus, ws]);
+    return out;
+  }, []);
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();

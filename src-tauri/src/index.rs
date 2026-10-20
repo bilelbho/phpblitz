@@ -1658,6 +1658,12 @@ function current_user() { return null; }
     #[test]
     fn index_bench() {
         let Ok(root) = std::env::var("PHPBLITZ_INDEX_BENCH") else { return };
+        // Working set of this process, in MB (Windows; for the benchmark only).
+        let mem = || {
+            let out = std::process::Command::new("powershell").args(["-NoProfile", "-Command", &format!("(Get-Process -Id {}).WorkingSet64", std::process::id())]).output().ok()?;
+            String::from_utf8_lossy(&out.stdout).trim().parse::<u64>().ok().map(|b| b / 1_048_576)
+        };
+        eprintln!("BENCH memory before: {:?} MB", mem());
         let t = Instant::now();
         let files = php_files(&root, &[]);
         let listed = t.elapsed();
@@ -1672,6 +1678,7 @@ function current_user() { return null; }
         idx.rebuild();
         let classes: usize = idx.files.values().map(|f| f.symbols.classes.len()).sum();
         let aggregated = t3.elapsed();
+        eprintln!("BENCH memory with the index built: {:?} MB", mem());
         // The cache, as JSON (the format of early builds) and as it is now.
         let json = serde_json::to_vec(&idx.files).unwrap();
         let t4 = Instant::now();

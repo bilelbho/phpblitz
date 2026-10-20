@@ -40,11 +40,14 @@ import { GitDialogs } from './GitDialogs';
 import { useProjectColor } from '../projectColors';
 import { zoomBy } from '../uiSettings';
 import { RecentFiles, TOOL_WINDOWS } from './RecentFiles';
-import { getSettings } from '../settings';
+import { DEFAULT_SETTINGS, getSettings, updateEditorSettings } from '../settings';
 import { invoke } from '@tauri-apps/api/core';
 import { RELEASES_URL, restartToUpdate, useUpdateState } from '../updater';
 import { debug, useDebug } from '../debug/manager';
 import { UsagesPopup } from './UsagesPopup';
+import { registerCommands } from '../keymap/commands';
+import { installDispatcher } from '../keymap/dispatcher';
+import { lastEditPlace } from '../navHistory';
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
@@ -120,96 +123,66 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
   const [bottomHeight, setBottomHeight] = useState(230);
   const openSearch = ws.openSearch;
 
-  // Double Shift: Search Everywhere. Ctrl+N / Ctrl+Shift+N: class / file. Ctrl+K: commit. Ctrl+S outside the editor.
-  const lastShift = useRef(0);
-  const otherKey = useRef(false);
+  // The keymap's commands (Settings ▸ Keymap) that work anywhere in the window, and the key
+  // dispatcher that runs them. In a code editor, its own actions with the same ids come first.
   const latest = useRef({ ws, openSearch });
   latest.current = { ws, openSearch };
   useEffect(() => {
+    const w = () => latest.current.ws;
+    const search = (tab: Parameters<typeof openSearch>[0]) => () => latest.current.openSearch(tab);
+    const selected = () => window.getSelection()?.toString().split('\n')[0] ?? '';
+    const fontSize = (step: number | null) => () =>
+      updateEditorSettings({
+        fontSize: step === null ? DEFAULT_SETTINGS.editor.fontSize : Math.min(40, Math.max(8, getSettings().editor.fontSize + step)),
+      });
+    const stopped = () => debug.active?.status === 'break';
+    const unregister = registerCommands({
+      'phpblitz.settings': () => w().openSettings(),
+      'phpblitz.save': () => w().saveActive(),
+      'phpblitz.closeTab': { run: () => void w().closeTab(w().activeId!), enabled: () => !!w().activeId },
+      'phpblitz.reopenClosedTab': () => w().reopenClosedTab(),
+      'phpblitz.findInFiles': () => w().openFindInFiles('find', selected()),
+      'phpblitz.replaceInFiles': () => w().openFindInFiles('replace', selected()),
+      'phpblitz.searchEverywhere': search('all'),
+      'phpblitz.findAction': search('actions'),
+      'phpblitz.gotoClass': search('classes'),
+      'phpblitz.gotoFile': search('files'),
+      'phpblitz.gotoSymbol': search('symbols'),
+      'phpblitz.recentFiles': () => w().setRecentOpen(true),
+      'phpblitz.recentLocations': () => w().setLocationsOpen(true),
+      'phpblitz.back': () => w().navigateBack(),
+      'phpblitz.forward': () => w().navigateForward(),
+      'phpblitz.lastEditLocation': () => {
+        const place = lastEditPlace();
+        if (place) w().goToPlace(place);
+      },
+      'phpblitz.runTests': () => w().runTests(),
+      'phpblitz.debugResume': { run: () => debug.resume(), enabled: stopped },
+      'phpblitz.debugStepOver': { run: () => debug.stepOver(), enabled: stopped },
+      'phpblitz.debugStepInto': { run: () => debug.stepInto(), enabled: stopped },
+      'phpblitz.debugStepOut': { run: () => debug.stepOut(), enabled: stopped },
+      'phpblitz.debugStop': { run: () => void debug.stop(), enabled: () => !!debug.active && debug.active.status !== 'stopped' },
+      'phpblitz.commit': () => w().showLeft('commit'),
+      'phpblitz.push': { run: () => w().setGitDialog({ kind: 'push' }), enabled: () => !!w().git },
+      'phpblitz.updateProject': { run: () => void w().runGit('Update project', () => w().gitRepo.pull()), enabled: () => !!w().git },
+      'phpblitz.newBranch': { run: () => w().setGitDialog({ kind: 'newBranch' }), enabled: () => !!w().git },
+      ...Object.fromEntries(TOOL_WINDOWS.map((t) => [`phpblitz.tool.${t.label.toLowerCase()}`, () => t.run(w())])),
+      'phpblitz.zoomIn': () => zoomBy(10),
+      'phpblitz.zoomOut': () => zoomBy(-10),
+      'phpblitz.zoomReset': () => zoomBy('reset'),
+      'phpblitz.fontSizeUp': fontSize(1),
+      'phpblitz.fontSizeDown': fontSize(-1),
+      'phpblitz.fontSizeReset': fontSize(null),
+    });
     /** Keys typed in a terminal go to the shell (Settings ▸ Tools ▸ Terminal ▸ Override IDE shortcuts). */
     const forShell = (e: KeyboardEvent) => getSettings().terminal.overrideIdeShortcuts && !!(e.target as HTMLElement | null)?.closest?.('.xterm');
-    const down = (e: KeyboardEvent) => {
-      if (e.key !== 'Shift') otherKey.current = true;
+    const uninstall = installDispatcher({ forShell });
+    // Browser defaults that don't belong in an IDE: reload (Ctrl+R, F5) and the web view's own find
+    // (Ctrl+F). After the dispatcher, which leaves keys a field already handled alone.
+    const browserKeys = (e: KeyboardEvent) => {
       const ctrl = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
-      if (ctrl && e.altKey && key === 's') {
-        e.preventDefault();
-        latest.current.ws.openSettings('terminal');
-        return;
-      }
-      if (e.altKey && e.shiftKey && !ctrl && (e.code === 'Equal' || e.code === 'Minus' || e.code === 'Digit0' || e.code === 'NumpadAdd' || e.code === 'NumpadSubtract')) {
-        e.preventDefault();
-        zoomBy(e.code === 'Digit0' ? 'reset' : e.code === 'Equal' || e.code === 'NumpadAdd' ? 10 : -10);
-        return;
-      }
-      if (forShell(e)) return;
-      // Back / Forward (in the editor, its own keybindings take these first).
-      if (ctrl && e.altKey && !e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-        e.preventDefault();
-        if (e.key === 'ArrowLeft') latest.current.ws.navigateBack();
-        else latest.current.ws.navigateForward();
-        return;
-      }
-      // Ctrl+Shift+E: Recent Locations. Ctrl+Shift+T: Reopen Closed Tab.
-      if (ctrl && e.shiftKey && !e.altKey && (key === 'e' || key === 't')) {
-        e.preventDefault();
-        if (key === 'e') latest.current.ws.setLocationsOpen(true);
-        else latest.current.ws.reopenClosedTab();
-        return;
-      }
-      // Ctrl+E: Recent Files (inside the popup, Ctrl+E toggles "edited only").
-      if (ctrl && !e.shiftKey && !e.altKey && key === 'e') {
-        e.preventDefault();
-        latest.current.ws.setRecentOpen(true);
-        return;
-      }
-      // Tool window shortcuts (Alt+1 Project, Alt+0 Commit, Alt+F12 Terminal…), as listed in Recent Files.
-      if (e.altKey && !ctrl && !e.shiftKey) {
-        const combo = `Alt+${e.key.length === 1 ? e.key.toUpperCase() : e.key}`;
-        const tool = TOOL_WINDOWS.find((t) => t.shortcut === combo);
-        if (tool) {
-          e.preventDefault();
-          tool.run(latest.current.ws);
-          return;
-        }
-      }
-      const inEditor = (e.target as HTMLElement | null)?.closest?.('.monaco-editor');
-      // Browser defaults that don't belong in an IDE: reload (Ctrl+R, F5) and the web view's own find (Ctrl+F).
       if ((ctrl && (key === 'r' || key === 'f')) || e.key === 'F5') e.preventDefault();
-      if (ctrl && e.shiftKey && (key === 'f' || key === 'r') && !inEditor) {
-        latest.current.ws.openFindInFiles(key === 'f' ? 'find' : 'replace', window.getSelection()?.toString().split('\n')[0] ?? '');
-        return;
-      }
-      if (ctrl && key === 's' && !inEditor) {
-        e.preventDefault();
-        latest.current.ws.saveActive();
-      } else if (ctrl && key === 'n') {
-        e.preventDefault();
-        latest.current.openSearch(e.shiftKey ? 'files' : 'classes');
-      } else if (ctrl && e.shiftKey && key === 'a') {
-        e.preventDefault();
-        latest.current.openSearch('actions');
-      } else if (ctrl && e.shiftKey && key === 'k') {
-        e.preventDefault();
-        if (latest.current.ws.git) latest.current.ws.setGitDialog({ kind: 'push' });
-      } else if (ctrl && key === 't' && !e.shiftKey) {
-        e.preventDefault();
-        if (latest.current.ws.git) latest.current.ws.runGit('Update project', () => latest.current.ws.gitRepo.pull());
-      } else if (ctrl && key === 'k') {
-        e.preventDefault();
-        latest.current.ws.showLeft('commit');
-      }
-    };
-    const up = (e: KeyboardEvent) => {
-      if (e.key !== 'Shift' || forShell(e)) return;
-      const now = Date.now();
-      if (!otherKey.current && now - lastShift.current < 350) {
-        latest.current.openSearch('all');
-        lastShift.current = 0;
-      } else {
-        lastShift.current = now;
-      }
-      otherKey.current = false;
     };
     // The mouse's back / forward side buttons.
     const mouse = (e: MouseEvent) => {
@@ -218,37 +191,17 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
       if (e.button === 3) latest.current.ws.navigateBack();
       else latest.current.ws.navigateForward();
     };
-    window.addEventListener('keydown', down);
-    window.addEventListener('keyup', up);
+    window.addEventListener('keydown', browserKeys);
     window.addEventListener('mouseup', mouse);
     return () => {
+      unregister();
+      uninstall();
+      window.removeEventListener('keydown', browserKeys);
       window.removeEventListener('mouseup', mouse);
-      window.removeEventListener('keydown', down);
-      window.removeEventListener('keyup', up);
     };
   }, []);
 
   const debugState = useDebug();
-  useEffect(() => {
-    const keys = (e: KeyboardEvent) => {
-      const s = debug.active;
-      if (!s) return;
-      const stopped = s.status === 'break';
-      const plain = !e.ctrlKey && !e.altKey && !e.metaKey;
-      let action: (() => void) | null = null;
-      if (e.key === 'F9' && plain && !e.shiftKey && stopped) action = debug.resume;
-      else if (e.key === 'F8' && plain && !e.shiftKey && stopped) action = debug.stepOver;
-      else if (e.key === 'F8' && plain && e.shiftKey && stopped) action = debug.stepOut;
-      else if (e.key === 'F7' && plain && !e.shiftKey && stopped) action = debug.stepInto;
-      else if (e.key === 'F2' && e.ctrlKey && !e.altKey && s.status !== 'stopped') action = () => void debug.stop();
-      if (!action) return;
-      e.preventDefault();
-      e.stopPropagation();
-      action();
-    };
-    window.addEventListener('keydown', keys, true);
-    return () => window.removeEventListener('keydown', keys, true);
-  }, []);
 
   const changeCount = ws.git?.changes.length ?? 0;
   const problemCount = Object.values(ws.problems).flat().length;

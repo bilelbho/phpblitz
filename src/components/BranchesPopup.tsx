@@ -1,6 +1,7 @@
 // The Git branches popup (top bar branch widget): search, Update / Commit /
 // Push / Fetch / New Branch / Stash, then local and remote branches with their actions.
 
+import { shortcut } from '../keymap/store';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Workspace } from '../useWorkspace';
 import type { Branch } from '../git/git';
@@ -78,7 +79,7 @@ export function BranchesPopup({ ws, anchor, onClose }: { ws: Workspace; anchor: 
 
   const actions: Row[] = [
     { key: 'update', label: 'Update Project…', icon: 'refresh', shortcut: 'Ctrl+T', run: act('Update project', () => repo.pull()) },
-    { key: 'commit', label: 'Commit…', icon: 'commit', shortcut: 'Ctrl+K', run: () => (onClose(), ws.showLeft('commit')) },
+    { key: 'commit', label: 'Commit…', icon: 'commit', shortcut: shortcut('phpblitz.commit'), run: () => (onClose(), ws.showLeft('commit')) },
     { key: 'push', label: 'Push…', icon: 'chevronUp', shortcut: 'Ctrl+Shift+K', run: dialog({ kind: 'push' }) },
     { key: 'fetch', label: 'Fetch', icon: 'chevronDown', run: act('Fetch', () => repo.fetch()) },
     { key: 'new', label: 'New Branch…', icon: 'plus', run: dialog({ kind: 'newBranch' }) },

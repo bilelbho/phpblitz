@@ -1,3 +1,4 @@
+import { withKeys } from '../keymap/store';
 import type { Workspace } from '../useWorkspace';
 import { Icon, Logo, Play } from './Icon';
 import { MenuButton, type MenuEntry } from './Menu';
@@ -162,10 +163,10 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
 
         <div className="drag" data-tauri-drag-region style={{ flex: '0 0 24px' }} />
 
-        <button type="button" className="top-icon" aria-label="Search everywhere" title="Search Everywhere (Double Shift)" onClick={() => onSearch('all')}>
+        <button type="button" className="top-icon" aria-label="Search everywhere" title={withKeys('Search Everywhere', 'phpblitz.searchEverywhere')} onClick={() => onSearch('all')}>
           <Icon name="search" />
         </button>
-        <button type="button" className="top-icon" aria-label="Settings" title="Settings (Ctrl+Alt+S)" onClick={() => ws.openSettings()}>
+        <button type="button" className="top-icon" aria-label="Settings" title={withKeys('Settings', 'phpblitz.settings')} onClick={() => ws.openSettings()}>
           <Icon name="gear" />
         </button>
         <div className="drag" data-tauri-drag-region style={{ flex: '0 0 8px' }} />

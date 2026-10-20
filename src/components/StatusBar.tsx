@@ -1,3 +1,5 @@
+import { onChord } from '../keymap/dispatcher';
+import { displayKeys } from '../keymap/keys';
 import type { Workspace } from '../useWorkspace';
 import { relativePath } from '../backend/types';
 import { db } from '../db/store';
@@ -125,6 +127,9 @@ export function StatusBar({ ws }: { ws: Workspace }) {
   const errors = all.filter((p) => p.severity === 'error').length;
 
   const [nav, setNav] = useState<NavRequest | null>(null);
+  // A chord's first key (Ctrl+K in Ctrl+K Ctrl+C): the second one is awaited.
+  const [chord, setChord] = useState<string | null>(null);
+  useEffect(() => onChord(setChord), []);
   // Breadcrumbs: project › folders › file › class › member at the caret. Each one opens a popup:
   // folders and the file list their folder, the class and member list the class's members.
   type Crumb = { label: string; sym?: [string, string]; icon?: React.ReactNode; open?: (anchor: DOMRect) => NavRequest };
@@ -187,6 +192,7 @@ export function StatusBar({ ws }: { ws: Workspace }) {
           {idx.progress && idx.progress.total ? `Indexing… ${idx.progress.done.toLocaleString()} / ${idx.progress.total.toLocaleString()}` : 'Indexing…'}
         </span>
       )}
+      {chord && <span className="item">{displayKeys(chord)} was pressed. Waiting for the second key…</span>}
       {ws.status && <span className="item muted">{ws.status}</span>}
       {errorCount > 0 && (
         <button type="button" className="item status-errors" title="Errors in this session: open the Error Log" onClick={() => openAppDialog('errors')}>

@@ -166,6 +166,14 @@ export interface MagoSettings {
   rules: Record<string, MagoLevel>;
 }
 
+/** Settings ▸ Keymap. */
+export interface KeymapSettings {
+  /** A keymap of keymap/keymaps.ts ("phpblitz", "vscode"…). */
+  preset: string;
+  /** Command id → its keys, replacing the keymap's (an empty list: no keys). */
+  overrides: Record<string, string[]>;
+}
+
 export interface Settings {
   ui: UiSettings;
   tabs: TabSettings;
@@ -176,6 +184,8 @@ export interface Settings {
   mago: MagoSettings;
   /** Composer: its path when it isn't found by itself (composer.phar, or a composer executable). */
   composer: { path: string };
+  /** Settings ▸ Keymap: the chosen keymap, and the keys changed on top of it. */
+  keymap: KeymapSettings;
 }
 
 /** The defaults. */
@@ -280,6 +290,7 @@ export const DEFAULT_SETTINGS: Settings = {
   // Design hints (complexity, too many methods…) and a style-like security hint are advice, not errors.
   mago: { categories: { maintainability: 'weak' }, rules: { 'sensitive-parameter': 'weak' } },
   composer: { path: '' },
+  keymap: { preset: 'phpblitz', overrides: {} },
 };
 
 const KEY = 'phpblitz.settings';
@@ -312,6 +323,7 @@ function load(): Settings {
       ai: { ...DEFAULT_SETTINGS.ai, ...(saved.ai ?? {}) },
       // Saved levels replace the defaults as a whole (an empty list means "as Mago sets them").
       composer: { ...DEFAULT_SETTINGS.composer, ...(saved.composer ?? {}) },
+      keymap: { ...DEFAULT_SETTINGS.keymap, ...(saved.keymap ?? {}) },
       mago: saved.mago ? { categories: saved.mago.categories ?? {}, rules: saved.mago.rules ?? {} } : DEFAULT_SETTINGS.mago,
     };
   } catch {

@@ -11,6 +11,7 @@ import type { SearchTab } from './components/SearchEverywhere';
 import type { IconName } from './components/Icon';
 import { TOOL_WINDOWS } from './components/RecentFiles';
 import { editorAction, editorCommand } from './editorCommands';
+import { runCommand } from './keymap/commands';
 import { getSettings, saveSettings, updateEditorSettings, DEFAULT_SETTINGS, type MainMenuMode, type UiSettings } from './settings';
 import { zoomBy } from './uiSettings';
 import { isTauri, recentProjects } from './platform';
@@ -19,6 +20,7 @@ import { testRunner } from './tests/runner';
 import { perf } from './perf';
 import { openAppDialog } from './appDialogs';
 import { checkForUpdates, RELEASES_URL } from './updater';
+import { shortcut } from './keymap/store';
 
 export interface TopMenu {
   label: string;
@@ -56,7 +58,7 @@ function cmd(id: string, label?: string, extra: Extra = {}): ContextItem {
 /** A Monaco (or PHPBlitz) editor action, run in the code editor. */
 function act(actionId: string, label: string, extra: Extra = {}): ContextItem {
   const run = editorAction(actionId);
-  return { label, ...extra, disabled: !run, run };
+  return { label, shortcut: shortcut(actionId), ...extra, disabled: !run, run };
 }
 
 function setUi(patch: Partial<UiSettings>) {
@@ -110,14 +112,14 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
             label: 'Settings…',
             mnemonic: 't',
             icon: 'gear',
-            shortcut: 'Ctrl+Alt+S',
+            shortcut: shortcut('phpblitz.settings'),
             run: () => ws.openSettings(),
           },
           { kind: 'sep' },
           {
             label: 'Save',
             mnemonic: 'S',
-            shortcut: 'Ctrl+S',
+            shortcut: shortcut('phpblitz.save'),
             disabled: !ws.activePath || !ws.dirty.has(ws.activePath),
             run: ws.saveActive,
           },
@@ -150,7 +152,7 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
           label: 'Copy Path/Reference',
           submenu: [
             act('phpblitz.copyPath', 'Absolute Path', {
-              shortcut: 'Ctrl+Shift+C',
+              shortcut: shortcut('phpblitz.copyPath'),
             }),
             cmd('copyReference', 'Reference'),
           ],
@@ -167,23 +169,23 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
             cmd('replace', 'Replace…', { mnemonic: 'R' }),
             act('phpblitz.findNext', 'Find Next', {
               mnemonic: 'N',
-              shortcut: 'F3',
+              shortcut: shortcut('phpblitz.findNext'),
             }),
             act('phpblitz.findPrev', 'Find Previous', {
               mnemonic: 'v',
-              shortcut: 'Shift+F3',
+              shortcut: shortcut('phpblitz.findPrev'),
             }),
             { kind: 'sep' },
             {
               label: 'Find in Files…',
               mnemonic: 'i',
-              shortcut: 'Ctrl+Shift+F',
+              shortcut: shortcut('phpblitz.findInFiles'),
               run: () => ws.openFindInFiles('find'),
             },
             {
               label: 'Replace in Files…',
               mnemonic: 'a',
-              shortcut: 'Ctrl+Shift+R',
+              shortcut: shortcut('phpblitz.replaceInFiles'),
               run: () => ws.openFindInFiles('replace'),
             },
           ],
@@ -192,31 +194,44 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
         { kind: 'sep' },
         act('phpblitz.columnSelection', 'Column Selection Mode', {
           mnemonic: 'M',
-          shortcut: 'Alt+Shift+Insert',
+          shortcut: shortcut('phpblitz.columnSelection'),
         }),
         cmd('selectAll', 'Select All', { mnemonic: 'A' }),
-        act('editor.action.insertCursorAtEndOfEachLineSelected', 'Add Carets to Ends of Selected Lines', { shortcut: 'Alt+Shift+I' }),
+        act('editor.action.insertCursorAtEndOfEachLineSelected', 'Add Carets to Ends of Selected Lines', { shortcut: shortcut('editor.action.insertCursorAtEndOfEachLineSelected') }),
         act('editor.action.smartSelect.expand', 'Extend Selection', {
-          shortcut: 'Alt+Shift+Right',
+          shortcut: shortcut('editor.action.smartSelect.expand'),
         }),
         act('editor.action.smartSelect.shrink', 'Shrink Selection', {
-          shortcut: 'Alt+Shift+Left',
+          shortcut: shortcut('editor.action.smartSelect.shrink'),
         }),
-        { kind: 'sep' },
         {
-          label: 'Toggle Case',
+          label: 'Multiple Carets',
+          submenu: [
+            act('editor.action.insertCursorAbove', 'Add Caret Above'),
+            act('editor.action.insertCursorBelow', 'Add Caret Below'),
+            { kind: 'sep' },
+            act('editor.action.addSelectionToNextFindMatch', 'Add Selection for Next Occurrence'),
+            act('cursorUndo', 'Unselect Occurrence'),
+            act('editor.action.selectHighlights', 'Select All Occurrences'),
+          ],
+        },
+        { kind: 'sep' },
+        act('phpblitz.toggleCase', 'Toggle Case'),
+        {
+          label: 'Change Case',
           submenu: [act('editor.action.transformToUppercase', 'Upper Case'), act('editor.action.transformToLowercase', 'Lower Case'), act('editor.action.transformToTitlecase', 'Title Case')],
         },
         act('editor.action.joinLines', 'Join Lines'),
         cmd('duplicate', 'Duplicate Line or Selection', { mnemonic: 'u' }),
+        act('editor.action.deleteLines', 'Delete Line'),
         act('editor.action.sortLinesAscending', 'Sort Lines'),
         act('editor.action.transpose', 'Transpose'),
         { kind: 'sep' },
         act('editor.action.indentLines', 'Indent Selection', {
-          shortcut: 'Ctrl+]',
+          shortcut: shortcut('editor.action.indentLines'),
         }),
         act('editor.action.outdentLines', 'Unindent Line or Selection', {
-          shortcut: 'Ctrl+[',
+          shortcut: shortcut('editor.action.outdentLines'),
         }),
         {
           label: 'Convert Indents',
@@ -259,17 +274,17 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
               submenu: [
                 {
                   label: 'Zoom In',
-                  shortcut: 'Alt+Shift+=',
+                  shortcut: shortcut('phpblitz.zoomIn'),
                   run: () => zoomBy(10),
                 },
                 {
                   label: 'Zoom Out',
-                  shortcut: 'Alt+Shift+Minus',
+                  shortcut: shortcut('phpblitz.zoomOut'),
                   run: () => zoomBy(-10),
                 },
                 {
                   label: 'Reset',
-                  shortcut: 'Alt+Shift+0',
+                  shortcut: shortcut('phpblitz.zoomReset'),
                   run: () => zoomBy('reset'),
                 },
               ],
@@ -299,23 +314,23 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
         { kind: 'sep' },
         act('phpblitz.quickDoc', 'Quick Documentation', {
           mnemonic: 'D',
-          shortcut: 'Ctrl+Q',
+          shortcut: shortcut('phpblitz.quickDoc'),
         }),
         act('phpblitz.paramInfo', 'Parameter Info', {
           mnemonic: 'P',
-          shortcut: 'Ctrl+P',
+          shortcut: shortcut('phpblitz.paramInfo'),
         }),
         { kind: 'sep' },
         {
           label: 'Recent Files',
           mnemonic: 'n',
-          shortcut: 'Ctrl+E',
+          shortcut: shortcut('phpblitz.recentFiles'),
           run: () => ws.setRecentOpen(true),
         },
         { kind: 'sep' },
-        { label: 'Increase Font Size in All Editors', run: fontSize(1) },
-        { label: 'Decrease Font Size in All Editors', run: fontSize(-1) },
-        { label: 'Reset Font Size in All Editors', run: fontSize(null) },
+        { label: 'Increase Font Size in All Editors', shortcut: shortcut('phpblitz.fontSizeUp'), run: fontSize(1) },
+        { label: 'Decrease Font Size in All Editors', shortcut: shortcut('phpblitz.fontSizeDown'), run: fontSize(-1) },
+        { label: 'Reset Font Size in All Editors', shortcut: shortcut('phpblitz.fontSizeReset'), run: fontSize(null) },
         { kind: 'sep' },
         cmd('softWrap', 'Soft-Wrap', { mnemonic: 'W' }),
       ],
@@ -327,56 +342,60 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
         {
           label: 'Search Everywhere',
           icon: 'search',
-          shortcut: 'Double Shift',
+          shortcut: shortcut('phpblitz.searchEverywhere'),
           run: () => onSearch('all'),
         },
         { kind: 'sep' },
-        { label: 'Back', mnemonic: 'B', shortcut: 'Ctrl+Alt+Left', run: () => ws.navigateBack() },
-        { label: 'Forward', mnemonic: 'o', shortcut: 'Ctrl+Alt+Right', run: () => ws.navigateForward() },
-        { label: 'Recent Locations', mnemonic: 'L', shortcut: 'Ctrl+Shift+E', run: () => ws.setLocationsOpen(true) },
-        { label: 'Reopen Closed Tab', shortcut: 'Ctrl+Shift+T', run: () => ws.reopenClosedTab() },
+        { label: 'Back', mnemonic: 'B', shortcut: shortcut('phpblitz.back'), run: () => ws.navigateBack() },
+        { label: 'Forward', mnemonic: 'o', shortcut: shortcut('phpblitz.forward'), run: () => ws.navigateForward() },
+        { label: 'Recent Locations', mnemonic: 'L', shortcut: shortcut('phpblitz.recentLocations'), run: () => ws.setLocationsOpen(true) },
+        { label: 'Last Edit Location', shortcut: shortcut('phpblitz.lastEditLocation'), run: () => runCommand('phpblitz.lastEditLocation', null) },
+        { label: 'Reopen Closed Tab', shortcut: shortcut('phpblitz.reopenClosedTab'), run: () => ws.reopenClosedTab() },
         { kind: 'sep' },
         {
           label: 'Class…',
           mnemonic: 'C',
-          shortcut: 'Ctrl+N',
+          shortcut: shortcut('phpblitz.gotoClass'),
           run: () => onSearch('classes'),
         },
         {
           label: 'File…',
           mnemonic: 'F',
-          shortcut: 'Ctrl+Shift+N',
+          shortcut: shortcut('phpblitz.gotoFile'),
           run: () => onSearch('files'),
         },
-        { label: 'Symbol…', mnemonic: 'S', run: () => onSearch('symbols') },
+        { label: 'Symbol…', mnemonic: 'S', shortcut: shortcut('phpblitz.gotoSymbol'), run: () => onSearch('symbols') },
         {
           label: 'Text…',
           mnemonic: 'x',
-          shortcut: 'Ctrl+Shift+F',
+          shortcut: shortcut('phpblitz.findInFiles'),
           run: () => ws.openFindInFiles('find'),
         },
         cmd('gotoLine', 'Line:Column…', { mnemonic: 'L' }),
         { kind: 'sep' },
         act('phpblitz.nextProblem', 'Next Highlighted Error', {
           mnemonic: 'N',
-          shortcut: 'F2',
+          shortcut: shortcut('phpblitz.nextProblem'),
         }),
         act('phpblitz.prevProblem', 'Previous Highlighted Error', {
           mnemonic: 'P',
-          shortcut: 'Shift+F2',
+          shortcut: shortcut('phpblitz.prevProblem'),
         }),
         { kind: 'sep' },
         cmd('declaration', 'Declaration or Usages', { mnemonic: 'D' }),
         act('phpblitz.gotoImplementation', 'Implementation(s)', {
           mnemonic: 'I',
-          shortcut: 'Ctrl+Alt+B',
+          shortcut: shortcut('phpblitz.gotoImplementation'),
         }),
         act('phpblitz.typeDeclaration', 'Type Declaration', {
           mnemonic: 'T',
-          shortcut: 'Ctrl+Shift+B',
+          shortcut: shortcut('phpblitz.typeDeclaration'),
         }),
         { kind: 'sep' },
         cmd('fileStructure', 'File Structure', { mnemonic: 'l' }),
+        act('phpblitz.prevMethod', 'Previous Method'),
+        act('phpblitz.nextMethod', 'Next Method'),
+        act('editor.action.jumpToBracket', 'Matching Brace'),
         {
           label: 'Bookmarks',
           mnemonic: 'k',
@@ -393,15 +412,16 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
         cmd('contextActions', 'Show Context Actions', { mnemonic: 'x' }),
         act('editor.action.triggerSuggest', 'Code Completion', {
           mnemonic: 'C',
-          shortcut: 'Ctrl+Space',
+          shortcut: shortcut('editor.action.triggerSuggest'),
         }),
+        act('phpblitz.surroundWith', 'Surround With…', { mnemonic: 'S' }),
         { kind: 'sep' },
         {
           label: 'Folding',
           mnemonic: 'F',
           submenu: [
-            act('phpblitz.expand', 'Expand', { shortcut: 'Ctrl+NumPad +' }),
-            act('phpblitz.collapse', 'Collapse', { shortcut: 'Ctrl+NumPad -' }),
+            act('phpblitz.expand', 'Expand', { shortcut: shortcut('phpblitz.expand') }),
+            act('phpblitz.collapse', 'Collapse', { shortcut: shortcut('phpblitz.collapse') }),
             cmd('unfoldAll', 'Expand All'),
             cmd('foldAll', 'Collapse All'),
           ],
@@ -416,12 +436,14 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
         { kind: 'sep' },
         act('editor.action.moveLinesDownAction', 'Move Line Down', {
           mnemonic: 'n',
-          shortcut: 'Alt+Down',
+          shortcut: shortcut('editor.action.moveLinesDownAction'),
         }),
         act('editor.action.moveLinesUpAction', 'Move Line Up', {
           mnemonic: 'p',
-          shortcut: 'Alt+Up',
+          shortcut: shortcut('editor.action.moveLinesUpAction'),
         }),
+        act('phpblitz.moveStatementDown', 'Move Statement Down'),
+        act('phpblitz.moveStatementUp', 'Move Statement Up'),
       ],
     },
     {
@@ -483,7 +505,7 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
           {
             label: 'Stop',
             icon: 'stopSquare',
-            shortcut: 'Ctrl+F2',
+            shortcut: shortcut('phpblitz.debugStop'),
             disabled: !session,
             run: () => void debug.stop(),
           },
@@ -493,7 +515,7 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
               {
                 label: 'Resume Program',
                 icon: 'resume',
-                shortcut: 'F9',
+                shortcut: shortcut('phpblitz.debugResume'),
                 disabled: !stopped,
                 run: debug.resume,
               },
@@ -501,28 +523,28 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
               {
                 label: 'Step Over',
                 icon: 'stepOver',
-                shortcut: 'F8',
+                shortcut: shortcut('phpblitz.debugStepOver'),
                 disabled: !stopped,
                 run: debug.stepOver,
               },
               {
                 label: 'Step Into',
                 icon: 'stepInto',
-                shortcut: 'F7',
+                shortcut: shortcut('phpblitz.debugStepInto'),
                 disabled: !stopped,
                 run: debug.stepInto,
               },
               {
                 label: 'Step Out',
                 icon: 'stepOut',
-                shortcut: 'Shift+F8',
+                shortcut: shortcut('phpblitz.debugStepOut'),
                 disabled: !stopped,
                 run: debug.stepOut,
               },
             ],
           },
           act('phpblitz.toggleBreakpoint', 'Toggle Line Breakpoint', {
-            shortcut: 'Ctrl+F8',
+            shortcut: shortcut('phpblitz.toggleBreakpoint'),
           }),
           { kind: 'sep' },
           {
@@ -571,7 +593,7 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
           label: 'Terminal',
           mnemonic: 'T',
           icon: 'terminal',
-          shortcut: 'Alt+F12',
+          shortcut: shortcut('phpblitz.tool.terminal'),
           run: () => ws.showBottom('terminal'),
         },
       ],
@@ -584,21 +606,21 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
           label: 'Commit…',
           mnemonic: 'm',
           icon: 'commit',
-          shortcut: 'Ctrl+K',
+          shortcut: shortcut('phpblitz.commit'),
           disabled: !git,
           run: () => ws.showLeft('commit'),
         },
         {
           label: 'Push…',
           mnemonic: 'P',
-          shortcut: 'Ctrl+Shift+K',
+          shortcut: shortcut('phpblitz.push'),
           disabled: !git,
           run: () => ws.setGitDialog({ kind: 'push' }),
         },
         {
           label: 'Update Project…',
           mnemonic: 'U',
-          shortcut: 'Ctrl+T',
+          shortcut: shortcut('phpblitz.updateProject'),
           disabled: !git,
           run: runGit('Update project', () => ws.gitRepo.pull()),
         },
@@ -617,7 +639,7 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
         },
         {
           label: 'New Branch…',
-          shortcut: 'Ctrl+Alt+N',
+          shortcut: shortcut('phpblitz.newBranch'),
           disabled: !git,
           run: () => ws.setGitDialog({ kind: 'newBranch' }),
         },
@@ -625,7 +647,7 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
         {
           label: 'Show Git Log',
           icon: 'history',
-          shortcut: 'Alt+9',
+          shortcut: shortcut('phpblitz.tool.git'),
           disabled: !git,
           run: () => ws.showHistory(''),
         },
@@ -703,7 +725,7 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
         {
           label: 'Find Action…',
           mnemonic: 'F',
-          shortcut: 'Ctrl+Shift+A',
+          shortcut: shortcut('phpblitz.findAction'),
           run: () => onSearch('actions'),
         },
         { label: 'Help', mnemonic: 'H', run: openUrl(`${REPO}#readme`) },

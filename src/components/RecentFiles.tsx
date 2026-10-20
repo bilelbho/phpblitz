@@ -2,6 +2,7 @@
 // opened files on the right (previous file preselected, so Ctrl+E, Enter switches back), typing
 // filters, Ctrl+E again shows edited files only, the selected file's path at the bottom.
 
+import { shortcut } from '../keymap/store';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Workspace } from '../useWorkspace';
 import { baseName, relativePath } from '../backend/types';
@@ -16,23 +17,31 @@ interface ToolEntry {
   run: (ws: Workspace) => void;
 }
 
-/** Tool windows, with the shortcuts WorkspaceView binds (TOOL_SHORTCUTS). */
-export const TOOL_WINDOWS: ToolEntry[] = [
-  { label: 'Commit', icon: 'commit', shortcut: 'Alt+0', run: (ws) => ws.showLeft('commit') },
-  { label: 'Project', icon: 'folder', shortcut: 'Alt+1', run: (ws) => ws.showLeft('project') },
-  { label: 'Terminal', icon: 'terminal', shortcut: 'Alt+F12', run: (ws) => ws.showBottom('terminal') },
-  { label: 'Database', icon: 'database', run: (ws) => ws.showLeft('database') },
-  { label: 'Structure', icon: 'structure', shortcut: 'Alt+7', run: (ws) => ws.showLeft('structure') },
-  { label: 'Problems', icon: 'error', shortcut: 'Alt+6', run: (ws) => ws.showBottom('problems') },
-  { label: 'Git', icon: 'git', shortcut: 'Alt+9', run: (ws) => ws.showBottom('git') },
-  { label: 'TODO', icon: 'todo', run: (ws) => ws.showBottom('todo') },
-  { label: 'Run', icon: 'run', shortcut: 'Alt+4', run: (ws) => ws.showBottom('tests') },
-  { label: 'AI', icon: 'sparkle', run: (ws) => ws.setRightTool('ai') },
-  { label: 'Endpoints', icon: 'route', run: (ws) => ws.setRightTool('endpoints') },
-  { label: 'Composer', icon: 'box', run: (ws) => ws.setRightTool('composer') },
-  { label: 'npm', icon: 'npm', run: (ws) => ws.setRightTool('npm') },
-  { label: 'Notifications', icon: 'bell', run: (ws) => ws.setRightTool('notifications') },
-];
+/** Tool windows, with their keys in the keymap (phpblitz.tool.<name>). */
+export const TOOL_WINDOWS: ToolEntry[] = (
+  [
+    { label: 'Commit', icon: 'commit', run: (ws) => ws.showLeft('commit') },
+    { label: 'Project', icon: 'folder', run: (ws) => ws.showLeft('project') },
+    { label: 'Terminal', icon: 'terminal', run: (ws) => ws.showBottom('terminal') },
+    { label: 'Database', icon: 'database', run: (ws) => ws.showLeft('database') },
+    { label: 'Structure', icon: 'structure', run: (ws) => ws.showLeft('structure') },
+    { label: 'Problems', icon: 'error', run: (ws) => ws.showBottom('problems') },
+    { label: 'Git', icon: 'git', run: (ws) => ws.showBottom('git') },
+    { label: 'TODO', icon: 'todo', run: (ws) => ws.showBottom('todo') },
+    { label: 'Run', icon: 'run', run: (ws) => ws.showBottom('tests') },
+    { label: 'AI', icon: 'sparkle', run: (ws) => ws.setRightTool('ai') },
+    { label: 'Endpoints', icon: 'route', run: (ws) => ws.setRightTool('endpoints') },
+    { label: 'Composer', icon: 'box', run: (ws) => ws.setRightTool('composer') },
+    { label: 'npm', icon: 'npm', run: (ws) => ws.setRightTool('npm') },
+    { label: 'Notifications', icon: 'bell', run: (ws) => ws.setRightTool('notifications') },
+  ] as Omit<ToolEntry, 'shortcut'>[]
+).map((t) => ({
+  ...t,
+  // The keymap's keys for it (Settings ▸ Keymap).
+  get shortcut() {
+    return shortcut(`phpblitz.tool.${t.label.toLowerCase()}`);
+  },
+}));
 
 const nativePath = (p: string) => (/^[A-Za-z]:\//.test(p) ? p.replace(/\//g, '\\') : p);
 

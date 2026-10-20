@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { ContextMenu, type ContextItem } from './ContextMenu';
 import { FileStructurePopup, FindBar, GotoLineDialog, type FindRequest } from './EditorPopups';
 import { setEditorCommands, setMainEditor } from '../editorCommands';
@@ -43,6 +43,8 @@ import { Icon } from './Icon';
 import { trackActiveEditor } from '../editor/active';
 import { caretMoved, edited } from '../navHistory';
 import { startInlineEdit } from '../ai/actions';
+import { gotoMethod, moveStatement, SURROUND_TEMPLATES, surroundWith, toggleCase } from '../editor/editingActions';
+import { shortcut, withKeys } from '../keymap/store';
 
 export function EditorArea({ ws }: { ws: Workspace }) {
   const tab = ws.activeTab;
@@ -69,14 +71,12 @@ export function EditorArea({ ws }: { ws: Workspace }) {
       {!tab && (
         <div className="editor-empty">
           <div className="shortcut-row">
-            <span>Search Everywhere</span>
-            <span>Double Shift</span>
-            <span>Go to File</span>
-            <span>Ctrl+Shift+N</span>
-            <span>Go to Class</span>
-            <span>Ctrl+N</span>
-            <span>Commit</span>
-            <span>Ctrl+K</span>
+            {EMPTY_HINTS.filter(([, id]) => shortcut(id)).map(([label, id]) => (
+              <Fragment key={id}>
+                <span>{label}</span>
+                <span>{shortcut(id)}</span>
+              </Fragment>
+            ))}
           </div>
         </div>
       )}
@@ -84,6 +84,15 @@ export function EditorArea({ ws }: { ws: Workspace }) {
     </section>
   );
 }
+
+/** What the empty editor area suggests, with the keymap's keys. */
+const EMPTY_HINTS: [string, string][] = [
+  ['Search Everywhere', 'phpblitz.searchEverywhere'],
+  ['Go to File', 'phpblitz.gotoFile'],
+  ['Go to Class', 'phpblitz.gotoClass'],
+  ['Recent Files', 'phpblitz.recentFiles'],
+  ['Commit', 'phpblitz.commit'],
+];
 
 /** The editor's top-right widget: problem counts with previous/next arrows. */
 function Inspections({ ws, path, editor }: { ws: Workspace; path: string; editor: monaco.editor.IStandaloneCodeEditor | null }) {
@@ -124,10 +133,10 @@ function Inspections({ ws, path, editor }: { ws: Workspace; path: string; editor
           <Icon name="check" size={14} />
         </span>
       )}
-      <button type="button" className="icon-btn small" aria-label="Previous problem" title="Previous Highlighted Error (Shift+F2)" onClick={() => jump('prev')} disabled={!list.length && !typos}>
+      <button type="button" className="icon-btn small" aria-label="Previous problem" title={withKeys('Previous Highlighted Error', 'phpblitz.prevProblem')} onClick={() => jump('prev')} disabled={!list.length && !typos}>
         <Icon name="chevronUp" size={12} />
       </button>
-      <button type="button" className="icon-btn small" aria-label="Next problem" title="Next Highlighted Error (F2)" onClick={() => jump('next')} disabled={!list.length && !typos}>
+      <button type="button" className="icon-btn small" aria-label="Next problem" title={withKeys('Next Highlighted Error', 'phpblitz.nextProblem')} onClick={() => jump('next')} disabled={!list.length && !typos}>
         <Icon name="chevronDown" size={12} />
       </button>
     </div>
@@ -304,15 +313,13 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     testGutter.current = setupTestGutter(editor, () => latest.current.path);
     editor.onDidDispose(() => testGutter.current?.dispose());
     decorations.current = editor.createDecorationsCollection();
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => latest.current.ws.save(latest.current.path));
+    editor.addAction({ id: 'phpblitz.save', label: 'Save', run: () => latest.current.ws.save(latest.current.path) });
 
-    // Shortcuts for the language-server features.
-    const { KeyMod, KeyCode } = monaco;
+    // The language-server features (their keys come from the keymap: keymap/).
     const run = (id: string) => () => editor.trigger('phpblitz', id, {});
     editor.addAction({
       id: 'phpblitz.findUsages',
       label: 'Find Usages',
-      keybindings: [KeyMod.Alt | KeyCode.F7, KeyMod.Shift | KeyCode.F12],
       contextMenuGroupId: 'navigation',
       contextMenuOrder: 1.5,
       run: (ed) => {
@@ -321,10 +328,10 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         if (model && pos) latest.current.ws.findUsagesAt(model, pos);
       },
     });
-    editor.addAction({ id: 'phpblitz.gotoDeclaration', label: 'Go to Declaration', keybindings: [KeyMod.CtrlCmd | KeyCode.KeyB], run: run('editor.action.revealDefinition') });
-    editor.addAction({ id: 'phpblitz.gotoImplementation', label: 'Go to Implementation', keybindings: [KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.KeyB], run: run('editor.action.goToImplementation') });
-    editor.addAction({ id: 'phpblitz.rename', label: 'Rename…', keybindings: [KeyMod.Shift | KeyCode.F6], run: () => void startRename() });
-    editor.addAction({ id: 'phpblitz.reformat', label: 'Reformat Code', keybindings: [KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.KeyL], run: run('editor.action.formatDocument') });
+    editor.addAction({ id: 'phpblitz.gotoDeclaration', label: 'Go to Declaration', run: run('editor.action.revealDefinition') });
+    editor.addAction({ id: 'phpblitz.gotoImplementation', label: 'Go to Implementation', run: run('editor.action.goToImplementation') });
+    editor.addAction({ id: 'phpblitz.rename', label: 'Rename…', run: () => void startRename() });
+    editor.addAction({ id: 'phpblitz.reformat', label: 'Reformat Code', run: run('editor.action.formatDocument') });
     // ── Hover popup: problems with their quick fix, and documentation ──
     /** Screen box of the word at `pos`, for placing the popup under it. */
     const wordBox = (pos: monaco.IPosition) => {
@@ -363,7 +370,6 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     editor.addAction({
       id: 'phpblitz.quickDoc',
       label: 'Quick Documentation',
-      keybindings: [KeyMod.CtrlCmd | KeyCode.KeyQ],
       run: () => {
         const pos = editor.getPosition();
         if (pos) showHoverAt(pos, 'keyboard', true);
@@ -387,13 +393,12 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       // After the caret move, so the popup doesn't close right away.
       setTimeout(() => showHoverAt(at, 'keyboard'), 0);
     };
-    editor.addAction({ id: 'phpblitz.nextProblem', label: 'Next Highlighted Error', keybindings: [KeyCode.F2], run: () => jumpToProblem(1) });
-    editor.addAction({ id: 'phpblitz.prevProblem', label: 'Previous Highlighted Error', keybindings: [KeyMod.Shift | KeyCode.F2], run: () => jumpToProblem(-1) });
+    editor.addAction({ id: 'phpblitz.nextProblem', label: 'Next Highlighted Error', run: () => jumpToProblem(1) });
+    editor.addAction({ id: 'phpblitz.prevProblem', label: 'Previous Highlighted Error', run: () => jumpToProblem(-1) });
     // Alt+Shift+Enter: apply the first quick fix of the problem at the caret.
     editor.addAction({
       id: 'phpblitz.applyFirstFix',
       label: 'Apply First Quick Fix',
-      keybindings: [KeyMod.Alt | KeyMod.Shift | KeyCode.Enter],
       run: async () => {
         const model = editor.getModel();
         const pos = editor.getPosition();
@@ -406,17 +411,16 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         else popupActions('context');
       },
     });
-    editor.addAction({ id: 'phpblitz.paramInfo', label: 'Parameter Info', keybindings: [KeyMod.CtrlCmd | KeyCode.KeyP], run: run('editor.action.triggerParameterHints') });
-    editor.addAction({ id: 'phpblitz.typeDeclaration', label: 'Go to Type Declaration', keybindings: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyB], run: run('editor.action.goToTypeDefinition') });
-    editor.addAction({ id: 'phpblitz.columnSelection', label: 'Column Selection Mode', keybindings: [KeyMod.Alt | KeyMod.Shift | KeyCode.Insert], run: run('editor.action.toggleColumnSelection') });
-    editor.addAction({ id: 'phpblitz.expand', label: 'Expand', keybindings: [KeyMod.CtrlCmd | KeyCode.NumpadAdd], run: run('editor.unfold') });
-    editor.addAction({ id: 'phpblitz.collapse', label: 'Collapse', keybindings: [KeyMod.CtrlCmd | KeyCode.NumpadSubtract], run: run('editor.fold') });
-    editor.addAction({ id: 'phpblitz.expandAll', label: 'Expand All', keybindings: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.NumpadAdd], run: run('editor.unfoldAll') });
-    editor.addAction({ id: 'phpblitz.collapseAll', label: 'Collapse All', keybindings: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.NumpadSubtract], run: run('editor.foldAll') });
+    editor.addAction({ id: 'phpblitz.paramInfo', label: 'Parameter Info', run: run('editor.action.triggerParameterHints') });
+    editor.addAction({ id: 'phpblitz.typeDeclaration', label: 'Go to Type Declaration', run: run('editor.action.goToTypeDefinition') });
+    editor.addAction({ id: 'phpblitz.columnSelection', label: 'Column Selection Mode', run: run('editor.action.toggleColumnSelection') });
+    editor.addAction({ id: 'phpblitz.expand', label: 'Expand', run: run('editor.unfold') });
+    editor.addAction({ id: 'phpblitz.collapse', label: 'Collapse', run: run('editor.fold') });
+    editor.addAction({ id: 'phpblitz.expandAll', label: 'Expand All', run: run('editor.unfoldAll') });
+    editor.addAction({ id: 'phpblitz.collapseAll', label: 'Collapse All', run: run('editor.foldAll') });
     editor.addAction({
       id: 'phpblitz.toggleBreakpoint',
       label: 'Toggle Line Breakpoint',
-      keybindings: [KeyMod.CtrlCmd | KeyCode.F8],
       run: (ed) => {
         const line = ed.getPosition()?.lineNumber;
         if (line) latest.current.ws.toggleBreakpoint(latest.current.path, line);
@@ -425,7 +429,6 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     editor.addAction({
       id: 'phpblitz.runToCursor',
       label: 'Run to Cursor',
-      keybindings: [KeyMod.Alt | KeyCode.F9],
       run: (ed) => {
         const line = ed.getPosition()?.lineNumber;
         if (line) void debug.runToCursor(latest.current.path, line);
@@ -435,7 +438,6 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     editor.addAction({
       id: 'phpblitz.runTests',
       label: 'Run Tests',
-      keybindings: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.F10],
       run: (ed) => {
         const { ws, path } = latest.current;
         const test = testGutter.current?.around(ed.getPosition()?.lineNumber ?? 1);
@@ -444,27 +446,26 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         else ws.runTests();
       },
     });
-    editor.addAction({ id: 'phpblitz.copyPath', label: 'Copy Absolute Path', keybindings: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyC], run: () => copyText(latest.current.ws, latest.current.path, 'path') });
+    editor.addAction({ id: 'phpblitz.copyPath', label: 'Copy Absolute Path', run: () => copyText(latest.current.ws, latest.current.path, 'path') });
     editor.addAction({
       id: 'phpblitz.copyReference',
       label: 'Copy Reference',
-      keybindings: [KeyMod.CtrlCmd | KeyMod.Alt | KeyMod.Shift | KeyCode.KeyC],
       run: (ed) => {
         const ref = referenceAt(ed as monaco.editor.IStandaloneCodeEditor);
         if (ref) copyText(latest.current.ws, ref, 'reference');
       },
     });
-    // Ctrl+K is a chord prefix in Monaco; take it back for Commit.
-    editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyK, () => latest.current.ws.showLeft('commit'));
-    editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyE, () => latest.current.ws.setRecentOpen(true));
-    // Ctrl+Shift+K: Push… (Monaco's "delete line" otherwise); Ctrl+T: Update Project.
-    editor.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyK, () => latest.current.ws.git && latest.current.ws.setGitDialog({ kind: 'push' }));
-    editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyT, () => latest.current.ws.git && latest.current.ws.runGit('Update project', () => latest.current.ws.gitRepo.pull()));
+    // Editing actions of their own (editor/editingActions.ts).
+    editor.addAction({ id: 'phpblitz.moveStatementUp', label: 'Move Statement Up', run: () => moveStatement(editor, -1) });
+    editor.addAction({ id: 'phpblitz.moveStatementDown', label: 'Move Statement Down', run: () => moveStatement(editor, 1) });
+    editor.addAction({ id: 'phpblitz.toggleCase', label: 'Toggle Case', run: () => toggleCase(editor) });
+    editor.addAction({ id: 'phpblitz.prevMethod', label: 'Previous Method', run: () => gotoMethod(editor, -1) });
+    editor.addAction({ id: 'phpblitz.nextMethod', label: 'Next Method', run: () => gotoMethod(editor, 1) });
 
     // ── Lightbulb: shown on the caret line when Alt+Enter has something to offer ──
     const bulb = document.createElement('div');
     bulb.className = 'pb-bulb';
-    bulb.title = 'Show Context Actions (Alt+Enter)';
+    bulb.title = withKeys('Show Context Actions', 'phpblitz.contextActions');
     bulb.innerHTML =
       '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5a4.5 4.5 0 0 0-2.7 8.1c.4.3.7.8.7 1.3V12h4v-1.1c0-.5.3-1 .7-1.3A4.5 4.5 0 0 0 8 1.5Z" fill="#F2C55C"/><path d="M6 13.2h4M6.6 14.6h2.8" stroke="#CED0D6" stroke-width="1.2" stroke-linecap="round"/></svg>' +
       '<svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M1.5 3 4 5.5 6.5 3" stroke="#A8ADBD" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>';
@@ -541,28 +542,35 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     editor.addAction({
       id: 'phpblitz.showUsages',
       label: 'Show Usages',
-      keybindings: [KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.F7],
       run: (ed) => {
         const model = ed.getModel();
         const pos = ed.getPosition();
         if (model && pos) latest.current.ws.showUsagesAt(model, pos, pointOf(pos));
       },
     });
-    editor.addAction({ id: 'phpblitz.contextActions', label: 'Show Context Actions', keybindings: [KeyMod.Alt | KeyCode.Enter], run: () => popupActions('context') });
-    editor.addAction({ id: 'phpblitz.generate', label: 'Generate…', keybindings: [KeyMod.Alt | KeyCode.Insert], run: () => popupActions('generate') });
+    editor.addAction({ id: 'phpblitz.contextActions', label: 'Show Context Actions', run: () => popupActions('context') });
+    editor.addAction({ id: 'phpblitz.generate', label: 'Generate…', run: () => popupActions('generate') });
+    // Surround With: the templates in the intention popup, each with a key to pick it.
+    editor.addAction({
+      id: 'phpblitz.surroundWith',
+      label: 'Surround With…',
+      run: () =>
+        setIntentions({
+          ...caretPoint(editor),
+          items: SURROUND_TEMPLATES.map((t) => ({ label: t.label, shortcut: t.key, run: () => surroundWith(editor, t.body) })),
+        }),
+    });
 
     // Bookmarks: F11, Ctrl+F11 (mnemonic), Shift+F11 (all of them), Ctrl+digit (jump), Ctrl+Shift+digit (toggle).
     const caretLine = () => editor.getPosition()?.lineNumber ?? 1;
-    editor.addAction({ id: 'phpblitz.toggleBookmark', label: 'Toggle Bookmark', keybindings: [KeyCode.F11], run: () => bookmarks.toggle(latest.current.path, caretLine()) });
-    editor.addAction({ id: 'phpblitz.mnemonicBookmark', label: 'Toggle Bookmark with Mnemonic…', keybindings: [KeyMod.CtrlCmd | KeyCode.F11], run: () => setMnemonicLine(caretLine()) });
-    editor.addAction({ id: 'phpblitz.showBookmarks', label: 'Show All Bookmarks', keybindings: [KeyMod.Shift | KeyCode.F11], run: () => setPopup('bookmarks') });
+    editor.addAction({ id: 'phpblitz.toggleBookmark', label: 'Toggle Bookmark', run: () => bookmarks.toggle(latest.current.path, caretLine()) });
+    editor.addAction({ id: 'phpblitz.mnemonicBookmark', label: 'Toggle Bookmark with Mnemonic…', run: () => setMnemonicLine(caretLine()) });
+    editor.addAction({ id: 'phpblitz.showBookmarks', label: 'Show All Bookmarks', run: () => setPopup('bookmarks') });
     for (let d = 0; d <= 9; d++) {
-      const key = KeyCode.Digit0 + d;
       const m = String(d);
       editor.addAction({
         id: `phpblitz.gotoBookmark${m}`,
         label: `Go to Bookmark ${m}`,
-        keybindings: [KeyMod.CtrlCmd | key],
         run: () => {
           const b = bookmarks.byMnemonic(m);
           if (b) latest.current.ws.openFile(b.path, { line: b.line });
@@ -571,7 +579,6 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       editor.addAction({
         id: `phpblitz.toggleBookmark${m}`,
         label: `Toggle Bookmark ${m}`,
-        keybindings: [KeyMod.CtrlCmd | KeyMod.Shift | key],
         run: () => {
           const { path } = latest.current;
           const line = caretLine();
@@ -580,11 +587,11 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         },
       });
     }
-    editor.addAction({ id: 'phpblitz.softWrap', label: 'Soft-Wrap', keybindings: [KeyMod.Alt | KeyCode.KeyZ], run: toggleSoftWrap });
+    editor.addAction({ id: 'phpblitz.softWrap', label: 'Soft-Wrap', run: toggleSoftWrap });
     // Back / Forward: Monaco's own Ctrl+Alt+← / → (move by camelCase word part) gives way.
-    editor.addAction({ id: 'phpblitz.back', label: 'Back', keybindings: [KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.LeftArrow], run: () => latest.current.ws.navigateBack() });
-    editor.addAction({ id: 'phpblitz.forward', label: 'Forward', keybindings: [KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.RightArrow], run: () => latest.current.ws.navigateForward() });
-    editor.addAction({ id: 'phpblitz.editWithAi', label: 'Edit with AI…', keybindings: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyI], run: (ed) => startInlineEdit(latest.current.ws, ed) });
+    editor.addAction({ id: 'phpblitz.back', label: 'Back', run: () => latest.current.ws.navigateBack() });
+    editor.addAction({ id: 'phpblitz.forward', label: 'Forward', run: () => latest.current.ws.navigateForward() });
+    editor.addAction({ id: 'phpblitz.editWithAi', label: 'Edit with AI…', run: (ed) => startInlineEdit(latest.current.ws, ed) });
 
     // Our right-click menu instead of Monaco's.
     editor.onContextMenu(async (e) => {
@@ -633,19 +640,19 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       const text = sel && !sel.isEmpty() && sel.startLineNumber === sel.endLineNumber ? editor.getModel()!.getValueInRange(sel) : '';
       setFind({ replace, seed: text, nonce: Date.now() });
     };
-    editor.addAction({ id: 'phpblitz.find', label: 'Find…', keybindings: [KeyMod.CtrlCmd | KeyCode.KeyF], run: () => openFind(false) });
-    editor.addAction({ id: 'phpblitz.replace', label: 'Replace…', keybindings: [KeyMod.CtrlCmd | KeyCode.KeyR], run: () => openFind(true) });
+    editor.addAction({ id: 'phpblitz.find', label: 'Find…', run: () => openFind(false) });
+    editor.addAction({ id: 'phpblitz.replace', label: 'Replace…', run: () => openFind(true) });
     const selectionText = () => {
       const sel = editor.getSelection();
       return sel && !sel.isEmpty() && sel.startLineNumber === sel.endLineNumber ? editor.getModel()!.getValueInRange(sel) : '';
     };
-    editor.addAction({ id: 'phpblitz.findInFiles', label: 'Find in Files…', keybindings: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyF], run: () => latest.current.ws.openFindInFiles('find', selectionText()) });
-    editor.addAction({ id: 'phpblitz.replaceInFiles', label: 'Replace in Files…', keybindings: [KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyR], run: () => latest.current.ws.openFindInFiles('replace', selectionText()) });
-    editor.addAction({ id: 'phpblitz.findNext', label: 'Find Next', keybindings: [KeyCode.F3], run: () => setFindStep({ dir: 1, nonce: Date.now() }) });
-    editor.addAction({ id: 'phpblitz.findPrev', label: 'Find Previous', keybindings: [KeyMod.Shift | KeyCode.F3], run: () => setFindStep({ dir: -1, nonce: Date.now() }) });
-    editor.addAction({ id: 'phpblitz.gotoLine', label: 'Go to Line:Column…', keybindings: [KeyMod.CtrlCmd | KeyCode.KeyG], run: () => setPopup('goto') });
-    editor.addAction({ id: 'phpblitz.fileStructure', label: 'File Structure', keybindings: [KeyMod.CtrlCmd | KeyCode.F12], run: () => setPopup('structure') });
-    editor.addAction({ id: 'phpblitz.findAction', label: 'Find Action…', keybindings: [KeyCode.F1, KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyA], run: () => latest.current.ws.openSearch('actions') });
+    editor.addAction({ id: 'phpblitz.findInFiles', label: 'Find in Files…', run: () => latest.current.ws.openFindInFiles('find', selectionText()) });
+    editor.addAction({ id: 'phpblitz.replaceInFiles', label: 'Replace in Files…', run: () => latest.current.ws.openFindInFiles('replace', selectionText()) });
+    editor.addAction({ id: 'phpblitz.findNext', label: 'Find Next', run: () => setFindStep({ dir: 1, nonce: Date.now() }) });
+    editor.addAction({ id: 'phpblitz.findPrev', label: 'Find Previous', run: () => setFindStep({ dir: -1, nonce: Date.now() }) });
+    editor.addAction({ id: 'phpblitz.gotoLine', label: 'Go to Line:Column…', run: () => setPopup('goto') });
+    editor.addAction({ id: 'phpblitz.fileStructure', label: 'File Structure', run: () => setPopup('structure') });
+    editor.addAction({ id: 'phpblitz.findAction', label: 'Find Action…', run: () => latest.current.ws.openSearch('actions') });
 
     // What Find Action (Ctrl+Shift+A) can run in this editor.
     const trigger = (id: string) => () => {
@@ -653,34 +660,34 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       editor.trigger('phpblitz', id, {});
     };
     setEditorCommands(() => [
-      { id: 'undo', label: 'Undo', shortcut: 'Ctrl+Z', run: trigger('undo') },
-      { id: 'redo', label: 'Redo', shortcut: 'Ctrl+Shift+Z', run: trigger('redo') },
+      { id: 'undo', label: 'Undo', shortcut: shortcut('undo'), run: trigger('undo') },
+      { id: 'redo', label: 'Redo', shortcut: shortcut('redo'), run: trigger('redo') },
       { id: 'cut', label: 'Cut', shortcut: 'Ctrl+X', run: trigger('editor.action.clipboardCutAction') },
       { id: 'copy', label: 'Copy', shortcut: 'Ctrl+C', run: trigger('editor.action.clipboardCopyAction') },
       { id: 'paste', label: 'Paste', shortcut: 'Ctrl+V', run: trigger('editor.action.clipboardPasteAction') },
       { id: 'selectAll', label: 'Select All', shortcut: 'Ctrl+A', run: trigger('editor.action.selectAll') },
-      { id: 'blockComment', label: 'Comment with Block Comment', shortcut: 'Ctrl+Shift+/', run: trigger('editor.action.blockComment') },
-      { id: 'find', label: 'Find…', shortcut: 'Ctrl+F', run: () => openFind(false) },
-      { id: 'replace', label: 'Replace…', shortcut: 'Ctrl+R', run: () => openFind(true) },
-      { label: 'Find in Files…', shortcut: 'Ctrl+Shift+F', run: () => latest.current.ws.openFindInFiles('find', selectionText()) },
-      { label: 'Replace in Files…', shortcut: 'Ctrl+Shift+R', run: () => latest.current.ws.openFindInFiles('replace', selectionText()) },
-      { id: 'gotoLine', label: 'Go to Line:Column…', shortcut: 'Ctrl+G', run: () => setPopup('goto') },
-      { id: 'fileStructure', label: 'File Structure', shortcut: 'Ctrl+F12', run: () => setPopup('structure') },
-      { id: 'findUsages', label: 'Find Usages', shortcut: 'Alt+F7', run: trigger('phpblitz.findUsages') },
-      { id: 'rename', label: 'Rename…', shortcut: 'Shift+F6', run: () => void startRename() },
-      { id: 'contextActions', label: 'Show Context Actions', shortcut: 'Alt+Enter', run: () => popupActions('context') },
-      { id: 'generate', label: 'Generate…', shortcut: 'Alt+Insert', run: () => popupActions('generate') },
-      { id: 'reformat', label: 'Reformat Code', shortcut: 'Ctrl+Alt+L', run: trigger('editor.action.formatDocument') },
-      { id: 'declaration', label: 'Go to Declaration', shortcut: 'Ctrl+B', run: trigger('editor.action.revealDefinition') },
-      { id: 'copyReference', label: 'Copy Reference', shortcut: 'Ctrl+Alt+Shift+C', run: trigger('phpblitz.copyReference') },
-      { id: 'foldAll', label: 'Collapse All', shortcut: 'Ctrl+Shift+NumPad -', run: trigger('editor.foldAll') },
-      { id: 'unfoldAll', label: 'Expand All', shortcut: 'Ctrl+Shift+NumPad +', run: trigger('editor.unfoldAll') },
-      { id: 'commentLine', label: 'Comment with Line Comment', shortcut: 'Ctrl+/', run: trigger('editor.action.commentLine') },
-      { id: 'duplicate', label: 'Duplicate Line or Selection', shortcut: 'Ctrl+D', run: trigger('editor.action.copyLinesDownAction') },
-      { id: 'toggleBookmark', label: 'Toggle Bookmark', shortcut: 'F11', run: trigger('phpblitz.toggleBookmark') },
-      { id: 'mnemonicBookmark', label: 'Toggle Bookmark with Mnemonic…', shortcut: 'Ctrl+F11', run: trigger('phpblitz.mnemonicBookmark') },
-      { id: 'bookmarks', label: 'Show All Bookmarks', shortcut: 'Shift+F11', run: () => setPopup('bookmarks') },
-      { id: 'softWrap', label: 'Soft-Wrap', shortcut: 'Alt+Z', run: toggleSoftWrap },
+      { id: 'blockComment', label: 'Comment with Block Comment', shortcut: shortcut('editor.action.blockComment'), run: trigger('editor.action.blockComment') },
+      { id: 'find', label: 'Find…', shortcut: shortcut('phpblitz.find'), run: () => openFind(false) },
+      { id: 'replace', label: 'Replace…', shortcut: shortcut('phpblitz.replace'), run: () => openFind(true) },
+      { label: 'Find in Files…', shortcut: shortcut('phpblitz.findInFiles'), run: () => latest.current.ws.openFindInFiles('find', selectionText()) },
+      { label: 'Replace in Files…', shortcut: shortcut('phpblitz.replaceInFiles'), run: () => latest.current.ws.openFindInFiles('replace', selectionText()) },
+      { id: 'gotoLine', label: 'Go to Line:Column…', shortcut: shortcut('phpblitz.gotoLine'), run: () => setPopup('goto') },
+      { id: 'fileStructure', label: 'File Structure', shortcut: shortcut('phpblitz.fileStructure'), run: () => setPopup('structure') },
+      { id: 'findUsages', label: 'Find Usages', shortcut: shortcut('phpblitz.findUsages'), run: trigger('phpblitz.findUsages') },
+      { id: 'rename', label: 'Rename…', shortcut: shortcut('phpblitz.rename'), run: () => void startRename() },
+      { id: 'contextActions', label: 'Show Context Actions', shortcut: shortcut('phpblitz.contextActions'), run: () => popupActions('context') },
+      { id: 'generate', label: 'Generate…', shortcut: shortcut('phpblitz.generate'), run: () => popupActions('generate') },
+      { id: 'reformat', label: 'Reformat Code', shortcut: shortcut('phpblitz.reformat'), run: trigger('editor.action.formatDocument') },
+      { id: 'declaration', label: 'Go to Declaration', shortcut: shortcut('phpblitz.gotoDeclaration'), run: trigger('editor.action.revealDefinition') },
+      { id: 'copyReference', label: 'Copy Reference', shortcut: shortcut('phpblitz.copyReference'), run: trigger('phpblitz.copyReference') },
+      { id: 'foldAll', label: 'Collapse All', shortcut: shortcut('phpblitz.collapseAll'), run: trigger('editor.foldAll') },
+      { id: 'unfoldAll', label: 'Expand All', shortcut: shortcut('phpblitz.expandAll'), run: trigger('editor.unfoldAll') },
+      { id: 'commentLine', label: 'Comment with Line Comment', shortcut: shortcut('editor.action.commentLine'), run: trigger('editor.action.commentLine') },
+      { id: 'duplicate', label: 'Duplicate Line or Selection', shortcut: shortcut('editor.action.duplicateSelection'), run: trigger('editor.action.duplicateSelection') },
+      { id: 'toggleBookmark', label: 'Toggle Bookmark', shortcut: shortcut('phpblitz.toggleBookmark'), run: trigger('phpblitz.toggleBookmark') },
+      { id: 'mnemonicBookmark', label: 'Toggle Bookmark with Mnemonic…', shortcut: shortcut('phpblitz.mnemonicBookmark'), run: trigger('phpblitz.mnemonicBookmark') },
+      { id: 'bookmarks', label: 'Show All Bookmarks', shortcut: shortcut('phpblitz.showBookmarks'), run: () => setPopup('bookmarks') },
+      { id: 'softWrap', label: 'Soft-Wrap', shortcut: shortcut('phpblitz.softWrap'), run: toggleSoftWrap },
     ]);
     setMainEditor(editor);
     // Typing in route('…'), config('…'), view('…'), env('…') or __('…') opens their completion
@@ -1216,6 +1223,8 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       options={{
         readOnly: ws.readOnly.has(path),
         readOnlyMessage: { value: 'This file is read-only. Click the lock in the status bar to make it writable.' },
+        // PHP: $ is part of a variable's name (double-click, Ctrl+←/→ and Alt+J take $name whole).
+        ...(languageOf(path) === 'php' ? { wordSeparators: '`~!@#%^&*()-=+[{]}\\|;:\'",.<>/?' } : {}),
         fontFamily: `'${settings.fontFamily}', 'JetBrains Mono', Consolas, monospace`,
         fontSize: settings.fontSize,
         lineHeight: Math.round(settings.fontSize * settings.lineHeight),

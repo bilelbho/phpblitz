@@ -11,6 +11,8 @@ import './completion/laravel';
 import { symbols } from './symbols';
 import { isLspActive, usageCount } from './lsp/monacoBridge';
 import { getSettings } from './settings';
+import { COMMANDS } from './keymap/catalog';
+import { reservedKeys, setEditorFinder } from './keymap/commands';
 
 // Bundle Monaco instead of loading it from a CDN, so the IDE works offline.
 self.MonacoEnvironment = {
@@ -83,6 +85,23 @@ const usageLenses: monaco.languages.CodeLensProvider = {
 const usageLensesRegistration = monaco.languages.registerCodeLensProvider('php', usageLenses);
 // Dev reloads: the new module registers again, so the old one goes ("9 usages | 9 usages" otherwise).
 import.meta.hot?.dispose(() => usageLensesRegistration.dispose());
+
+// The keymap (keymap/) runs Monaco's editing commands it lists: their Monaco keys go, so each
+// keymap has only its own (a removal without keys removes all of a command's).
+monaco.editor.addKeybindingRules(COMMANDS.filter((c) => c.monaco).map((c) => ({ keybinding: 0, command: `-${c.id}` })));
+setEditorFinder(() => {
+  const editor = monaco.editor.getEditors().find((e) => e.hasTextFocus());
+  if (!editor) return null;
+  return {
+    hasTextFocus: () => editor.hasTextFocus(),
+    getAction: (id) => editor.getAction(id),
+    trigger: (source, id, payload) => editor.trigger(source, id, payload),
+    readOnly: () => editor.getOption(monaco.editor.EditorOption.readOnly),
+    // The widgets can live outside the editor's own element (overflow widgets): only one editor has the focus.
+    widgetOpen: () => !!document.querySelector('.suggest-widget.visible, .parameter-hints-widget.visible'),
+    reserves: (keys) => !!reservedKeys(editor)?.has(keys),
+  };
+});
 
 // Remove Monaco keybindings whose popups we replace with our own (see EditorArea).
 const { KeyMod, KeyCode } = monaco;

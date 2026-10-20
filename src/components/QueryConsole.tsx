@@ -14,6 +14,7 @@ import { themeId } from '../editor/themes';
 import { DataGrid } from './DataGrid';
 import { ExportDialog } from './ExportDialog';
 import { Icon } from './Icon';
+import { reserveKeys } from '../keymap/commands';
 
 const textKey = (source: string, name: string) => (name === 'console' ? `phpblitz.console:${source}` : `phpblitz.console:${source}:${name}`);
 
@@ -225,6 +226,7 @@ export function QueryConsole({ ws, source, name }: { ws: Workspace; source: stri
     const model = editor.getModel();
     if (model) consoleSources.set(model.uri.toString(), source);
     editor.addAction({ id: 'phpblitz.sql.execute', label: 'Execute', keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter], run: () => executeRef.current() });
+    reserveKeys(editor, ['Ctrl+Enter']);
     editor.onDidChangeModelContent(() => {
       try {
         localStorage.setItem(textKey(source, name), editor.getValue());

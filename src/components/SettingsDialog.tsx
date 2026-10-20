@@ -14,6 +14,7 @@ import { projectPhp, saveProjectPhp, type ProjectPhp } from '../interpreters';
 import { SCHEMES, schemeOf, schemePreview, type SchemeId } from '../editor/themes';
 import { AiAgentsPage } from './SettingsAi';
 import { MagoPage } from './SettingsMago';
+import { KeymapPage } from './SettingsKeymap';
 
 interface Page {
   id: string;
@@ -52,6 +53,13 @@ const PAGES: Page[] = [
     group: 'Appearance & Behavior',
     section: 'ui',
     keywords: 'theme blitz dark light classic high contrast sync os zoom font size scrollbars compact mode full path window header project colors toolbar smooth scrolling menu icons tree indent guides smaller indents tool window bars names updates check automatically new version main menu bar hamburger merge toolbar',
+  },
+  {
+    id: 'keymap',
+    label: 'Keymap',
+    group: 'Keymap',
+    section: 'keymap',
+    keywords: 'keymap keyboard shortcuts keys bindings hotkeys vs code visual studio sublime text zed notepad++ import export keybindings.json chord multiple carets cursors',
   },
   {
     id: 'editor-general',
@@ -145,6 +153,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
       ai: { ...draft.ai, mcpPort: clamp(draft.ai.mcpPort, 1024, 65535, 7465) },
       mago: draft.mago,
       composer: { path: draft.composer.path.trim() },
+      keymap: draft.keymap,
     };
     saveSettings(next);
     saveProjectPhp(root, php);
@@ -218,6 +227,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
               {active.label}
             </div>
             <div className="settings-content">
+              {active.id === 'keymap' && <KeymapPage value={draft.keymap} onChange={(keymap) => setDraft((d) => ({ ...d, keymap }))} />}
               {active.id === 'mago' && <MagoPage ws={ws} value={draft.mago} onChange={(mago) => setDraft((d) => ({ ...d, mago }))} />}
               {active.id === 'debug' && <DebugPage value={draft.debug} onChange={setDebug} highlight={query.trim().toLowerCase()} />}
               {active.id === 'php' && <PhpPage ws={ws} draft={php} onChange={(patch) => setPhp((p) => ({ ...p, ...patch }))} composerPath={draft.composer.path} onComposerPath={(path) => setDraft((d) => ({ ...d, composer: { path } }))} />}

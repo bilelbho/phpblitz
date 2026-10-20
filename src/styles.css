@@ -7134,3 +7134,79 @@ body:has(.strip.right.with-names) .balloons {
   font-size: 12px;
   overflow-wrap: anywhere;
 }
+
+/* Settings ▸ Keymap */
+.keymap-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.keymap-top .settings-select {
+  width: 180px;
+}
+.keymap-reset-all {
+  margin-left: auto;
+}
+.keymap-message {
+  margin: 0 0 10px;
+}
+.keymap-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.keymap-search .field {
+  flex: 1 1 auto;
+}
+.keymap-list {
+  max-height: 420px;
+  padding: 0 4px 8px;
+  border: 1px solid var(--line-mid);
+  border-radius: 6px;
+}
+.keymap-row.selected {
+  background: var(--hover-soft);
+}
+.keymap-row.changed > .grow {
+  color: var(--accent);
+}
+.keymap-conflict-icon {
+  display: inline-flex;
+  color: #e5a83b;
+}
+.keymap-add {
+  width: 460px;
+}
+.keymap-record {
+  margin: 12px 16px 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  font-size: 14px;
+  text-align: center;
+}
+.keymap-record.empty {
+  color: var(--muted-2);
+}
+.keymap-add > .settings-help {
+  margin: 4px 16px 8px;
+}
+.keymap-conflict {
+  display: flex;
+  gap: 8px;
+  margin: 0 16px 8px;
+  color: var(--text-soft);
+}
+.keymap-conflict > svg {
+  flex: none;
+  margin-top: 2px;
+  color: #e5a83b;
+}
+.keymap-remove-others {
+  display: flex;
+  margin-top: 6px;
+}
+.keymap-help {
+  margin: 4px 0 10px;
+}
