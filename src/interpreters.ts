@@ -134,9 +134,14 @@ export function saveProjectPhp(root: string, value: ProjectPhp) {
 /** Re-renders when interpreters or a project's PHP settings change. */
 /** The project's local PHP interpreter (its php executable), if one is set. */
 export function projectLocalPhp(root: string): string | null {
+  return projectLocalInterpreter(root)?.phpPath ?? null;
+}
+
+/** The project's interpreter when it is a local one with a php executable. */
+export function projectLocalInterpreter(root: string): Interpreter | null {
   const id = projectPhp(root).interpreterId;
   const i = interpretersFor(root).find((x) => x.id === id);
-  return i?.kind === 'local' && i.phpPath ? i.phpPath : null;
+  return i?.kind === 'local' && i.phpPath ? i : null;
 }
 
 export function useInterpreters() {
@@ -179,7 +184,7 @@ export function kindLabel(i: Interpreter): string {
 // ── Running PHP through an interpreter ────────────────────────
 
 /** -d options from the interpreter (and the debugger extension when set). */
-function phpOptions(i: Interpreter): string[] {
+export function phpOptions(i: Interpreter): string[] {
   const out: string[] = [];
   if (i.debuggerExtension.trim()) out.push(`-dzend_extension=${i.debuggerExtension.trim()}`);
   for (const o of i.options) if (o.trim()) out.push(`-d${o.trim()}`);

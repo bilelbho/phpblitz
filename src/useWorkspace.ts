@@ -47,6 +47,7 @@ import { applyEditNow, findUsages as lspFindUsages, renameSymbol, setActiveLsp, 
 import type { Diagnostic, WorkspaceEdit } from './lsp/protocol';
 import { debug, useDebug } from './debug/manager';
 import { projectLocalPhp, useInterpreters } from './interpreters';
+import { enableExtensions, probeExtensions, projectInterpreter, requiredExtensions } from './phpExtensions';
 import { projectStorage } from './projectStorage';
 
 /** `preview`: the preview tab (italic), replaced by the next previewed file. */
@@ -135,6 +136,9 @@ export interface GotoRequest {
   find?: string;
   nonce: number;
 }
+
+/** The notice about PHP extensions the project needs (phpExtensions.ts). */
+const MISSING_EXTENSIONS = 'PHP extensions are missing';
 
 const INDEX_BATCH = 24;
 /** A background task this long (ms) is worth a notification when it finishes; shorter ones only the status bar. */
@@ -1219,6 +1223,64 @@ export function useWorkspace(backend: Backend) {
   useEffect(() => {
     if (hasPhp) dismissNoticeTitled('PHP was not found');
   }, [hasPhp, interpretersVersion, dismissNoticeTitled]);
+
+  // Extensions composer.json / composer.lock need that the project's PHP doesn't load: a notice,
+  // with a fix when they're installed but off (turned on for PHPBlitz's runs, php.ini unchanged).
+  // Checked once PHP is known, and again when the PHP settings change.
+  useEffect(() => {
+    if (backend.kind !== 'disk' || !isTauri || phpVersion === undefined || !hasPhp) return;
+    let cancelled = false;
+    const root = backend.root;
+    const timer = window.setTimeout(async () => {
+      const read = (name: string) => backend.readFile(`${root}/${name}`).catch(() => null);
+      const needs = requiredExtensions(await read('composer.json'), await read('composer.lock'));
+      const { interpreter } = projectInterpreter(root);
+      // Docker and SSH interpreters have their own setup: not PHPBlitz's to change.
+      if (!needs.length || interpreter.kind !== 'local') return;
+      const states = await probeExtensions(interpreter, root, needs.map((n) => n.name)).catch(() => null);
+      if (cancelled || !states) return;
+      const missing = states.filter((s) => !s.loaded);
+      dismissNoticeTitled(MISSING_EXTENSIONS);
+      if (!missing.length) return;
+      const who = (name: string) => {
+        const by = needs.find((n) => n.name === name)?.by ?? [];
+        return by.length > 2 ? `${by.slice(0, 2).join(', ')} and ${by.length - 2} more` : by.join(', ');
+      };
+      const list = missing.map((m) => `${m.name} (for ${who(m.name)})`).join(', ');
+      const fixable = missing.filter((m) => m.file);
+      const notInstalled = missing.filter((m) => !m.file).map((m) => m.name);
+      notify({
+        title: MISSING_EXTENSIONS,
+        body:
+          `PHP doesn't load ${list}. Composer won't install the dependencies without ${missing.length === 1 ? 'it' : 'them'}.` +
+          (fixable.length ? ` ${fixable.map((m) => m.name).join(', ')} ${fixable.length === 1 ? 'is' : 'are'} installed but turned off in php.ini.` : '') +
+          (notInstalled.length ? ` ${notInstalled.join(', ')} ${notInstalled.length === 1 ? 'needs' : 'need'} to be installed with your PHP.` : ''),
+        tone: 'warning',
+        action: fixable.length
+          ? {
+              label: 'Turn on for PHPBlitz',
+              run: () =>
+                void enableExtensions(root, fixable).then(
+                  (names) =>
+                    notify({
+                      title: `${names.join(', ')} turned on for PHPBlitz`,
+                      body: "PHPBlitz's runs of PHP and Composer load it now (Settings ▸ PHP ▸ the interpreter's options). Your php.ini is unchanged.",
+                      tone: 'success',
+                    }),
+                  (e) => notify({ title: "Couldn't turn the extensions on", body: e instanceof Error ? e.message : String(e), tone: 'error' }),
+                ),
+            }
+          : undefined,
+        secondary: { label: 'PHP Settings', run: () => setSettingsPage('php') },
+      });
+    }, 1500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+    // The PHP settings are read through interpretersVersion.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backend, phpVersion, hasPhp, interpretersVersion]);
 
   // ── Language server lifecycle ─────────────────────────────────
   const latestOpen = useRef(openFile);

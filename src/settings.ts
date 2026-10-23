@@ -56,6 +56,10 @@ export interface EditorSettings {
   gutterRun: boolean;
   gutterDocs: boolean;
   gutterChanges: boolean;
+  /** Surround With: the user's own templates (format: editor/surround.ts). */
+  surroundTemplates: { label: string; body: string }[];
+  /** Surround With: built-in templates not offered (by label). */
+  surroundHidden: string[];
 }
 
 /** View ▸ Appearance ▸ Main Menu. */
@@ -250,6 +254,8 @@ export const DEFAULT_SETTINGS: Settings = {
     gutterRun: true,
     gutterDocs: true,
     gutterChanges: true,
+    surroundTemplates: [],
+    surroundHidden: [],
   },
   terminal: {
     shellPath: '',

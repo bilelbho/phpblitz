@@ -19,9 +19,52 @@ mod xdebug;
 
 use tauri::Manager;
 
+/// macOS: the app's menu, without the default one's File ▸ Close Window: its Cmd+W would close the
+/// whole window, where keymaps use Cmd+W to close a tab (the keymap runs in the page). Quit, Hide and
+/// Minimize keep their usual keys; Edit keeps copy and paste working in text fields.
+#[cfg(target_os = "macos")]
+fn mac_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, PredefinedMenuItem as Item, Submenu};
+    let app_menu = Submenu::with_items(
+        app,
+        "PHPBlitz",
+        true,
+        &[
+            &Item::about(app, None, None)?,
+            &Item::separator(app)?,
+            &Item::services(app, None)?,
+            &Item::separator(app)?,
+            &Item::hide(app, None)?,
+            &Item::hide_others(app, None)?,
+            &Item::show_all(app, None)?,
+            &Item::separator(app)?,
+            &Item::quit(app, None)?,
+        ],
+    )?;
+    let edit = Submenu::with_items(
+        app,
+        "Edit",
+        true,
+        &[
+            &Item::undo(app, None)?,
+            &Item::redo(app, None)?,
+            &Item::separator(app)?,
+            &Item::cut(app, None)?,
+            &Item::copy(app, None)?,
+            &Item::paste(app, None)?,
+            &Item::select_all(app, None)?,
+        ],
+    )?;
+    let window = Submenu::with_items(app, "Window", true, &[&Item::minimize(app, None)?, &Item::maximize(app, None)?])?;
+    Menu::with_items(app, &[&app_menu, &edit, &window])
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(mac_menu);
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())

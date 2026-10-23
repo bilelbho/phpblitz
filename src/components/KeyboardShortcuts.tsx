@@ -51,7 +51,8 @@ export function KeyboardShortcuts({ onClose }: { ws: Workspace; menus: TopMenu[]
       const run = () => void (runCommand(c.id, null) || editorAction(c.id)?.());
       out.push({ group: c.group, label: c.label.replace(/…$/, ''), shortcut: keys.map(displayKeys).join(' / '), run });
     }
-    out.push(...MORE);
+    // Cmd and Option on macOS for these too ("Ctrl+Click").
+    out.push(...MORE.map((e) => ({ ...e, shortcut: e.shortcut.split(' / ').map(displayKeys).join(' / ') })));
     return out;
   }, []);
 

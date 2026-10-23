@@ -90,3 +90,29 @@ describe('import and export', () => {
     expect(importKeymap(text).keymap).toEqual(keymap);
   });
 });
+
+describe('macOS', () => {
+  it("moves the Cmd keys macOS keeps to Control, chords' first stroke included", async () => {
+    const { macKeys } = await import('./keymaps');
+    expect(macKeys('Ctrl+Q')).toBe('Meta+Q');
+    expect(macKeys('Ctrl+Space')).toBe('Meta+Space');
+    expect(macKeys('Ctrl+`')).toBe('Meta+`');
+    expect(macKeys('Ctrl+Shift+Space')).toBe('Ctrl+Shift+Space');
+    expect(macKeys('Ctrl+K Ctrl+Q')).toBe('Ctrl+K Ctrl+Q');
+    expect(macKeys('Double Ctrl Up')).toBe('Double Ctrl Up');
+  });
+
+  it('leaves no two commands on the same keys after the move', async () => {
+    const { macKeys } = await import('./keymaps');
+    for (const k of KEYMAPS) {
+      const seen = new Map<string, string>();
+      for (const [id, keys] of presetBindings(k.id))
+        for (const key of keys.map(macKeys)) {
+          const other = seen.get(key);
+          const debugging = (x: string) => x.startsWith('phpblitz.debug');
+          if (other && !debugging(other) && !debugging(id)) expect.fail(`${k.id} on macOS: ${key} is ${other} and ${id}`);
+          seen.set(key, id);
+        }
+    }
+  });
+});

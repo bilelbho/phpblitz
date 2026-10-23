@@ -4,7 +4,7 @@
 // "Ctrl" is Cmd on macOS. Keys are written as in keys.ts; an empty list leaves a command without keys.
 
 import { COMMANDS, command } from './catalog';
-import { normalizeKeys } from './keys';
+import { isMac, normalizeKeys } from './keys';
 
 export type KeymapId = 'phpblitz' | 'vscode' | 'sublime' | 'visualstudio' | 'zed' | 'notepadpp';
 
@@ -557,6 +557,20 @@ export function clash(a: string, b: string): boolean {
   return (!!a2 !== !!b2 && a1 === b1);
 }
 
+/**
+ * Cmd keys macOS keeps for itself (Quit, Hide, Minimize, Spotlight, app and window switching): the
+ * app never sees them. There, keymaps' "Ctrl" (Cmd) versions of these use the real Control key,
+ * as editors on macOS do (Control+Space for completion, Control+Tab between files).
+ */
+const MAC_RESERVED = new Set(['Ctrl+Q', 'Ctrl+H', 'Ctrl+Alt+H', 'Ctrl+M', 'Ctrl+Space', 'Ctrl+Tab', 'Ctrl+Shift+Tab', 'Ctrl+`', 'Ctrl+Alt+Escape']);
+
+/** On macOS, keys whose first stroke the system keeps move from Cmd to Control. */
+export function macKeys(keys: string): string {
+  const [first, ...rest] = keys.split(' ');
+  if (keys.startsWith('Double ') || !MAC_RESERVED.has(first)) return keys;
+  return [first.replace(/^Ctrl\+/, 'Meta+'), ...rest].join(' ');
+}
+
 const cache = new Map<KeymapId, Bindings>();
 
 /** Every catalog command's keys in this keymap, PHPBlitz's filling the gaps where they're free. */
@@ -574,6 +588,7 @@ export function presetBindings(id: KeymapId): Bindings {
       if (keys.length) result.set(c.id, keys);
     }
   }
+  if (isMac) for (const [command, keys] of result) result.set(command, keys.map(macKeys));
   cache.set(id, result);
   return result;
 }

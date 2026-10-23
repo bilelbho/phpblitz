@@ -43,7 +43,8 @@ import { Icon } from './Icon';
 import { trackActiveEditor } from '../editor/active';
 import { caretMoved, edited } from '../navHistory';
 import { startInlineEdit } from '../ai/actions';
-import { gotoMethod, moveStatement, SURROUND_TEMPLATES, surroundWith, toggleCase } from '../editor/editingActions';
+import { gotoMethod, moveStatement, surroundWith, toggleCase } from '../editor/editingActions';
+import { surroundKey, surroundTemplates } from '../editor/surround';
 import { shortcut, withKeys } from '../keymap/store';
 
 export function EditorArea({ ws }: { ws: Workspace }) {
@@ -557,7 +558,11 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       run: () =>
         setIntentions({
           ...caretPoint(editor),
-          items: SURROUND_TEMPLATES.map((t) => ({ label: t.label, shortcut: t.key, run: () => surroundWith(editor, t.body) })),
+          items: surroundTemplates(getSettings().editor.surroundTemplates, getSettings().editor.surroundHidden).map((t, i) => ({
+            label: t.label,
+            shortcut: surroundKey(i),
+            run: () => surroundWith(editor, t.body),
+          })),
         }),
     });
 

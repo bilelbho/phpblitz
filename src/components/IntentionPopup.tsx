@@ -197,8 +197,14 @@ export function IntentionPopup({ x, y, items, model, onClose }: Props) {
           case 'Escape':
             onClose();
             return true;
-          default:
-            return false;
+          default: {
+            // A one-character hint (Surround With's 1, 2, … a, b) picks its item.
+            if (ctrl || e.altKey || e.key.length !== 1) return false;
+            const hit = choices.find((c) => (items[c.i] as Item).shortcut?.toLowerCase() === k);
+            if (!hit) return false;
+            run(hit.i);
+            return true;
+          }
         }
       })();
       if (handled) {

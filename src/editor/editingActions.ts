@@ -1,8 +1,9 @@
 // Editing actions Monaco doesn't have: Move Statement Up/Down (whole blocks, never out of the
-// block they're in), Toggle Case, Surround With, and Previous/Next Method.
+// block they're in), Toggle Case, Surround With (templates: surround.ts), and Previous/Next Method.
 
 import * as monaco from 'monaco-editor';
 import { structureOf } from '../php';
+import { isInline, surroundSnippet } from './surround';
 
 type Editor = monaco.editor.ICodeEditor;
 
@@ -102,62 +103,28 @@ export function toggleCase(editor: Editor) {
   editor.pushUndoStop();
 }
 
-/** Surround With templates: `$SEL` is the selected lines, `$0` where the caret goes after. */
-export const SURROUND_TEMPLATES: { label: string; key: string; body: string }[] = [
-  { label: 'if', key: '1', body: 'if (${1:true}) {\n$SEL\n}' },
-  { label: 'if / else', key: '2', body: 'if (${1:true}) {\n$SEL\n} else {\n\t$0\n}' },
-  { label: 'while', key: '3', body: 'while (${1:true}) {\n$SEL\n}' },
-  { label: 'do / while', key: '4', body: 'do {\n$SEL\n} while (${1:true});' },
-  { label: 'for', key: '5', body: 'for (\\$${1:i} = 0; \\$$1 < ${2:count}; \\$$1++) {\n$SEL\n}' },
-  { label: 'foreach', key: '6', body: 'foreach (\\$${1:items} as \\$${2:item}) {\n$SEL\n}' },
-  { label: 'try / catch', key: '7', body: 'try {\n$SEL\n} catch (${1:\\\\Throwable} \\$${2:e}) {\n\t$0\n}' },
-  { label: 'try / finally', key: '8', body: 'try {\n$SEL\n} finally {\n\t$0\n}' },
-  { label: 'try / catch / finally', key: '9', body: 'try {\n$SEL\n} catch (${1:\\\\Throwable} \\$${2:e}) {\n\t$3\n} finally {\n\t$0\n}' },
-  { label: 'function', key: 'f', body: 'function (${1}) {\n$SEL\n}' },
-  { label: '{ }', key: 'b', body: '{\n$SEL\n}' },
-  { label: '( )', key: 'p', body: '($SEL_INLINE)' },
-  { label: '" "', key: 'q', body: '"$SEL_INLINE"' },
-];
-
-const snippetEscape = (s: string) => s.replace(/[\\$}]/g, (c) => `\\${c}`);
-
-/** Surrounds the selected lines (the caret line without a selection) with a template, as a snippet. */
+/** Surrounds the selected lines (the caret line without a selection) with a template (editor/surround.ts). */
 export function surroundWith(editor: Editor, body: string) {
   const model = editor.getModel();
   const sel = editor.getSelection();
   if (!model || !sel) return;
-  const inline = body.includes('$SEL_INLINE');
   let range: monaco.Range;
-  if (inline) {
-    range = sel.isEmpty() ? (() => {
-      const w = model.getWordAtPosition(sel.getPosition());
-      return w ? new monaco.Range(sel.startLineNumber, w.startColumn, sel.startLineNumber, w.endColumn) : sel;
-    })() : sel;
+  if (isInline(body)) {
+    // The selection, or the word at the caret.
+    const w = sel.isEmpty() ? model.getWordAtPosition(sel.getPosition()) : null;
+    range = w ? new monaco.Range(sel.startLineNumber, w.startColumn, sel.startLineNumber, w.endColumn) : sel;
   } else {
     const end = sel.endColumn === 1 && sel.endLineNumber > sel.startLineNumber ? sel.endLineNumber - 1 : sel.endLineNumber;
     range = new monaco.Range(sel.startLineNumber, 1, end, model.getLineMaxColumn(end));
   }
-  const selected = model.getValueInRange(range);
-  let snippet: string;
-  if (inline) {
-    snippet = body.replace('$SEL_INLINE', snippetEscape(selected));
-  } else {
-    // The template at the first line's indentation, the lines one level deeper.
-    const indent = /^\s*/.exec(model.getLineContent(range.startLineNumber))![0];
-    const unit = model.getOptions().insertSpaces ? ' '.repeat(model.getOptions().indentSize) : '\t';
-    const inner = selected
-      .split(/\r?\n/)
-      .map((l) => (l.trim() ? unit + l.slice(Math.min(indent.length, /^\s*/.exec(l)![0].length)) : ''))
-      .join('\n');
-    snippet = body
-      .split('\n')
-      .map((l) => (l === '$SEL' ? inner.split('\n').map((x) => (x ? indent + x : x)).map(snippetEscape).join('\n') : indent + l.replace(/\t/g, unit)))
-      .join('\n');
-  }
+  const options = model.getOptions();
+  const unit = options.insertSpaces ? ' '.repeat(options.indentSize) : '\t';
+  const indent = /^\s*/.exec(model.getLineContent(range.startLineNumber))![0];
+  const snippet = surroundSnippet(body, model.getValueInRange(range), indent, unit);
   editor.setSelection(range);
   editor.focus();
   const controller = editor.getContribution('snippetController2') as unknown as { insert(template: string): void } | null;
-  if (controller) controller.insert(snippet);
+  controller?.insert(snippet);
 }
 
 /** Moves the caret to the previous / next method or function declaration of the file. */

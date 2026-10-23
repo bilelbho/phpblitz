@@ -7,6 +7,8 @@ import { getVersion } from '@tauri-apps/api/app';
 import { homeDir } from '@tauri-apps/api/path';
 import { colorOfProject, projectInitials, shortPath } from '../projectColors';
 import { forgetProject, isTauri, pickFolder, recentProjects } from '../platform';
+import { KEYMAPS } from '../keymap/keymaps';
+import { shortcut } from '../keymap/store';
 import { getSettings, saveSettings, useSettings, type UiSettings } from '../settings';
 import { MAX_ZOOM, MIN_ZOOM } from '../uiSettings';
 import { openAppDialog, useAppDialog } from '../appDialogs';
@@ -359,7 +361,19 @@ function Customize() {
         <label htmlFor="welcome-font">Font size:</label>
         <input id="welcome-font" type="number" className="settings-select welcome-number" min={8} max={40} value={settings.editor.fontSize} onChange={(e) => e.target.value && setEditorFont(clamp(Number(e.target.value), 8, 40))} />
       </div>
-      <p className="muted">More options are in Settings (Ctrl+Alt+S) once a project is open.</p>
+      <h2>Keymap</h2>
+      <div className="welcome-setting">
+        <label htmlFor="welcome-keymap">Keys like in:</label>
+        <select id="welcome-keymap" className="settings-select" value={settings.keymap.preset} onChange={(e) => saveSettings({ ...getSettings(), keymap: { ...getSettings().keymap, preset: e.target.value } })}>
+          {KEYMAPS.map((k) => (
+            <option key={k.id} value={k.id}>
+              {k.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <p className="muted">Coming from another editor? Its keys work here. Change single shortcuts in Settings ▸ Keymap.</p>
+      <p className="muted">More options are in Settings{shortcut('phpblitz.settings') ? ` (${shortcut('phpblitz.settings')})` : ''} once a project is open.</p>
     </div>
   );
 }

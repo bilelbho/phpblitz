@@ -7210,3 +7210,70 @@ body:has(.strip.right.with-names) .balloons {
 .keymap-help {
   margin: 4px 0 10px;
 }
+
+/* Settings ▸ Editor ▸ Surround With */
+.surround-help {
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+.surround-help code {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.surround-builtins {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 16px;
+  max-width: 680px;
+}
+.surround-builtin {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.surround-label {
+  flex: none;
+}
+.surround-preview {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.surround-custom {
+  max-width: 680px;
+  margin-bottom: 12px;
+}
+.surround-custom-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.surround-custom-head .field {
+  width: 240px;
+}
+.surround-body {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line-mid);
+  border-radius: 5px;
+  background: var(--input);
+  color: var(--text);
+  font-size: 12.5px;
+  resize: vertical;
+}
+.surround-warning {
+  margin-top: 3px;
+  font-size: 12px;
+}
+.surround-add {
+  margin-top: 4px;
+}

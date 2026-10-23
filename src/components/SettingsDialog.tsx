@@ -15,6 +15,7 @@ import { SCHEMES, schemeOf, schemePreview, type SchemeId } from '../editor/theme
 import { AiAgentsPage } from './SettingsAi';
 import { MagoPage } from './SettingsMago';
 import { KeymapPage } from './SettingsKeymap';
+import { SurroundPage } from './SettingsSurround';
 
 interface Page {
   id: string;
@@ -81,6 +82,12 @@ const PAGES: Page[] = [
     group: 'Editor',
     section: 'tabs',
     keywords: 'tabs placement top bottom none one row scroll squeeze multiple rows file icon extension directory non-unique mark modified full path hover close button sort alphabetically open new tabs end preview tab limit close unchanged unused activate left right recent',
+  },
+  {
+    id: 'surround',
+    label: 'Surround With',
+    group: 'Editor',
+    keywords: 'surround with templates live templates wrap if foreach try catch while switch snippet ctrl+alt+t',
   },
   {
     id: 'color-scheme',
@@ -233,6 +240,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
               {active.id === 'php' && <PhpPage ws={ws} draft={php} onChange={(patch) => setPhp((p) => ({ ...p, ...patch }))} composerPath={draft.composer.path} onComposerPath={(path) => setDraft((d) => ({ ...d, composer: { path } }))} />}
               {active.id === 'appearance' && <AppearancePage value={draft.ui} onChange={setUi} highlight={query.trim().toLowerCase()} onEditorScheme={() => setCurrent('color-scheme')} />}
               {active.id === 'editor-tabs' && <EditorTabsPage value={draft.tabs} onChange={setTabs} highlight={query.trim().toLowerCase()} />}
+              {active.id === 'surround' && <SurroundPage value={draft.editor} onChange={setEditor} />}
               {active.id === 'color-scheme' && <ColorSchemePage value={draft.editor} onChange={setEditor} />}
               {active.id === 'editor-font' && <EditorFontPage value={draft.editor} onChange={setEditor} highlight={query.trim().toLowerCase()} />}
               {active.id === 'inlay-hints' && <HintsPage value={draft.editor} onChange={setEditor} highlight={query.trim().toLowerCase()} />}
