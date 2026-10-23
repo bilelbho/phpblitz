@@ -507,7 +507,9 @@ mod tests {
         })
         .unwrap();
         watcher.watch(&root, RecursiveMode::Recursive).unwrap();
-        std::thread::sleep(Duration::from_millis(200));
+        // macOS can report the files created above a while after the watch starts: wait until
+        // nothing more comes, so only the reads below are being tested.
+        while rx.recv_timeout(Duration::from_millis(500)).is_ok() {}
 
         for _ in 0..3 {
             let _ = std::fs::read(root.join("vendor/acme/Lib.php")).unwrap();
