@@ -57,7 +57,7 @@ mago-span = "=1.57.0"
 # Checking open files against the project's declarations while the full analysis runs.
 mago-semantics = "=1.57.0"
 # The symbol index cache (.blitz/cache/index.bin).
-bincode = "1.3"
+bincode = "2.0"
 postgres = "0.19"
 postgres-native-tls = "0.5"
 native-tls = "0.2"
