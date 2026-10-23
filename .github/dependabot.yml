@@ -1,10 +1,17 @@
 # Weekly pull requests for dependency updates; minor and patch updates of each ecosystem come as one.
+# Major versions are upgraded by hand (they can break code or, for the release workflow's actions,
+# only show up when a version is tagged). So are Monaco (the trimmed build depends on its file
+# layout) and Mago (its crates go together, and are tried on a large project first).
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: '*'
+        update-types: [version-update:semver-major]
+      - dependency-name: monaco-editor
     groups:
       npm:
         update-types: [minor, patch]
@@ -13,6 +20,10 @@ updates:
     directory: /src-tauri
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: '*'
+        update-types: [version-update:semver-major]
+      - dependency-name: 'mago-*'
     groups:
       cargo:
         update-types: [minor, patch]
@@ -21,6 +32,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: '*'
+        update-types: [version-update:semver-major]
     groups:
       actions:
         update-types: [minor, patch]
