@@ -84,11 +84,24 @@ fn entry(provider: Provider) -> Result<Option<keyring::Entry>, String> {
     provider.key_entry().map(|user| keyring::Entry::new(KEYRING_SERVICE, user).map_err(|e| e.to_string())).transpose()
 }
 
+/// Keys read from the credential store this session, by provider. Ghost text asks on every pause in
+/// typing, and on Linux each read is a call to the Secret Service (slow, or stuck while it's locked).
+static KEYS: std::sync::LazyLock<Mutex<HashMap<&'static str, String>>> = std::sync::LazyLock::new(Default::default);
+
 /// The provider's key; empty for Ollama.
 fn api_key(provider: Provider) -> Result<String, String> {
+    if let Some(k) = KEYS.lock().ok().and_then(|keys| keys.get(provider.name()).cloned()) {
+        return Ok(k);
+    }
     let Some(e) = entry(provider)? else { return Ok(String::new()) };
     match e.get_password() {
-        Ok(k) if !k.trim().is_empty() => Ok(k.trim().to_string()),
+        Ok(k) if !k.trim().is_empty() => {
+            let k = k.trim().to_string();
+            if let Ok(mut keys) = KEYS.lock() {
+                keys.insert(provider.name(), k.clone());
+            }
+            Ok(k)
+        }
         Ok(_) | Err(keyring::Error::NoEntry) => Err(format!("No {} API key: add yours in Settings ▸ Tools ▸ AI.", provider.name())),
         Err(e) => Err(format!("Couldn't read the API key from the credential store: {e}")),
     }
@@ -119,6 +132,9 @@ pub fn ai_key_status(provider: Option<Provider>) -> KeyStatus {
 pub fn ai_set_key(provider: Option<Provider>, key: String) -> Result<KeyStatus, String> {
     let provider = provider.unwrap_or_default();
     let Some(e) = entry(provider)? else { return Ok(ai_key_status(Some(provider))) };
+    if let Ok(mut keys) = KEYS.lock() {
+        keys.remove(provider.name());
+    }
     let key = key.trim();
     if key.is_empty() {
         match e.delete_credential() {
@@ -172,7 +188,9 @@ pub enum AiEvent {
 #[tauri::command]
 pub async fn ai_stream(state: State<'_, AiState>, id: u64, request: AiRequest, on_event: Channel<AiEvent>) -> Result<(), String> {
     let client = state.client()?;
-    let key = match api_key(request.provider) {
+    // The credential store can be slow the first time: not on an async worker.
+    let provider = request.provider;
+    let key = match tauri::async_runtime::spawn_blocking(move || api_key(provider)).await.map_err(|e| e.to_string())? {
         Ok(k) => k,
         Err(message) => {
             let _ = on_event.send(AiEvent::Error { message });

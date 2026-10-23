@@ -1,0 +1,39 @@
+# Known vulnerabilities in the dependencies PHPBlitz ships: RustSec advisories for the crates
+# (src-tauri/deny.toml lists the known ones and why they don't apply) and npm advisories for the
+# packages in the app (dev tools aren't shipped). Weekly too, as advisories appear without commits.
+
+name: Audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: npm advisories (shipped packages)
+        run: npm audit --omit=dev --audit-level=moderate
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked --version 0.20.2
+
+      - name: RustSec advisories
+        working-directory: src-tauri
+        run: cargo deny check advisories

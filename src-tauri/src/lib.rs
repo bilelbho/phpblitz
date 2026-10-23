@@ -185,11 +185,12 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building PHPBlitz")
         .run(|app, event| {
-            // Language servers and terminal shells are child processes: stop them with the app.
+            // Language servers, terminal shells and jobs are child processes: stop them with the app.
             if let tauri::RunEvent::Exit = event {
                 app.state::<lsp::LspState>().stop_all();
                 app.state::<pty::PtyState>().kill_all();
                 app.state::<xdebug::XdebugState>().shutdown();
+                app.state::<process::JobState>().kill_all();
             }
         });
 }

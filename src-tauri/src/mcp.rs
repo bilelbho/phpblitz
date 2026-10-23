@@ -23,6 +23,8 @@ use crate::mago::{self, MagoState};
 const PROTOCOLS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const MAX_HEADERS: usize = 16 * 1024;
 const MAX_BODY: usize = 4 * 1024 * 1024;
+/// Connections served at once; more are closed right away.
+const MAX_CONNECTIONS: usize = 16;
 /// Lines of usages or problems in one answer: enough to act on, small enough for a model's context.
 const MAX_LINES: usize = 200;
 
@@ -61,12 +63,7 @@ fn save_token(app: &AppHandle, token: &str) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    crate::fs::write_atomic(&path, token.as_bytes()).map_err(|e| e.to_string())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-    }
+    crate::fs::write_private(&path, token.as_bytes()).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -116,14 +113,31 @@ pub fn mcp_start(app: AppHandle, port: u16) -> Result<McpStatus, String> {
     let stop_flag = Arc::new(AtomicBool::new(false));
     *state.running.lock().map_err(|e| e.to_string())? = Some(Running { port, stop: stop_flag.clone() });
     let handle = app.clone();
+    // A thread per connection, but not without limit: a local process can't exhaust threads.
+    let active = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     std::thread::spawn(move || {
         for conn in listener.incoming() {
             if stop_flag.load(Ordering::SeqCst) {
                 break;
             }
             let Ok(stream) = conn else { continue };
-            let app = handle.clone();
-            std::thread::spawn(move || serve(&app, stream, port));
+            if active.load(Ordering::SeqCst) >= MAX_CONNECTIONS {
+                let _ = stream.shutdown(std::net::Shutdown::Both);
+                continue;
+            }
+            active.fetch_add(1, Ordering::SeqCst);
+            let (app, active) = (handle.clone(), Arc::clone(&active));
+            std::thread::spawn(move || {
+                // Counted down however serve ends (a panic too).
+                struct Slot(Arc<std::sync::atomic::AtomicUsize>);
+                impl Drop for Slot {
+                    fn drop(&mut self) {
+                        self.0.fetch_sub(1, Ordering::SeqCst);
+                    }
+                }
+                let _slot = Slot(active);
+                serve(&app, stream, port);
+            });
         }
     });
     status(&app, port)
@@ -146,12 +160,7 @@ pub fn mcp_agent_config(app: AppHandle, port: u16) -> Result<String, String> {
     let token = token(&app)?;
     let config = json!({ "mcpServers": { "phpblitz": { "type": "http", "url": format!("http://127.0.0.1:{port}/mcp"), "headers": { "Authorization": format!("Bearer {token}") } } } });
     let path = token_path(&app)?.with_file_name("mcp-agents.json");
-    crate::fs::write_atomic(&path, config.to_string().as_bytes()).map_err(|e| e.to_string())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-    }
+    crate::fs::write_private(&path, config.to_string().as_bytes()).map_err(|e| e.to_string())?;
     Ok(crate::fs::norm(&path))
 }
 

@@ -27,7 +27,9 @@ Security problems go through a private report instead: see [SECURITY.md](SECURIT
    cargo clippy --all-targets -- -D warnings
    ```
 
-4. Match the code around you: its naming, its comments (short, saying *why*), its idioms.
+4. Match the code around you: its naming, its comments (short, saying *why*), its idioms. The Rust
+   code is formatted by hand in a wide style (lines up to about 200 characters); `cargo fmt` isn't
+   used, so don't run it on whole files. Rust 1.99 or newer is needed (Mago requires it).
 5. If you add or update a dependency, regenerate the credits:
    `node scripts/third-party-notices.mjs`. New dependencies must have a license compatible with
    Apache 2.0 (MIT, BSD, ISC, Apache, Zlib, MPL for unmodified use…); no GPL or AGPL.

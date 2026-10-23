@@ -6,7 +6,7 @@
 //! words without a vowel (abbreviations: `cnt`, `btn`), and anything with non-ASCII letters.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{LazyLock, Mutex, RwLock};
+use std::sync::{LazyLock, Mutex, PoisonError, RwLock};
 
 use spellbook::Dictionary;
 
@@ -240,19 +240,24 @@ fn find_typos_with(speller: &Speller, text: &str, known: &HashSet<String>) -> Ve
 
 /// Words of the names the project declares (`App\Entity\TimesheetMeta` → app, entity, timesheet,
 /// meta; `hasTeamleadRole` → has, teamlead, role), rebuilt when the index changes.
-static INDEX_WORDS: LazyLock<Mutex<(usize, std::sync::Arc<HashSet<String>>)>> = LazyLock::new(|| Mutex::new((usize::MAX, Default::default())));
+/// The index revision they're of (0: none yet), and the words.
+static INDEX_WORDS: LazyLock<Mutex<(u64, std::sync::Arc<HashSet<String>>)>> = LazyLock::new(|| Mutex::new((0, Default::default())));
 
+/// Rebuilt only when the index changed since the last time (any change: a renamed method too).
 fn index_words(state: &crate::index::IndexState) -> std::sync::Arc<HashSet<String>> {
-    let Ok((version, names)) = crate::index::declared_names(state) else { return Default::default() };
-    let mut cache = INDEX_WORDS.lock().unwrap();
-    if cache.0 != version {
-        let mut words = HashSet::new();
-        for name in &names {
-            for part in name.split('\\') {
-                words.extend(split_words(part).into_iter().map(|(s, e)| part[s..e].to_ascii_lowercase()));
+    let mut cache = INDEX_WORDS.lock().unwrap_or_else(PoisonError::into_inner);
+    match crate::index::declared_names(state, cache.0) {
+        Ok(Some((revision, names))) => {
+            let mut words = HashSet::new();
+            for name in &names {
+                for part in name.split('\\') {
+                    words.extend(split_words(part).into_iter().map(|(s, e)| part[s..e].to_ascii_lowercase()));
+                }
             }
+            *cache = (revision, std::sync::Arc::new(words));
         }
-        *cache = (version, std::sync::Arc::new(words));
+        Ok(None) => {}
+        Err(_) => return Default::default(),
     }
     cache.1.clone()
 }
@@ -260,15 +265,20 @@ fn index_words(state: &crate::index::IndexState) -> std::sync::Arc<HashSet<Strin
 /// The misspelled words of a text (a whole file).
 #[tauri::command]
 pub async fn spell_check(index: tauri::State<'_, crate::index::IndexState>, text: String) -> Result<Vec<Typo>, String> {
-    let known = index_words(&index);
-    tauri::async_runtime::spawn_blocking(move || find_typos_with(&SPELLER.read().unwrap(), &text, &known)).await.map_err(|e| e.to_string())
+    let index = index.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let known = index_words(&index);
+        find_typos_with(&SPELLER.read().unwrap_or_else(PoisonError::into_inner), &text, &known)
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Corrections for a word, in its capitalization (Stito → Stint, Stipo…), at most `max`.
 #[tauri::command]
 pub async fn spell_suggest(word: String, max: usize) -> Result<Vec<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let speller = SPELLER.read().unwrap();
+        let speller = SPELLER.read().unwrap_or_else(PoisonError::into_inner);
         let mut out = Vec::new();
         speller.dict.suggest(&word, &mut out);
         if out.is_empty() && word.chars().next().is_some_and(|c| c.is_ascii_uppercase()) {
@@ -292,7 +302,7 @@ pub async fn spell_suggest(word: String, max: usize) -> Result<Vec<String>, Stri
 #[tauri::command]
 pub async fn spell_set_words(words: Vec<String>) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        SPELLER.write().unwrap().project = words.iter().map(|w| w.to_ascii_lowercase()).collect();
+        SPELLER.write().unwrap_or_else(PoisonError::into_inner).project = words.iter().map(|w| w.to_ascii_lowercase()).collect();
         CACHE.lock().unwrap().clear();
     })
     .await

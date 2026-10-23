@@ -11,6 +11,11 @@ import type * as L from './protocol';
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; method: string };
 type Handler = (params: any) => void;
 
+/** What a request needs of Monaco's CancellationToken (the client doesn't depend on Monaco). */
+export interface CancelToken {
+  onCancellationRequested(listener: () => void): { dispose(): void };
+}
+
 export interface ServerSpec {
   /** Display name, e.g. "PHPantom". */
   name: string;
@@ -86,16 +91,21 @@ export class LspClient {
     this.handlers.set(method, [...(this.handlers.get(method) ?? []), handler]);
   }
 
-  request<T = unknown>(method: string, params: unknown): Promise<T> {
+  /**
+   * `token`: the editor's cancellation (typing on makes the last completion or hover moot). The
+   * server is told with $/cancelRequest, so it stops working on it; it still answers (with an error).
+   */
+  request<T = unknown>(method: string, params: unknown, token?: CancelToken): Promise<T> {
     if (this.exited) return Promise.reject(new Error('Language server is not running'));
     const id = this.nextId++;
+    const cancel = token?.onCancellationRequested(() => this.notify('$/cancelRequest', { id }));
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, method });
       this.send({ jsonrpc: '2.0', id, method, params }).catch((e) => {
         this.pending.delete(id);
         reject(e);
       });
-    });
+    }).finally(() => cancel?.dispose());
   }
 
   notify(method: string, params: unknown) {
@@ -180,7 +190,9 @@ export class LspClient {
       const p = this.pending.get(msg.id);
       if (!p) return;
       this.pending.delete(msg.id);
-      if (msg.error) p.reject(new Error(`${p.method}: ${msg.error.message}`));
+      // Cancelled (RequestCancelled): no answer wanted any more, not a failure.
+      if (msg.error?.code === -32800) p.resolve(null);
+      else if (msg.error) p.reject(new Error(`${p.method}: ${msg.error.message}`));
       else p.resolve(msg.result);
       return;
     }

@@ -403,6 +403,8 @@ struct ProjectIndex {
     /// Search Everywhere's flat list of symbols: built on the first search after a change, then
     /// reused for every keystroke.
     search: std::sync::Mutex<Option<Arc<SearchTable>>>,
+    /// Changes with every change to the index (what the spell checker's word list follows).
+    revision: u64,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -472,6 +474,9 @@ impl ProjectIndex {
     /// The index changed: the search table is built again on the next search.
     fn changed(&mut self) {
         *self.search.get_mut().unwrap_or_else(|e| e.into_inner()) = None;
+        // From one counter for all indexes: a newly built index never reuses an old number.
+        static REVISIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        self.revision = REVISIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn add_aggregates(&mut self, path: &str) {
@@ -622,7 +627,7 @@ impl ProjectIndex {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct IndexState {
     index: Arc<RwLock<ProjectIndex>>,
     /// Bumped by each open: an older open still running stops.
@@ -638,8 +643,13 @@ pub(crate) fn overview(state: &IndexState) -> Result<(String, usize, usize), Str
 /// The names the project declares, as written: classes (`App\Entity\User`), their methods,
 /// properties and constants (`hasTeamleadRole`), and functions; with a value that changes with the
 /// index (the spell checker rebuilds its known words when it does).
-pub(crate) fn declared_names(state: &IndexState) -> Result<(usize, Vec<String>), String> {
+/// The names the project declares (classes, members, functions), unless the index hasn't changed
+/// since revision `seen`: then `None`, without copying anything.
+pub(crate) fn declared_names(state: &IndexState, seen: u64) -> Result<Option<(u64, Vec<String>)>, String> {
     let idx = state.index.read().map_err(|e| e.to_string())?;
+    if idx.revision == seen {
+        return Ok(None);
+    }
     let mut names = Vec::new();
     for f in idx.files.values() {
         for c in &f.symbols.classes {
@@ -648,7 +658,7 @@ pub(crate) fn declared_names(state: &IndexState) -> Result<(usize, Vec<String>),
         }
         names.extend(f.symbols.functions.iter().map(|func| func.name.clone()));
     }
-    Ok((idx.files.len() ^ idx.by_fqn.len().rotate_left(20), names))
+    Ok(Some((idx.revision, names)))
 }
 
 /// The cache file: in the project's `.blitz/cache`, or in the app's cache
@@ -1569,6 +1579,21 @@ function helper(int $a, $b = 1): ?string { return null; }
         assert!(idx.files[&path].mtime > 0);
         drop(idx);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The spell checker's word list follows every change (a renamed method keeps the counts the
+    /// same) and costs nothing while the index doesn't change.
+    #[test]
+    fn declared_names_follow_every_change() {
+        let state = IndexState::default();
+        update_text(&state.index, "/p/A.php".into(), "<?php class A { function getTotal() {} }").unwrap();
+        let (first, names) = declared_names(&state, 0).unwrap().unwrap();
+        assert!(names.contains(&"getTotal".to_string()));
+        assert!(declared_names(&state, first).unwrap().is_none(), "unchanged: nothing copied");
+        update_text(&state.index, "/p/A.php".into(), "<?php class A { function getAmount() {} }").unwrap();
+        let (second, names) = declared_names(&state, first).unwrap().unwrap();
+        assert_ne!(first, second);
+        assert!(names.contains(&"getAmount".to_string()) && !names.contains(&"getTotal".to_string()));
     }
 
     #[test]

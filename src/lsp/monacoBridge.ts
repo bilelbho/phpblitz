@@ -74,13 +74,13 @@ function can(cap: keyof L.ServerCapabilities) {
 
 monaco.languages.registerCompletionItemProvider('php', {
   triggerCharacters: ['$', '>', ':', '\\', '@'],
-  async provideCompletionItems(model, position, context) {
+  async provideCompletionItems(model, position, context, token) {
     if (!can('completionProvider')) return { suggestions: [] };
     const result = await active!.client.request<L.CompletionList | L.CompletionItem[] | null>('textDocument/completion', {
       textDocument: docOf(model),
       position: toPos(position),
       context: context.triggerCharacter ? { triggerKind: 2, triggerCharacter: context.triggerCharacter } : { triggerKind: 1 },
-    });
+    }, token);
     const items = Array.isArray(result) ? result : result?.items ?? [];
     const word = model.getWordUntilPosition(position);
     const fallback = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, position.column);
@@ -111,9 +111,9 @@ monaco.languages.registerCompletionItemProvider('php', {
 });
 
 monaco.languages.registerHoverProvider('php', {
-  async provideHover(model, position) {
+  async provideHover(model, position, token) {
     if (!can('hoverProvider')) return null;
-    const hover = await active!.client.request<L.Hover | null>('textDocument/hover', { textDocument: docOf(model), position: toPos(position) });
+    const hover = await active!.client.request<L.Hover | null>('textDocument/hover', { textDocument: docOf(model), position: toPos(position) }, token);
     if (!hover) return null;
     return { contents: markdown(hover.contents), range: hover.range ? toRange(hover.range) : undefined };
   },
@@ -158,9 +158,9 @@ monaco.languages.registerDocumentHighlightProvider('php', {
 
 monaco.languages.registerSignatureHelpProvider('php', {
   signatureHelpTriggerCharacters: ['(', ','],
-  async provideSignatureHelp(model, position) {
+  async provideSignatureHelp(model, position, token) {
     if (!can('signatureHelpProvider')) return null;
-    const help = await active!.client.request<L.SignatureHelp | null>('textDocument/signatureHelp', { textDocument: docOf(model), position: toPos(position) });
+    const help = await active!.client.request<L.SignatureHelp | null>('textDocument/signatureHelp', { textDocument: docOf(model), position: toPos(position) }, token);
     if (!help?.signatures?.length) return null;
     return {
       value: {
@@ -180,12 +180,12 @@ monaco.languages.registerSignatureHelpProvider('php', {
 // Formatting is done by Mago, built into the Rust core (see src/mago.ts).
 
 monaco.languages.registerInlayHintsProvider('php', {
-  async provideInlayHints(model, range) {
+  async provideInlayHints(model, range, token) {
     if (!can('inlayHintProvider')) return { hints: [], dispose() {} };
     const hints = await active!.client.request<L.InlayHint[] | null>('textDocument/inlayHint', {
       textDocument: docOf(model),
       range: { start: toPos(range.getStartPosition()), end: toPos(range.getEndPosition()) },
-    });
+    }, token);
     return {
       hints: (hints ?? []).map((h) => ({
         position: { lineNumber: h.position.line + 1, column: h.position.character + 1 },

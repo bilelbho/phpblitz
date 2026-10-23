@@ -6,6 +6,8 @@ authors = ["The PHPBlitz Authors"]
 license = "Apache-2.0"
 repository = "https://github.com/bilelbho/phpblitz"
 edition = "2021"
+# Mago needs this compiler or newer.
+rust-version = "1.99"
 
 [lib]
 name = "phpblitz_lib"

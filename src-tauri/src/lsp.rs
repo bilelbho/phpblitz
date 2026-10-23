@@ -34,6 +34,7 @@ impl LspState {
         if let Ok(mut servers) = self.servers.lock() {
             for (_, mut server) in servers.drain() {
                 let _ = server.child.kill();
+                let _ = server.child.wait();
             }
         }
     }
@@ -139,7 +140,9 @@ pub fn lsp_send(state: State<'_, LspState>, server: u32, message: String) -> Res
 #[tauri::command(async)]
 pub fn lsp_stop(state: State<'_, LspState>, server: u32) -> Result<(), String> {
     if let Some(mut s) = state.servers.lock().map_err(|e| e.to_string())?.remove(&server) {
+        // Waited for, so it doesn't stay a zombie process on Unix until PHPBlitz exits.
         let _ = s.child.kill();
+        let _ = s.child.wait();
     }
     Ok(())
 }

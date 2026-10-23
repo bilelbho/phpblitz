@@ -4,6 +4,8 @@ use serde::Serialize;
 use tauri::ipc::Channel;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 #[derive(Serialize)]
 pub struct RunResult {
@@ -232,6 +234,8 @@ pub enum JobEvent {
 
 /// Lines that arrive within this time of each other go to the UI as one message.
 const JOB_FRAME: std::time::Duration = std::time::Duration::from_millis(16);
+/// How long a job's output may still come after it exited (see `stream_job`).
+const JOB_OUTPUT_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Runs a command line through the system shell and streams stdout and stderr through
 /// `on_output`, then the exit code (also returned). Tools run without a terminal and without input,
@@ -311,14 +315,38 @@ async fn stream_job(state: &JobState, id: u32, cwd: &str, mut cmd: Command, on_o
         .collect();
     drop(lines);
     let output = on_output.clone();
+    // Set when the job is over but its pipes aren't: output that still comes isn't sent.
+    let over = Arc::new(AtomicBool::new(false));
+    let over_flag = Arc::clone(&over);
     let forwarder = std::thread::spawn(move || {
-        crate::pty::forward_frames(&received, JOB_FRAME, |frame| output.send(JobEvent::Output { text: String::from_utf8_lossy(&frame).into_owned() }).is_ok());
+        crate::pty::forward_frames(&received, JOB_FRAME, |frame| {
+            !over_flag.load(Ordering::Relaxed) && output.send(JobEvent::Output { text: String::from_utf8_lossy(&frame).into_owned() }).is_ok()
+        });
     });
-    let status = tauri::async_runtime::spawn_blocking(move || child.wait()).await.map_err(|e| e.to_string())?;
-    for r in readers {
-        let _ = r.join();
-    }
-    let _ = forwarder.join();
+    let pid = child.id();
+    // All waiting on a blocking thread (never an async worker): the process, then its output. The
+    // pipes end when every process holding them has: one the job started in the background (a
+    // server, a watcher) can keep them open. It gets a moment, then its group is stopped and the
+    // job ends anyway.
+    let status = tauri::async_runtime::spawn_blocking(move || {
+        let status = child.wait();
+        let deadline = std::time::Instant::now() + JOB_OUTPUT_GRACE;
+        while readers.iter().any(|r| !r.is_finished()) && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        if readers.iter().all(|r| r.is_finished()) {
+            for r in readers {
+                let _ = r.join();
+            }
+            let _ = forwarder.join();
+        } else {
+            over.store(true, Ordering::Relaxed);
+            kill_tree(pid);
+        }
+        status
+    })
+    .await
+    .map_err(|e| e.to_string())?;
     if let Ok(mut jobs) = state.jobs.lock() {
         jobs.remove(&id);
     }
@@ -334,6 +362,12 @@ pub fn job_kill(state: tauri::State<'_, JobState>, id: u32) -> Result<(), String
     let Some(pid) = state.jobs.lock().map_err(|e| e.to_string())?.get(&id).copied() else {
         return Ok(());
     };
+    kill_tree(pid);
+    Ok(())
+}
+
+/// Stops a process and the processes it started (its process group on Unix, its tree on Windows).
+fn kill_tree(pid: u32) {
     #[cfg(windows)]
     let mut cmd = {
         let mut c = Command::new("taskkill");
@@ -347,8 +381,17 @@ pub fn job_kill(state: tauri::State<'_, JobState>, id: u32) -> Result<(), String
         c
     };
     hide_console(&mut cmd);
-    cmd.output().map_err(|e| e.to_string())?;
-    Ok(())
+    let _ = cmd.output();
+}
+
+impl JobState {
+    /// PHPBlitz is closing: running jobs (tests, scripts) stop with it.
+    pub fn kill_all(&self) {
+        let pids: Vec<u32> = self.jobs.lock().map(|j| j.values().copied().collect()).unwrap_or_default();
+        for pid in pids {
+            kill_tree(pid);
+        }
+    }
 }
 
 /// A thread that owns a child's input (a language server's stdin, a terminal) and writes what is
@@ -370,6 +413,31 @@ pub fn spawn_writer(mut writer: impl std::io::Write + Send + 'static) -> std::sy
 mod tests {
     use super::{expand_vars, spawn_writer};
     use std::sync::{Arc, Mutex};
+
+    /// A job that leaves a process running in the background (holding its output pipes) still
+    /// ends, with its output, instead of waiting for that process forever.
+    #[cfg(unix)]
+    #[test]
+    fn a_job_ends_even_when_a_background_process_keeps_its_output_open() {
+        use super::{stream_job, JobState};
+        let state = JobState::default();
+        let got = Arc::new(Mutex::new(String::new()));
+        let seen = Arc::clone(&got);
+        let channel = tauri::ipc::Channel::new(move |body| {
+            if let tauri::ipc::InvokeResponseBody::Json(json) = body {
+                seen.lock().unwrap().push_str(&json);
+            }
+            Ok(())
+        });
+        let mut cmd = std::process::Command::new("sh");
+        cmd.args(["-c", "sleep 600 & echo started"]);
+        let started = std::time::Instant::now();
+        let code = tauri::async_runtime::block_on(stream_job(&state, 1, "/", cmd, channel)).unwrap();
+        assert_eq!(code, 0);
+        assert!(started.elapsed() < std::time::Duration::from_secs(10), "took {:?}", started.elapsed());
+        let got = got.lock().unwrap();
+        assert!(got.contains("started") && got.contains("\"exit\""), "{got}");
+    }
 
     #[test]
     fn expands_environment_variables() {

@@ -109,6 +109,30 @@ pub async fn write_file(path: String, content: String, root: Option<String>) -> 
     .await
 }
 
+/// Writes a file only this user may read (tokens, agent settings): on Unix it is created with mode
+/// 0600 (a new temp file renamed into place), so it is never readable by others, not even briefly.
+pub fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let n = TEMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tmp = path.with_file_name(format!(".{}.{}-{n}.blitz-tmp", path.file_name().map(|f| f.to_string_lossy()).unwrap_or_default(), std::process::id()));
+        let mut f = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        drop(f);
+        fs::rename(&tmp, path).inspect_err(|_| {
+            let _ = fs::remove_file(&tmp);
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        // Windows: files in the user's profile folders are the user's own.
+        write_atomic(path, bytes)
+    }
+}
+
 /// Runs blocking file work on a blocking thread, so the async workers stay free for the UI.
 async fn blocking<T: Send + 'static>(work: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(work).await.map_err(|e| e.to_string())?
@@ -242,6 +266,17 @@ pub async fn copy_path(from: String, to: String) -> Result<(), String> {
 }
 
 fn copy_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    // A link is copied as a link, never followed: a link to a parent folder would recurse forever.
+    if fs::symlink_metadata(src)?.file_type().is_symlink() {
+        if let Some(parent) = dst.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let target = fs::read_link(src)?;
+        #[cfg(unix)]
+        return std::os::unix::fs::symlink(&target, dst);
+        #[cfg(windows)]
+        return if src.is_dir() { std::os::windows::fs::symlink_dir(&target, dst) } else { fs::copy(src, dst).map(|_| ()) };
+    }
     if src.is_dir() {
         fs::create_dir_all(dst)?;
         for entry in fs::read_dir(src)?.flatten() {
@@ -367,6 +402,39 @@ pub async fn create_dir(path: String) -> Result<(), String> {
 mod atomic_tests {
     use super::write_atomic;
     use std::fs;
+
+    /// A folder with a link back to itself copies (the link as a link) instead of recursing forever.
+    #[cfg(unix)]
+    #[test]
+    fn copying_a_folder_with_a_link_loop_ends() {
+        let dir = std::env::temp_dir().join(format!("phpblitz-loop-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("a")).unwrap();
+        fs::write(dir.join("a/x.php"), "<?php").unwrap();
+        std::os::unix::fs::symlink(dir.join("a"), dir.join("a/self")).unwrap();
+        super::copy_recursive(&dir.join("a"), &dir.join("b")).unwrap();
+        assert!(dir.join("b/x.php").exists());
+        assert!(fs::symlink_metadata(dir.join("b/self")).unwrap().file_type().is_symlink());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn private_files_are_only_the_users() {
+        let dir = std::env::temp_dir().join(format!("phpblitz-private-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mcp-token");
+        super::write_private(&path, b"one").unwrap();
+        super::write_private(&path, b"two").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "two");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1, "no temp file left");
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn file_list_skips_dependencies_generated_and_excluded_folders() {

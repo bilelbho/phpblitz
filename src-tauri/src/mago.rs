@@ -111,16 +111,40 @@ pub struct MagoState {
 
 impl MagoState {
     /// Runs `f` with the engine on a blocking thread, its parallel work in the analysis pool.
+    ///
+    /// If Mago panics (an odd file it doesn't expect), its state may be half-changed: the engine is
+    /// opened again from the disk, and this call returns an error. Without that, the panic would
+    /// poison the lock and every later Mago command would fail until PHPBlitz restarts.
     async fn with<T: Send + 'static>(&self, f: impl FnOnce(&mut Option<Engine>) -> Result<T, String> + Send + 'static) -> Result<T, String> {
         let engine = self.engine.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            let mut guard = engine.lock().map_err(|e| e.to_string())?;
+            let mut guard = engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let slot: &mut Option<Engine> = &mut guard;
-            analysis_pool().install(|| f(slot))
+            let project = slot.as_ref().map(|e| (e.root.clone(), e.excludes.clone()));
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| analysis_pool().install(|| f(&mut *slot))));
+            match outcome {
+                Ok(result) => result,
+                Err(panic) => {
+                    *slot = None;
+                    if let Some((root, excludes)) = project {
+                        if let Ok(Ok((fresh, _))) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| open_engine(&root, &excludes))) {
+                            *slot = Some(fresh);
+                        }
+                    }
+                    drop(guard);
+                    engine.clear_poison();
+                    Err(format!("Mago stopped on an internal error ({}) and was restarted", panic_message(panic.as_ref())))
+                }
+            }
         })
         .await
         .map_err(|e| e.to_string())?
     }
+}
+
+/// What a panic said ("index out of bounds…"), for the error message.
+pub(crate) fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
+    panic.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_else(|| "unknown".into())
 }
 
 /// Mago runs its work in parallel on the current rayon pool. It gets most cores but not all: the
@@ -996,6 +1020,17 @@ pub async fn mago_format(state: tauri::State<'_, MagoState>, content: String) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A panic inside Mago's work is an error for that call, not for the rest of the session.
+    #[test]
+    fn a_panic_in_mago_does_not_disable_it() {
+        let state = MagoState::default();
+        let run = |f: fn(&mut Option<Engine>) -> Result<u32, String>| tauri::async_runtime::block_on(state.with(f));
+        let err = run(|_| panic!("odd file")).unwrap_err();
+        assert!(err.contains("odd file") && err.contains("restarted"), "{err}");
+        assert!(!state.engine.is_poisoned());
+        assert_eq!(run(|_| Ok(7)).unwrap(), 7, "the next command works");
+    }
 
 
     #[test]

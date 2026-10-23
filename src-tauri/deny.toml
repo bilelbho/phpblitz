@@ -1,0 +1,20 @@
+# cargo deny check advisories (CI): RustSec advisories for the crates PHPBlitz ships. A new one fails
+# the build; the ones below are known, with why they don't affect PHPBlitz or what waits on what.
+
+[graph]
+# The platforms PHPBlitz is built for.
+targets = ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-apple-darwin"]
+
+[advisories]
+ignore = [
+    # zip, through tauri-plugin-updater: extraction issues (permission bits, symlinks). The updater
+    # only extracts archives whose signature it verified first; the fix needs a newer zip than the
+    # plugin allows.
+    { id = "RUSTSEC-2026-0367", reason = "zip via tauri-plugin-updater: only signed update archives are extracted" },
+    { id = "RUSTSEC-2026-0368", reason = "zip via tauri-plugin-updater: only signed update archives are extracted" },
+    { id = "RUSTSEC-2026-0369", reason = "zip via tauri-plugin-updater: only signed update archives are extracted" },
+    # Unmaintained, no known vulnerability.
+    { id = "RUSTSEC-2025-0141", reason = "bincode 1 (the index cache file): moving to a maintained format is planned" },
+    { id = "RUSTSEC-2024-0436", reason = "paste: a compile-time macro, pulled in by dependencies" },
+    { id = "RUSTSEC-2024-0370", reason = "proc-macro-error: a compile-time macro, pulled in by dependencies" },
+]
