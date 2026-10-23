@@ -79,7 +79,7 @@ keyring = { version = "3", features = ["linux-native-sync-persistent", "crypto-r
 # Programs installed while PHPBlitz runs: the PATH saved in the registry (process.rs); reading the
 # clipboard without the web view's permission prompt (clipboard.rs).
 [target.'cfg(windows)'.dependencies]
-windows-registry = "0.6"
+windows-registry = "0.100"
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Memory"] }
 
 # Auto-update from GitHub Releases, and the restart after installing one.
