@@ -26,7 +26,7 @@ serde_json = "1"
 # Mago: PHP linter, static analyzer and formatter, linked in as libraries.
 mago-orchestrator = "=1.57.0"
 mago-linter = { version = "=1.57.0", features = ["serde"] }
-mago-text-edit = "=1.57.0"
+mago-text-edit = "=1.58.2"
 # Reading (toml) and editing without losing comments (toml_edit) the project's mago.toml.
 toml = "0.8"
 toml_edit = "0.22"
@@ -43,17 +43,17 @@ rayon = "1"
 portable-pty = "0.9"
 base64 = "0.22"
 mago-analyzer = "=1.57.0"
-mago-database = "=1.57.0"
+mago-database = "=1.58.2"
 mago-reporting = "=1.57.0"
-mago-php-version = "=1.57.0"
+mago-php-version = "=1.58.2"
 mago-prelude = { version = "=1.57.0", features = ["serde"] }
 # The symbol index (index.rs): parser, name resolution and scanner.
 mago-syntax = "=1.57.0"
 mago-names = "=1.57.0"
 mago-codex = "=1.57.0"
-mago-allocator = "=1.57.0"
-mago-word = "=1.57.0"
-mago-span = "=1.57.0"
+mago-allocator = "=1.58.2"
+mago-word = "=1.58.2"
+mago-span = "=1.58.2"
 # Checking open files against the project's declarations while the full analysis runs.
 mago-semantics = "=1.57.0"
 # The symbol index cache (.blitz/cache/index.bin).

@@ -2179,12 +2179,12 @@ dependencies = [
 
 [[package]]
 name = "ico"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e795dff5605e0f04bff85ca41b51a96b83e80b281e96231bcaaf1ac35103371"
+checksum = "d75e94d66081e4d8dcd098bd8dc5254800fea14a26389b298410158d834de167"
 dependencies = [
  "byteorder",
- "png 0.17.16",
+ "png",
 ]
 
 [[package]]
@@ -2814,9 +2814,9 @@ dependencies = [
 
 [[package]]
 name = "mago-allocator"
-version = "1.57.0"
+version = "1.58.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2396e6cabc0fc47ae034bb69073e3a7c195a167d788703f45f9f18e824a6bd0"
+checksum = "48579c950d7ed4285ab6b8a061b9fe75c596ed520742ebf464d93ae693ee9d06"
 dependencies = [
  "allocator-api2",
  "blink-alloc",
@@ -2857,9 +2857,9 @@ dependencies = [
 
 [[package]]
 name = "mago-bytes"
-version = "1.57.0"
+version = "1.58.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fa0d502e67bfcb6898c8a277ad64ef17a07465f03860f57b76d8e5f0ab7ead2"
+checksum = "64028932039c52a15273f9abb3193be8beeae0aec744797f43a7d63de03d2c0e"
 
 [[package]]
 name = "mago-casing"
@@ -2913,13 +2913,14 @@ dependencies = [
 
 [[package]]
 name = "mago-database"
-version = "1.57.0"
+version = "1.58.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fe2d8a5be71e64b9260894ca1b1c184898e334636783b96a75b0fb794120bed"
+checksum = "503dc2251eb18f31d1f70f98d83f2a1f55ad699c1a8b9da953a30161afbc3be8"
 dependencies = [
  "foldhash 0.2.0",
  "glob",
  "globset",
+ "ignore",
  "memchr",
  "notify",
  "rayon",
@@ -3072,9 +3073,9 @@ dependencies = [
 
 [[package]]
 name = "mago-php-version"
-version = "1.57.0"
+version = "1.58.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc4b6460b618aa33ea2a79a8949709965c398725cf74fe3abb4c35e2cc973da9"
+checksum = "86d12deb473b9bac75cedac52be19df9529e4f8b1724f4b8aaa4261980150b0e"
 dependencies = [
  "schemars 1.2.3",
  "serde",
@@ -3156,9 +3157,9 @@ dependencies = [
 
 [[package]]
 name = "mago-span"
-version = "1.57.0"
+version = "1.58.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4317880bd90e74d2ce71e22a79e1c12bbf574b3685d1c13ae147b71c1678e07"
+checksum = "fe6a32c7fa425a2d606b2872c0e2b2464bd84e79fd404e2ad63bfd0e7c186b2b"
 dependencies = [
  "mago-database",
  "serde",
@@ -3197,22 +3198,23 @@ dependencies = [
 
 [[package]]
 name = "mago-text-edit"
-version = "1.57.0"
+version = "1.58.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e0431bd66fe06bb25fa9e8ea86dd20980180fd182e518ae44c75029f7aeab3f"
+checksum = "accdf3a98721154f135cf90f27815d8db5c7b0c898d79550b0f80775447847c3"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "mago-word"
-version = "1.57.0"
+version = "1.58.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "660ab4738be0ede042d7ab95cdeb48c7fd69e77bb89ca8794153a790ba38966b"
+checksum = "ff487e93ce50933c5046fc71b66f6d6a39ffdd62fb3017909eb77941c4d9683a"
 dependencies = [
  "foldhash 0.2.0",
  "itoa",
  "mago-bytes",
+ "parking_lot",
  "ryu",
  "serde",
 ]
@@ -3328,7 +3330,7 @@ dependencies = [
  "objc2-core-foundation",
  "objc2-foundation",
  "once_cell",
- "png 0.18.1",
+ "png",
  "serde",
  "thiserror 2.0.21",
  "windows-sys 0.61.2",
@@ -4146,19 +4148,6 @@ dependencies = [
  "quick-xml",
  "serde",
  "time",
-]
-
-[[package]]
-name = "png"
-version = "0.17.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82151a2fc869e011c153adc57cf2789ccb8d9906ce52c0b39a6b5697749d7526"
-dependencies = [
- "bitflags 1.3.2",
- "crc32fast",
- "fdeflate",
- "flate2",
- "miniz_oxide 0.8.9",
 ]
 
 [[package]]
@@ -5436,6 +5425,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
+name = "static_vcruntime"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff7589a1859b09232522bb9edf076ca7fcf14ded96685d3fa629db73023ffbb7"
+
+[[package]]
 name = "string_cache"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5699,9 +5694,9 @@ checksum = "61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1"
 
 [[package]]
 name = "tauri"
-version = "2.12.3"
+version = "2.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c404ecf956ff241bf6b39dd688614724e1bf1f63255abb4fc46d1c40371672ea"
+checksum = "f316751027fc2644221d1a448564d519efb07067fda584879d9cda966391d212"
 dependencies = [
  "anyhow",
  "bytes",
@@ -5750,9 +5745,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-build"
-version = "2.7.2"
+version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2eea0b6302f82c574b21af6fc6ae6e86183b9280853c22621d0abf0936911ffc"
+checksum = "adddb0e648752aaac5da9c3c3c6a68e1e87cab55e3b757b18a9441ef8c3ac614"
 dependencies = [
  "anyhow",
  "cargo_toml",
@@ -5764,6 +5759,8 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "static_vcruntime",
+ "strsim",
  "tauri-utils",
  "tauri-winres",
  "walkdir",
@@ -5771,16 +5768,16 @@ dependencies = [
 
 [[package]]
 name = "tauri-codegen"
-version = "2.7.2"
+version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02f468f9a9bcd404f57e5c191d91024e3de953d4b610f78c2907e7110615cb1c"
+checksum = "fb37631cf71dab5e8ab55e1bdd701e18a52653d90b78e71d0e5598b1e0a61316"
 dependencies = [
  "base64 0.23.1",
  "brotli",
  "ico",
  "json-patch",
  "plist",
- "png 0.18.1",
+ "png",
  "proc-macro2",
  "quote",
  "semver",
@@ -5798,9 +5795,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-macros"
-version = "2.7.2"
+version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "131bffec939b20642380317f8403a33c8888489925e14bb965ceaff0d949b1cb"
+checksum = "0cc38db58854c10fb5f91a887ed8bf82d3239bb92b5d8db86eda09e96d9963d1"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -5828,9 +5825,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-dialog"
-version = "2.8.2"
+version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dca325d6e66e9170f2e1b9631722e4e544bcbc51781575d266abdaba697bd51"
+checksum = "b7461aaacf1901915ea7b9f5cd74f8224a351ed96af0a62c07fce934003cb34b"
 dependencies = [
  "log",
  "raw-window-handle",
@@ -5846,9 +5843,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-fs"
-version = "2.7.0"
+version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "213fae2d85d4b76b06de5915d1862db9fa74541171f9d2c15da6ac9bd6e788c6"
+checksum = "5d58eb1d4984e535f47a642ffec09a2da6f5c18a12b5902d12126cb7626d628b"
 dependencies = [
  "anyhow",
  "dunce",
@@ -5914,9 +5911,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-runtime"
-version = "2.12.1"
+version = "2.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2a57a2a9b8c8b7fc00d35b510fe808ded7f9f1b44fc1cdda6aee38632ea5413"
+checksum = "7c55766d99cea69055904d1735b93c2049302b2e09effd462120deb5581d78e9"
 dependencies = [
  "cookie",
  "dpi",
@@ -5939,9 +5936,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-runtime-wry"
-version = "2.12.1"
+version = "2.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f9e7e0c9f80a5130773cfabb6df4dc924518fb1b2c923726966804634b57d22"
+checksum = "e1aa9d8b7a120f879f44fdc1053f7b7dbf416bf0bbc6a72b714dec46b782b52f"
 dependencies = [
  "gtk",
  "http",
@@ -5949,7 +5946,6 @@ dependencies = [
  "log",
  "objc2",
  "objc2-app-kit",
- "once_cell",
  "percent-encoding",
  "raw-window-handle",
  "softbuffer",
@@ -5965,9 +5961,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-utils"
-version = "2.10.1"
+version = "2.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ff55a614843b9a3f010f211df637c94df2607175b8d0f6e0f4a7c19e18621ee"
+checksum = "362ab21cd4cc713f2a02b1a9b5688198b1541cfb6907c4281e9190e0f0ef4aa3"
 dependencies = [
  "anyhow",
  "brotli",
@@ -6019,7 +6015,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -6427,7 +6423,7 @@ dependencies = [
  "objc2-core-graphics",
  "objc2-foundation",
  "once_cell",
- "png 0.18.1",
+ "png",
  "serde",
  "thiserror 2.0.21",
  "windows-sys 0.61.2",
