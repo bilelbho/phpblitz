@@ -28,7 +28,7 @@ mago-orchestrator = "=1.57.0"
 mago-linter = { version = "=1.57.0", features = ["serde"] }
 mago-text-edit = "=1.57.0"
 # Reading (toml) and editing without losing comments (toml_edit) the project's mago.toml.
-toml = "0.8"
+toml = "1.1"
 toml_edit = "0.22"
 # File watching (changes made outside PHPBlitz: git, composer, other editors).
 notify = "8.2"
