@@ -51,7 +51,7 @@ jobs:
           sudo docker image prune --all --force > /dev/null || true
           df -h /
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # WebKitGTK and friends for Tauri; OpenSSL for the database drivers' TLS;
       # D-Bus for storing passwords in the Secret Service (GNOME Keyring, KWallet).
@@ -62,7 +62,7 @@ jobs:
             libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
             libssl-dev libdbus-1-dev libxdo-dev pkg-config patchelf file
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -118,7 +118,7 @@ jobs:
             npx tauri signer sign --app-version "$version" "$f"
           done
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: phpblitz-linux
           path: |
