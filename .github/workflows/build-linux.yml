@@ -33,7 +33,7 @@ jobs:
           sudo docker image prune --all --force > /dev/null || true
           df -h /
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # WebKitGTK and friends for Tauri; OpenSSL for the database drivers' TLS;
       # D-Bus for storing passwords in the Secret Service (GNOME Keyring, KWallet).
