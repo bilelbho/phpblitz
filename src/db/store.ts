@@ -213,6 +213,12 @@ class DbStore {
     return invoke<QueryResult>('db_query', { id, sql, limit });
   }
 
+  /** Stops the query running on a data source (it ends with an error). */
+  async cancel(id: string): Promise<void> {
+    if (this.get(id)?.driver === 'sample') return;
+    await invoke('db_cancel', { id });
+  }
+
   /**
    * Runs statements in one transaction (the table editor's Submit): all, or none if one fails or an
    * UPDATE / DELETE with `expectRow` changes no row. Returns the rows each statement changed.

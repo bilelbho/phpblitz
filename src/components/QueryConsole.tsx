@@ -257,6 +257,11 @@ export function QueryConsole({ ws, source, name }: { ws: Workspace; source: stri
             <path d="M4.5 2.8v10.4L13 8z" fill="currentColor" />
           </svg>
         </button>
+        {running && (
+          <button type="button" className="icon-btn small qc-cancel" title="Cancel the running query" aria-label="Cancel query" onClick={() => void db.cancel(source).catch((e) => add(`Could not cancel: ${e}`, 'error'))}>
+            <Icon name="stopSquare" size={13} />
+          </button>
+        )}
         <span className="muted">{running ? 'Running…' : 'Ctrl+Enter runs the statement at the caret'}</span>
         <span className="grow" />
         <span className="chip">{ds?.name ?? 'unknown data source'}</span>

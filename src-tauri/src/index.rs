@@ -405,6 +405,9 @@ struct ProjectIndex {
     search: std::sync::Mutex<Option<Arc<SearchTable>>>,
     /// Changes with every change to the index (what the spell checker's word list follows).
     revision: u64,
+    /// While `index_open` builds the next index: the changes made to this one meanwhile (a file
+    /// saved, edited, checked out), replayed onto the next one when it replaces this one.
+    replay: Option<Vec<(String, Option<CachedFile>)>>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -528,6 +531,9 @@ impl ProjectIndex {
     }
 
     fn set(&mut self, path: String, file: CachedFile) {
+        if let Some(replay) = &mut self.replay {
+            replay.push((path.clone(), Some(file.clone())));
+        }
         self.changed();
         self.remove_aggregates(&path);
         self.files.insert(path.clone(), file);
@@ -535,6 +541,9 @@ impl ProjectIndex {
     }
 
     fn remove(&mut self, path: &str) {
+        if let Some(replay) = &mut self.replay {
+            replay.push((path.to_string(), None));
+        }
         self.changed();
         self.remove_aggregates(path);
         self.files.remove(path);
@@ -761,6 +770,7 @@ pub async fn index_open(app: AppHandle, state: tauri::State<'_, IndexState>, roo
     let current = state.generation.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let started = Instant::now();
+        begin_open(&index)?;
         let root = root.trim_end_matches('/').to_string();
         let cache = cache_path(&app, &root);
         let mut cached = cache.as_deref().map(|p| load_cache(p, &root)).unwrap_or_default();
@@ -815,12 +825,37 @@ pub async fn index_open(app: AppHandle, state: tauri::State<'_, IndexState>, roo
             parsed: parsed_count,
             ms: started.elapsed().as_millis() as u64,
         };
-        *index.write().map_err(|e| e.to_string())? = next;
+        install(&index, next)?;
         let _ = app.emit("index-progress", Progress { done: total, total });
         Ok(stats)
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// An open starts: from now on the current index records its changes for the next one.
+fn begin_open(index: &RwLock<ProjectIndex>) -> Result<(), String> {
+    index.write().map_err(|e| e.to_string())?.replay.get_or_insert_with(Vec::new);
+    Ok(())
+}
+
+/// The built index replaces the current one, with the changes made while it was being built
+/// (they are newer than the files it read).
+fn install(index: &RwLock<ProjectIndex>, mut next: ProjectIndex) -> Result<(), String> {
+    let mut idx = index.write().map_err(|e| e.to_string())?;
+    // Another project's files (the one open before) don't come along.
+    let inside = format!("{}/", next.root);
+    for (path, file) in idx.replay.take().unwrap_or_default() {
+        if !path.starts_with(&inside) {
+            continue;
+        }
+        match file {
+            Some(f) => next.set(path, f),
+            None => next.remove(&path),
+        }
+    }
+    *idx = next;
+    Ok(())
 }
 
 /// Files changed or deleted on disk. Returns the kinds of the changed files (for their icons).
@@ -1158,7 +1193,7 @@ pub fn index_usages(state: tauri::State<'_, IndexState>, names: Vec<String>) -> 
 
 // ── Go to Definition / Find Usages ───────────────────────────
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Target {
     Class { name: String },
@@ -1448,72 +1483,86 @@ fn usages_with(idx: &ProjectIndex, matcher: &UsageMatcher, path: &str, text: &st
 #[tauri::command]
 pub async fn index_find_usages(state: tauri::State<'_, IndexState>, target: Target, overrides: Option<HashMap<String, String>>, include_vendor: Option<bool>) -> Result<UsagesResult, String> {
     let index = state.index.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let idx = index.read().map_err(|e| e.to_string())?;
-        let overrides = overrides.unwrap_or_default();
-        // The declaration, to search for its real FQN.
-        let (display, class_fqn, needle, kind, title, container, declared_in) = match &target {
-            Target::Class { name } => {
-                let (path, c) = idx.find(name).ok_or_else(|| format!("{name} is not in the index"))?;
-                let kind = match c.kind.as_str() { "interface" => "Interface", "trait" => "Trait", "enum" => "Enum", _ => "Class" };
-                let ns = c.fqn.rsplit_once('\\').map(|(ns, _)| ns.to_string()).unwrap_or_default();
-                (c.fqn.clone(), c.fqn.clone(), c.name.clone(), kind, format!("\\{}", c.fqn), ns, path.clone())
-            }
-            Target::Member { class, name, member_kind } => {
-                let (path, c, m) = idx.find_member(class, name, member_kind.as_deref().unwrap_or("")).ok_or_else(|| format!("{class}::{name} is not in the index"))?;
-                let (kind, title) = match m.kind.as_str() {
-                    "method" => ("Method", format!("\\{}::{}()", c.fqn, m.name)),
-                    "property" => ("Field", format!("\\{}.${}", c.fqn, m.name)),
-                    _ => ("Constant", format!("\\{}::{}", c.fqn, m.name)),
-                };
-                (format!("{}::{}", c.name, m.name), c.fqn.clone(), m.name.clone(), kind, title, c.name.clone(), path)
-            }
-            Target::Function { name, namespace } => {
-                let (path, f) = idx.find_function(name, namespace.as_deref()).ok_or_else(|| format!("{name}() is not in the index"))?;
-                let ns = f.fqn.rsplit_once('\\').map(|(ns, _)| ns.to_string()).unwrap_or_default();
-                (format!("{}()", f.fqn), f.fqn.clone(), f.name.clone(), "Function", format!("\\{}()", f.fqn), ns, path.clone())
-            }
-        };
-        let matcher = UsageMatcher::new(&target);
-        // Files that can't contain the name are skipped: case-insensitive, on the raw bytes.
-        let mentions = regex::bytes::RegexBuilder::new(&regex::escape(&needle)).case_insensitive(true).unicode(false).build().map_err(|e| e.to_string())?;
-        let is_member = matches!(target, Target::Member { .. });
-        let vendor = format!("{}/vendor/", idx.root);
-        let with_vendor = include_vendor.unwrap_or(false);
-        let paths: Vec<&String> = idx.files.keys().filter(|p| with_vendor || !p.starts_with(&vendor)).collect();
-        let files = paths.len();
-        let mut items: Vec<UsageHit> = crate::mago::analysis_pool().install(|| {
-            paths
-                .par_iter()
-                .flat_map_iter(|path| {
-                    let text: Cow<str> = match overrides.get(*path) {
-                        Some(t) => Cow::Borrowed(t.as_str()),
-                        None => {
-                            // Members: the index already knows which names follow `->` / `::` in
-                            // each file, so most files are never read.
-                            if is_member && idx.files.get(*path).is_some_and(|f| !f.symbols.refs.iter().any(|(n, _)| n.eq_ignore_ascii_case(&needle))) {
-                                return Vec::new();
-                            }
-                            let Ok(bytes) = std::fs::read(path) else { return Vec::new() };
-                            if !mentions.is_match(&bytes) {
-                                return Vec::new();
-                            }
-                            Cow::Owned(String::from_utf8_lossy(&bytes).into_owned())
+    tauri::async_runtime::spawn_blocking(move || find_usages(&index, target, overrides, include_vendor)).await.map_err(|e| e.to_string())?
+}
+
+fn find_usages(index: &RwLock<ProjectIndex>, target: Target, overrides: Option<HashMap<String, String>>, include_vendor: Option<bool>) -> Result<UsagesResult, String> {
+    let idx = index.read().map_err(|e| e.to_string())?;
+    let overrides = overrides.unwrap_or_default();
+    // The declaration, to search for its real FQN.
+    let (display, class_fqn, needle, kind, title, container, declared_in) = match &target {
+        Target::Class { name } => {
+            let (path, c) = idx.find(name).ok_or_else(|| format!("{name} is not in the index"))?;
+            let kind = match c.kind.as_str() { "interface" => "Interface", "trait" => "Trait", "enum" => "Enum", _ => "Class" };
+            let ns = c.fqn.rsplit_once('\\').map(|(ns, _)| ns.to_string()).unwrap_or_default();
+            (c.fqn.clone(), c.fqn.clone(), c.name.clone(), kind, format!("\\{}", c.fqn), ns, path.clone())
+        }
+        Target::Member { class, name, member_kind } => {
+            let (path, c, m) = idx.find_member(class, name, member_kind.as_deref().unwrap_or("")).ok_or_else(|| format!("{class}::{name} is not in the index"))?;
+            let (kind, title) = match m.kind.as_str() {
+                "method" => ("Method", format!("\\{}::{}()", c.fqn, m.name)),
+                "property" => ("Field", format!("\\{}.${}", c.fqn, m.name)),
+                _ => ("Constant", format!("\\{}::{}", c.fqn, m.name)),
+            };
+            (format!("{}::{}", c.name, m.name), c.fqn.clone(), m.name.clone(), kind, title, c.name.clone(), path)
+        }
+        Target::Function { name, namespace } => {
+            let (path, f) = idx.find_function(name, namespace.as_deref()).ok_or_else(|| format!("{name}() is not in the index"))?;
+            let ns = f.fqn.rsplit_once('\\').map(|(ns, _)| ns.to_string()).unwrap_or_default();
+            (format!("{}()", f.fqn), f.fqn.clone(), f.name.clone(), "Function", format!("\\{}()", f.fqn), ns, path.clone())
+        }
+    };
+    let matcher = UsageMatcher::new(&target);
+    // Files that can't contain the name are skipped: case-insensitive, on the raw bytes.
+    let mentions = regex::bytes::RegexBuilder::new(&regex::escape(&needle)).case_insensitive(true).unicode(false).build().map_err(|e| e.to_string())?;
+    let is_member = matches!(target, Target::Member { .. });
+    let vendor = format!("{}/vendor/", idx.root);
+    let with_vendor = include_vendor.unwrap_or(false);
+    let paths: Vec<&String> = idx.files.keys().filter(|p| with_vendor || !p.starts_with(&vendor)).collect();
+    let files = paths.len();
+    // The files to read, decided under the lock; members: the index already knows which names
+    // follow `->` / `::` in each file, so most files are never read.
+    let candidates: Vec<String> = paths
+        .into_iter()
+        .filter(|path| overrides.contains_key(*path) || !is_member || idx.files.get(*path).is_some_and(|f| f.symbols.refs.iter().any(|(n, _)| n.eq_ignore_ascii_case(&needle))))
+        .cloned()
+        .collect();
+    // Reading files (the slow part, vendor included) holds no lock: typing, which updates the
+    // index, doesn't wait for a search.
+    drop(idx);
+    let texts: Vec<(String, Cow<str>)> = crate::mago::analysis_pool().install(|| {
+        candidates
+            .into_par_iter()
+            .filter_map(|path| {
+                // Files that can't contain the name are skipped: case-insensitive, on the raw bytes.
+                let text: Cow<str> = match overrides.get(&path) {
+                    Some(t) => Cow::Borrowed(t.as_str()),
+                    None => {
+                        let bytes = std::fs::read(&path).ok()?;
+                        if !mentions.is_match(&bytes) {
+                            return None;
                         }
-                    };
-                    if !mentions.is_match(text.as_bytes()) {
-                        return Vec::new();
+                        Cow::Owned(String::from_utf8_lossy(&bytes).into_owned())
                     }
-                    usages_with(&idx, &matcher, path, &text, &target, Some(&class_fqn))
-                })
-                .collect()
-        });
-        items.sort_by(|a, b| a.dynamic.cmp(&b.dynamic).then_with(|| a.path.cmp(&b.path)).then_with(|| a.line.cmp(&b.line)).then_with(|| a.column.cmp(&b.column)));
-        items.truncate(MAX_USAGES);
-        Ok(UsagesResult { name: display, kind: kind.to_string(), title, container, declared_in, items, files })
-    })
-    .await
-    .map_err(|e| e.to_string())?
+                };
+                mentions.is_match(text.as_bytes()).then_some((path, text))
+            })
+            .collect()
+    });
+    // Resolving the matches (what a name refers to) needs the index again: taken file by file, so
+    // an update waits for one file at most, not for the whole search.
+    let mut items: Vec<UsageHit> = crate::mago::analysis_pool().install(|| {
+        texts
+            .par_iter()
+            .flat_map_iter(|(path, text)| match index.read() {
+                Ok(idx) => usages_with(&idx, &matcher, path, text, &target, Some(&class_fqn)),
+                Err(_) => Vec::new(),
+            })
+            .collect()
+    });
+    items.sort_by(|a, b| a.dynamic.cmp(&b.dynamic).then_with(|| a.path.cmp(&b.path)).then_with(|| a.line.cmp(&b.line)).then_with(|| a.column.cmp(&b.column)));
+    items.truncate(MAX_USAGES);
+    Ok(UsagesResult { name: display, kind: kind.to_string(), title, container, declared_in, items, files })
 }
 
 #[cfg(test)]
@@ -1581,6 +1630,32 @@ function helper(int $a, $b = 1): ?string { return null; }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Changes made while an open builds the next index (an edit, a deleted file) aren't lost when
+    /// it replaces the current one; another project's changes don't come along.
+    #[test]
+    fn changes_during_an_open_reach_the_new_index() {
+        let index = RwLock::new(ProjectIndex { root: "/p".into(), ..Default::default() });
+        update_text(&index, "/p/Old.php".into(), "<?php class Old {}").unwrap();
+        begin_open(&index).unwrap();
+
+        // Meanwhile (the build runs outside the lock): an edit, a file deleted, another project.
+        update_text(&index, "/p/New.php".into(), "<?php class Added {}").unwrap();
+        update_text(&index, "/elsewhere/X.php".into(), "<?php class Foreign {}").unwrap();
+        index.write().unwrap().remove("/p/Old.php");
+
+        // The build read the disk before those changes.
+        let mut next = ProjectIndex { root: "/p".into(), ..Default::default() };
+        next.files.insert("/p/Old.php".into(), CachedFile { mtime: 1, size: 1, symbols: scan("/p/Old.php", b"<?php class Old {}") });
+        next.rebuild();
+        install(&index, next).unwrap();
+
+        let idx = index.read().unwrap();
+        assert!(idx.by_fqn.contains_key("added"), "the edit made while indexing");
+        assert!(!idx.by_fqn.contains_key("old"), "the file deleted while indexing");
+        assert!(!idx.by_fqn.contains_key("foreign"), "another project's file");
+        assert!(idx.replay.is_none(), "recording stops once installed");
+    }
+
     /// The spell checker's word list follows every change (a renamed method keeps the counts the
     /// same) and costs nothing while the index doesn't change.
     #[test]
@@ -1594,6 +1669,60 @@ function helper(int $a, $b = 1): ?string { return null; }
         let (second, names) = declared_names(&state, first).unwrap().unwrap();
         assert_ne!(first, second);
         assert!(names.contains(&"getAmount".to_string()) && !names.contains(&"getTotal".to_string()));
+    }
+
+    /// PHPBLITZ_INDEX_BENCH=<project>: how long Find Usages takes on a big project, and how long
+    /// typing (which needs the index's write lock) waits meanwhile.
+    #[test]
+    fn usages_lock_bench() {
+        let Ok(root) = std::env::var("PHPBLITZ_INDEX_BENCH") else { return };
+        let class = std::env::var("PHPBLITZ_BENCH_CLASS").unwrap_or_else(|_| r"Symfony\Component\HttpFoundation\Request".into());
+        let files = php_files(&root, &[]);
+        let parsed: Vec<(String, CachedFile)> = crate::mago::analysis_pool().install(|| {
+            files.par_iter().filter_map(|(p, m, s)| Some((p.clone(), CachedFile { mtime: *m, size: *s, symbols: scan(p, &std::fs::read(p).ok()?) }))).collect()
+        });
+        let mut idx = ProjectIndex { root: root.clone(), ..Default::default() };
+        idx.files.extend(parsed);
+        idx.rebuild();
+        let edited = idx.files.keys().find(|p| !p.contains("/vendor/")).cloned().unwrap();
+        let text = std::fs::read_to_string(&edited).unwrap();
+        let index = Arc::new(RwLock::new(idx));
+        for vendor in [false, true] {
+            let target = Target::Class { name: class.clone() };
+            let t = Instant::now();
+            let r = find_usages(&index, target.clone(), None, Some(vendor)).unwrap();
+            let alone = t.elapsed();
+            // Typing meanwhile: a write every 30 ms, its wait for the lock measured.
+            let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let (typing_index, typing_stop, path, text) = (Arc::clone(&index), Arc::clone(&stop), edited.clone(), text.clone());
+            let typing = std::thread::spawn(move || {
+                let mut waits = Vec::new();
+                while !typing_stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    let symbols = scan(&path, text.as_bytes());
+                    let t = Instant::now();
+                    let mut g = typing_index.write().unwrap();
+                    waits.push(t.elapsed());
+                    g.set(path.clone(), CachedFile { mtime: 0, size: 0, symbols });
+                    drop(g);
+                    std::thread::sleep(std::time::Duration::from_millis(30));
+                }
+                waits
+            });
+            let t = Instant::now();
+            for _ in 0..3 {
+                find_usages(&index, target.clone(), None, Some(vendor)).unwrap();
+            }
+            let busy = t.elapsed() / 3;
+            stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            let mut waits = typing.join().unwrap();
+            waits.sort();
+            let max = waits.last().copied().unwrap_or_default();
+            let p95 = waits.get(waits.len() * 95 / 100).copied().unwrap_or_default();
+            eprintln!(
+                "BENCH usages of {class} (vendor {vendor}): {} hits in {} files, alone {alone:?}, with typing {busy:?} | typing waited max {max:?}, p95 {p95:?} over {} writes",
+                r.items.len(), r.files, waits.len()
+            );
+        }
     }
 
     #[test]

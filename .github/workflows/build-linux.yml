@@ -23,6 +23,24 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     timeout-minutes: 90
+    # Database servers for the driver tests (streaming, row limits, cancelling a query).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: blitz
+          POSTGRES_DB: blitz
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: blitz
+          MYSQL_DATABASE: blitz
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -pblitz" --health-interval 3s --health-timeout 5s --health-retries 40
     steps:
       # The runner's disk is small: the debug build for the tests plus the release build (with LTO)
       # filled it in 0.1.6. Remove preinstalled toolchains PHPBlitz doesn't use (about 20 GB).
@@ -76,6 +94,8 @@ jobs:
         env:
           CARGO_PROFILE_TEST_DEBUG: 0
           CARGO_PROFILE_DEV_DEBUG: 0
+          PHPBLITZ_TEST_PG: 127.0.0.1 5432 postgres blitz blitz
+          PHPBLITZ_TEST_MYSQL: 127.0.0.1 3306 root blitz blitz
         run: |
           cargo test --locked
           cargo clippy --all-targets --locked -- -D warnings

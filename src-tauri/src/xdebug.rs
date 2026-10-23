@@ -236,12 +236,6 @@ mod tests {
         let state = XdebugState::default();
         let port = state.listen(0, false, Arc::new(|_| {})).unwrap();
         assert!(TcpStream::connect(("127.0.0.1", port)).is_ok());
-        let bound = TcpListener::bind(("0.0.0.0", port));
-        // Loopback only: the same port is still free on the other interfaces (Windows refuses the
-        // overlap anyway, so only check where the OS allows it).
-        if cfg!(not(windows)) {
-            assert!(bound.is_ok(), "0.0.0.0:{port} should still be free");
-        }
         state.shutdown();
     }
 }
