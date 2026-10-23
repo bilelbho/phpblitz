@@ -98,7 +98,7 @@ jobs:
             npx tauri signer sign --app-version "$version" "$f"
           done
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: phpblitz-linux
           path: |

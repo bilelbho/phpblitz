@@ -86,7 +86,7 @@ jobs:
 
       - id: unsigned
         if: startsWith(github.ref, 'refs/tags/v') && vars.SIGNPATH_ORGANIZATION_ID != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: phpblitz-windows-unsigned
           path: to-sign/*
@@ -127,7 +127,7 @@ jobs:
             npx tauri signer sign --app-version "$version" "$f"
           done
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: phpblitz-windows
           path: |
