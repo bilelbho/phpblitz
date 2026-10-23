@@ -135,6 +135,7 @@ export function FindInFiles({ ws }: { ws: Workspace }) {
       let count = 0;
       let openCount = 0;
       const closed: string[] = [];
+      let skipped: { path: string; reason: string }[] = [];
       for (const { path } of result.files) {
         const model = monaco.editor.getModel(monaco.Uri.file(path));
         if (model) {
@@ -151,7 +152,9 @@ export function FindInFiles({ ws }: { ws: Workspace }) {
         }
       }
       if (closed.length && isTauri && ws.backend.kind === 'disk') {
-        count += await replaceInFiles(options, replacement, closed);
+        const r = await replaceInFiles(options, replacement, closed, ws.backend.root);
+        count += r.count;
+        skipped = r.skipped;
       } else {
         for (const path of closed) {
           const r = await replaceInText(options, replacement, await ws.backend.readFile(path));
@@ -163,9 +166,20 @@ export function FindInFiles({ ws }: { ws: Workspace }) {
       }
       ws.notify({
         title: `Replaced ${count} occurrence${count === 1 ? '' : 's'}`,
-        body: openCount ? `${openCount} open file${openCount === 1 ? ' has' : 's have'} unsaved changes; Ctrl+Z undoes them.` : `In ${result.files.length} file${result.files.length === 1 ? '' : 's'}.`,
+        body: openCount ? `${openCount} open file${openCount === 1 ? ' has' : 's have'} unsaved changes; Ctrl+Z undoes them.` : `In ${result.files.length} file${result.files.length === 1 ? '' : 's'}. Local History keeps each file as it was.`,
         tone: 'success',
       });
+      if (skipped.length) {
+        const name = (p: string) => p.split('/').pop();
+        ws.notify({
+          title: `${skipped.length} file${skipped.length === 1 ? ' was' : 's were'} not changed`,
+          body: skipped
+            .slice(0, 5)
+            .map((s) => `${name(s.path)}: ${s.reason}`)
+            .join('\n') + (skipped.length > 5 ? `\nand ${skipped.length - 5} more` : ''),
+          tone: 'warning',
+        });
+      }
       setRerun((n) => n + 1);
     } catch (e) {
       ws.notify({ title: 'Replace failed', body: String(e), tone: 'error' });

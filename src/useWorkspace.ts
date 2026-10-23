@@ -602,6 +602,11 @@ export function useWorkspace(backend: Backend) {
 
   /** Forgets an editor document: model, texts, problems, language server sync. */
   const releaseFile = useCallback((path: string) => {
+    // Closed without saving: the index and Mago had the unsaved text; both go back to the disk's.
+    if (dirtyRef.current.has(path) && /\.php$/i.test(path)) {
+      void symbols.update([path], []);
+      void magoSync([path], []).catch(() => {});
+    }
     analysisQueue.current?.drop(path);
     largeFiles.current.delete(path);
     // Drop the editor model after the tab switch, so a reopened file is read from disk again.

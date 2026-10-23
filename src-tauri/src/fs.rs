@@ -184,13 +184,34 @@ pub async fn rename_path(from: String, to: String) -> Result<(), String> {
     blocking(move || rename_blocking(&from, &to)).await
 }
 
+/// Whether two paths are the same file on disk (by identity, not by name).
+fn is_same_file(a: &Path, b: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (fs::metadata(a), fs::metadata(b)) {
+            (Ok(x), Ok(y)) => x.dev() == y.dev() && x.ino() == y.ino(),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        // Windows resolves both to the name as it is on disk.
+        match (fs::canonicalize(a), fs::canonicalize(b)) {
+            (Ok(x), Ok(y)) => x == y,
+            _ => false,
+        }
+    }
+}
+
 fn rename_blocking(from: &str, to: &str) -> Result<(), String> {
     let (src, dst) = (Path::new(from), Path::new(to));
     if !src.exists() {
         return Err(format!("{} no longer exists", file_name(src)));
     }
-    // A case-only rename (User.php → user.php) is the same file on Windows: allow it.
-    let same_file = from.eq_ignore_ascii_case(to);
+    // A case-only rename (User.php → user.php) is the same file on Windows and macOS: allow it. On
+    // Linux they can be two files, and renaming would replace the other one.
+    let same_file = from.eq_ignore_ascii_case(to) && is_same_file(src, dst);
     if dst.exists() && !same_file {
         return Err(format!("{} already exists", file_name(dst)));
     }
@@ -303,6 +324,28 @@ mod tests {
         assert!(run(copy_path(p("app/Models"), p("app/Entities"))).is_err());
         assert!(run(copy_path(p("app"), p("app/Models/copy"))).is_err());
 
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// On a case-sensitive disk, User.php and user.php are two files: renaming one onto the other
+    /// is refused. Where they are one file (Windows, macOS), the case-only rename works.
+    #[test]
+    fn case_only_rename_never_replaces_another_file() {
+        let dir = std::env::temp_dir().join(format!("phpblitz-case-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("User.php"), "upper").unwrap();
+        fs::write(dir.join("user.php"), "lower").unwrap();
+        let p = |rel: &str| norm(&dir.join(rel));
+        let two_files = fs::read_to_string(dir.join("User.php")).unwrap() == "upper";
+        let result = run(rename_path(p("User.php"), p("user.php")));
+        if two_files {
+            assert!(result.unwrap_err().contains("already exists"));
+            assert_eq!(fs::read_to_string(dir.join("user.php")).unwrap(), "lower", "the other file is untouched");
+        } else {
+            result.unwrap();
+            assert!(fs::read_dir(&dir).unwrap().flatten().any(|e| e.file_name() == "user.php"), "renamed to the new case");
+        }
         let _ = fs::remove_dir_all(&dir);
     }
 }

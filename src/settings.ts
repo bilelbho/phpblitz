@@ -128,6 +128,8 @@ export interface DebugSettings {
   maxChildren: number;
   /** Show variable values at the end of lines while stopped. */
   inlineValues: boolean;
+  /** Accept debug connections from other machines (PHP in a VM or on a server); Docker interpreters always do. */
+  acceptExternal: boolean;
 }
 
 export type AiProvider = 'anthropic' | 'openai' | 'gemini' | 'ollama';
@@ -282,6 +284,7 @@ export const DEFAULT_SETTINGS: Settings = {
     breakOnExceptions: false,
     maxChildren: 100,
     inlineValues: true,
+    acceptExternal: false,
   },
   ai: {
     mcpServer: false,

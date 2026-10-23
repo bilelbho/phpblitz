@@ -103,9 +103,15 @@ export async function replaceInText(options: SearchOptions, replacement: string,
   return { text: out, count };
 }
 
-/** Replace in files that are not open; returns the number of replacements. */
-export function replaceInFiles(options: SearchOptions, replacement: string, paths: string[]): Promise<number> {
-  return invoke<number>('replace_in_files', { options, replacement, paths });
+export interface ReplaceInFilesResult {
+  count: number;
+  /** Files left unchanged: not UTF-8 text, unreadable, or not writable. */
+  skipped: { path: string; reason: string }[];
+}
+
+/** Replace in files that are not open, each saved like a save (Local History under `root`, atomic). */
+export function replaceInFiles(options: SearchOptions, replacement: string, paths: string[], root: string): Promise<ReplaceInFilesResult> {
+  return invoke<ReplaceInFilesResult>('replace_in_files', { options, replacement, paths, root });
 }
 
 // ── JavaScript fallback ───────────────────────────────────────

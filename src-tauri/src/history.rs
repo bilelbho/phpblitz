@@ -83,11 +83,17 @@ fn add(dir: &Path, text: &str, time: u64) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Files with secrets (.env, .env.local…): no copies of them pile up in the history.
+fn is_secret(rel: &str) -> bool {
+    let name = rel.rsplit('/').next().unwrap_or(rel);
+    name == ".env" || name.starts_with(".env.")
+}
+
 /// Called by a save, before the file is written: keeps the text on disk (if it isn't kept yet)
 /// and the new text. Never fails the save: history is best effort.
 pub fn record(root: &str, path: &str, new_text: &str) {
     let Some(rel) = relative(root, path) else { return };
-    if new_text.len() > MAX_BYTES {
+    if new_text.len() > MAX_BYTES || is_secret(&rel) {
         return;
     }
     let _ = (|| -> std::io::Result<()> {
@@ -158,6 +164,20 @@ mod tests {
     fn texts(root: &str, path: &str) -> Vec<String> {
         let dir = file_dir(root, &relative(root, path).unwrap()).unwrap();
         versions(&dir).iter().map(|t| std::fs::read_to_string(dir.join(t.to_string())).unwrap()).collect()
+    }
+
+    #[test]
+    fn keeps_no_copies_of_env_files() {
+        let (dir, root) = project("env");
+        for name in [".env", "config/.env.local"] {
+            let file = format!("{root}/{name}");
+            std::fs::create_dir_all(std::path::Path::new(&file).parent().unwrap()).unwrap();
+            std::fs::write(&file, "APP_KEY=old").unwrap();
+            record(&root, &file, "APP_KEY=new");
+            assert!(versions(&file_dir(&root, name).unwrap()).is_empty(), "{name}");
+        }
+        assert!(!is_secret("app/Environment.php") && !is_secret("docs/env.md"));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

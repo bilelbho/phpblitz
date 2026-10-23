@@ -2,6 +2,10 @@
 //! request starts with debugging on. Messages are relayed to the UI, which speaks the protocol.
 //!
 //! Framing: Xdebug sends `<length>\0<xml>\0`; the IDE sends `command -i <id> args\0`.
+//!
+//! Only this machine can connect unless the UI asks for every interface (Docker containers, a VM,
+//! another machine): the port takes commands from whoever connects. Frames and sessions are capped,
+//! so a peer can't make PHPBlitz allocate without limit.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -22,6 +26,11 @@ pub enum Event {
 
 type Emit = Arc<dyn Fn(Event) + Send + Sync>;
 
+/// The largest DBGp frame accepted (Xdebug's are rarely over a few MB): a bigger one drops the connection.
+const MAX_FRAME: usize = 64 * 1024 * 1024;
+/// Debug sessions at once; more connections are refused.
+const MAX_SESSIONS: usize = 32;
+
 struct Listening {
     port: u16,
     stop: Arc<AtomicBool>,
@@ -35,10 +44,11 @@ pub struct XdebugState {
 }
 
 impl XdebugState {
-    /// Starts listening; returns the port (useful with port 0 in tests).
-    fn listen(&self, port: u16, emit: Emit) -> Result<u16, String> {
+    /// Starts listening, on this machine only unless `everywhere`; returns the port (useful with port 0 in tests).
+    fn listen(&self, port: u16, everywhere: bool, emit: Emit) -> Result<u16, String> {
         self.stop_listening();
-        let listener = TcpListener::bind(("0.0.0.0", port)).map_err(|e| {
+        let host = if everywhere { "0.0.0.0" } else { "127.0.0.1" };
+        let listener = TcpListener::bind((host, port)).map_err(|e| {
             if e.kind() == std::io::ErrorKind::AddrInUse {
                 format!("Port {port} is already in use (another IDE listening for Xdebug?)")
             } else {
@@ -54,6 +64,10 @@ impl XdebugState {
                     break;
                 }
                 let Ok(stream) = stream else { continue };
+                if conns.lock().unwrap().len() >= MAX_SESSIONS {
+                    let _ = stream.shutdown(Shutdown::Both);
+                    continue;
+                }
                 let id = next.fetch_add(1, Ordering::Relaxed) + 1;
                 let remote = stream.peer_addr().map(|a| a.to_string()).unwrap_or_default();
                 let Ok(writer) = stream.try_clone() else { continue };
@@ -102,16 +116,22 @@ impl XdebugState {
 }
 
 /// Reads `<length>\0<xml>\0` frames until the connection closes.
-fn read_frames(stream: TcpStream, mut on_xml: impl FnMut(String)) {
+fn read_frames(stream: impl Read, mut on_xml: impl FnMut(String)) {
     let mut reader = BufReader::new(stream);
     loop {
+        // The length: a few digits and a NUL (more than 24 bytes without one isn't DBGp).
         let mut len = Vec::new();
-        match reader.read_until(0, &mut len) {
+        match (&mut reader).take(24).read_until(0, &mut len) {
             Ok(0) | Err(_) => return,
             Ok(_) => {}
         }
-        len.pop();
+        if len.pop() != Some(0) {
+            return;
+        }
         let Ok(n) = String::from_utf8_lossy(&len).trim().parse::<usize>() else { return };
+        if n > MAX_FRAME {
+            return;
+        }
         let mut body = vec![0u8; n + 1]; // the XML and its trailing NUL
         if reader.read_exact(&mut body).is_err() {
             return;
@@ -122,11 +142,11 @@ fn read_frames(stream: TcpStream, mut on_xml: impl FnMut(String)) {
 }
 
 #[tauri::command(async)]
-pub fn xdebug_listen(app: AppHandle, state: State<'_, XdebugState>, port: u16) -> Result<u16, String> {
+pub fn xdebug_listen(app: AppHandle, state: State<'_, XdebugState>, port: u16, everywhere: Option<bool>) -> Result<u16, String> {
     let emit: Emit = Arc::new(move |e: Event| {
         let _ = app.emit("xdebug", e);
     });
-    state.listen(port, emit)
+    state.listen(port, everywhere.unwrap_or(false), emit)
 }
 
 #[tauri::command(async)]
@@ -164,7 +184,7 @@ mod tests {
         let state = XdebugState::default();
         let (tx, rx) = mpsc::channel::<Event>();
         let tx = Mutex::new(tx);
-        let port = state.listen(0, Arc::new(move |e| tx.lock().unwrap().send(e).unwrap())).unwrap();
+        let port = state.listen(0, false, Arc::new(move |e| tx.lock().unwrap().send(e).unwrap())).unwrap();
 
         let mut php = TcpStream::connect(("127.0.0.1", port)).unwrap();
         let init = r#"<?xml version="1.0" encoding="iso-8859-1"?><init xmlns="urn:debugger_protocol_v1" fileuri="file:///var/www/html/public/index.php" language="PHP" idekey="PHPSTORM"/>"#;
@@ -192,6 +212,36 @@ mod tests {
         drop(php);
         assert_eq!(wait(), Event::Closed { session });
         assert!(state.send(session, "status -i 2").is_err(), "closed sessions refuse commands");
+        state.shutdown();
+    }
+
+    /// Lengths that don't fit, overflow or never end drop the connection instead of allocating.
+    #[test]
+    fn refuses_frames_that_are_too_big_or_malformed() {
+        let mut ok = frame("<init/>");
+        ok.extend_from_slice(b"18446744073709551615\0");
+        let mut seen = Vec::new();
+        read_frames(&ok[..], |xml| seen.push(xml));
+        assert_eq!(seen, ["<init/>"], "the good frame is read, the huge one ends the connection");
+
+        for bad in [format!("{}\0", MAX_FRAME + 1), "99999999999999999999999\0".to_string(), "1".repeat(10_000), "abc\0".to_string()] {
+            let mut seen = Vec::new();
+            read_frames(bad.as_bytes(), |xml| seen.push(xml));
+            assert!(seen.is_empty(), "{bad:.30}");
+        }
+    }
+
+    #[test]
+    fn listens_on_this_machine_unless_asked() {
+        let state = XdebugState::default();
+        let port = state.listen(0, false, Arc::new(|_| {})).unwrap();
+        assert!(TcpStream::connect(("127.0.0.1", port)).is_ok());
+        let bound = TcpListener::bind(("0.0.0.0", port));
+        // Loopback only: the same port is still free on the other interfaces (Windows refuses the
+        // overlap anyway, so only check where the OS allows it).
+        if cfg!(not(windows)) {
+            assert!(bound.is_ok(), "0.0.0.0:{port} should still be free");
+        }
         state.shutdown();
     }
 }

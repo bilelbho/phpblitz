@@ -1221,6 +1221,8 @@ table.grid .number {
   line-height: 18px;
   margin-top: 2px;
   user-select: text;
+  /* Bodies with lines (skipped files, a command's output) keep them. */
+  white-space: pre-line;
   word-break: break-word;
 }
 
@@ -6995,6 +6997,8 @@ body {
   font-size: 12.5px;
   line-height: 18px;
   user-select: text;
+  /* Bodies with lines (skipped files, a command's output) keep them. */
+  white-space: pre-line;
 }
 .balloon-actions {
   display: flex;

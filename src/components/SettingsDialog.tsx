@@ -571,7 +571,7 @@ function GutterIconsPage({ value: e, onChange, highlight }: { value: EditorSetti
 /** PHP ▸ Debug: Xdebug's port and when to stop. */
 function DebugPage({ value: d, onChange, highlight }: { value: DebugSettings; onChange: (patch: Partial<DebugSettings>) => void; highlight: string }) {
   const hit = (label: string) => (highlight && label.toLowerCase().includes(highlight) ? ' hit' : '');
-  const check = (key: 'breakAtFirstLine' | 'breakOnExceptions' | 'inlineValues', label: string, help: string) => (
+  const check = (key: 'breakAtFirstLine' | 'breakOnExceptions' | 'inlineValues' | 'acceptExternal', label: string, help: string) => (
     <div>
       <label className={'settings-check' + hit(label)}>
         <input type="checkbox" className="checkbox" checked={d[key]} onChange={(e) => onChange({ [key]: e.target.checked })} />
@@ -604,6 +604,11 @@ function DebugPage({ value: d, onChange, highlight }: { value: DebugSettings; on
         {check('breakAtFirstLine', 'Break at first line in PHP scripts', 'Stop on the first line even without breakpoints.')}
         {check('breakOnExceptions', 'Break on exceptions', 'Stop where an exception is thrown (all exception classes).')}
         {check('inlineValues', 'Show values inline', 'While stopped, show variable values at the end of the lines that use them.')}
+        {check(
+          'acceptExternal',
+          'Accept connections from other machines',
+          "For PHP in a virtual machine or on another computer. Otherwise only this computer can connect (and Docker containers, when the project's interpreter is Docker): whoever connects can read what the debugger shows.",
+        )}
       </div>
       <div className="muted settings-help" style={{ marginTop: 12 }}>
         For web requests, start listening (the phone icon in the toolbar) and trigger Xdebug with a browser extension, a XDEBUG_SESSION cookie, or xdebug.start_with_request=yes.

@@ -131,7 +131,11 @@ class DebugManager {
     this.port = getSettings().debug.port;
     this.unlisten ??= listen<{ kind: 'connected' | 'message' | 'closed'; session: number; remote?: string; xml?: string }>('xdebug', (e) => this.event(e.payload));
     try {
-      await invoke('xdebug_listen', { port: this.port });
+      // This machine only, unless PHP runs elsewhere: Docker containers reach the host through its
+      // network, not loopback; a VM or another computer needs the setting.
+      const kind = this.interpreter?.kind;
+      const everywhere = getSettings().debug.acceptExternal || kind === 'docker' || kind === 'compose';
+      await invoke('xdebug_listen', { port: this.port, everywhere });
       this.listening = true;
       this.listenError = '';
     } catch (e) {

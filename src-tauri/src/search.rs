@@ -220,23 +220,54 @@ pub async fn search_in_files(root: String, options: SearchOptions) -> Result<Sea
     tauri::async_runtime::spawn_blocking(move || search(Path::new(&root), &options, generation)).await.map_err(|e| e.to_string())?
 }
 
+#[derive(Serialize, Debug, Default)]
+pub struct ReplaceInFiles {
+    /// Replacements made.
+    pub count: usize,
+    /// Files that weren't changed, and why (not text, unreadable, couldn't be written).
+    pub skipped: Vec<Skipped>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct Skipped {
+    pub path: String,
+    pub reason: String,
+}
+
 /// Replace in Files for files that are not open in the editor (open ones use `replace_in_text`).
+/// Each file is saved like any other save: kept in Local History (with `root`) and written
+/// atomically. A file that can't be read as text or written is skipped and reported; the others
+/// are still replaced.
 #[tauri::command]
-pub async fn replace_in_files(options: SearchOptions, replacement: String, paths: Vec<String>) -> Result<usize, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut total = 0;
-        for path in paths {
-            let text = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
-            let result = replace_text(&text, &options, &replacement)?;
-            if result.count > 0 {
-                std::fs::write(&path, result.text).map_err(|e| format!("{path}: {e}"))?;
-                total += result.count;
+pub async fn replace_in_files(options: SearchOptions, replacement: String, paths: Vec<String>, root: Option<String>) -> Result<ReplaceInFiles, String> {
+    tauri::async_runtime::spawn_blocking(move || replace_files(&options, &replacement, &paths, root.as_deref())).await.map_err(|e| e.to_string())?
+}
+
+fn replace_files(options: &SearchOptions, replacement: &str, paths: &[String], root: Option<&str>) -> Result<ReplaceInFiles, String> {
+    let mut out = ReplaceInFiles::default();
+    for path in paths {
+        let text = match std::fs::read_to_string(path) {
+            Ok(t) => t,
+            Err(e) => {
+                let reason = if e.kind() == std::io::ErrorKind::InvalidData { "not UTF-8 text".to_string() } else { e.to_string() };
+                out.skipped.push(Skipped { path: path.clone(), reason });
+                continue;
             }
+        };
+        // A bad pattern is the same for every file: that one stops the whole replace.
+        let result = replace_text(&text, options, replacement)?;
+        if result.count == 0 {
+            continue;
         }
-        Ok(total)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+        if let Some(root) = root {
+            crate::history::record(root, path, &result.text);
+        }
+        match crate::fs::write_atomic(std::path::Path::new(path), result.text.as_bytes()) {
+            Ok(()) => out.count += result.count,
+            Err(e) => out.skipped.push(Skipped { path: path.clone(), reason: e.to_string() }),
+        }
+    }
+    Ok(out)
 }
 
 #[tauri::command]
@@ -300,6 +331,35 @@ mod tests {
         };
         assert_eq!(files(opts("user")), vec!["app/User.php", "app/view.blade.php"], "skips vendor, gitignored and binary files");
         assert_eq!(files(SearchOptions { file_mask: "*.blade.php".into(), ..opts("user") }), vec!["app/view.blade.php"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A file that isn't UTF-8 is skipped and reported; the others are still replaced, and each
+    /// replaced file is kept in Local History like a save.
+    #[test]
+    fn replace_in_files_skips_what_it_cannot_read_and_keeps_history() {
+        let dir = std::env::temp_dir().join(format!("phpblitz-replace-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let root = crate::fs::norm(&dir);
+        let path = |name: &str| format!("{root}/{name}");
+        std::fs::write(dir.join("a.php"), "<?php new User();").unwrap();
+        std::fs::write(dir.join("b.php"), b"<?php // caf\xe9 User").unwrap(); // Latin-1
+        std::fs::write(dir.join("c.php"), "<?php User::find(1);").unwrap();
+
+        let paths = vec![path("a.php"), path("b.php"), path("c.php")];
+        let result = replace_files(&opts("User"), "Customer", &paths, Some(&root)).unwrap();
+        assert_eq!(result.count, 2);
+        assert_eq!(result.skipped.len(), 1);
+        assert!(result.skipped[0].path.ends_with("b.php") && result.skipped[0].reason.contains("UTF-8"), "{:?}", result.skipped);
+        assert_eq!(std::fs::read_to_string(dir.join("a.php")).unwrap(), "<?php new Customer();");
+        assert_eq!(std::fs::read_to_string(dir.join("c.php")).unwrap(), "<?php Customer::find(1);");
+        assert_eq!(std::fs::read(dir.join("b.php")).unwrap(), b"<?php // caf\xe9 User", "the skipped file is untouched");
+
+        let versions = |name: &str| tauri::async_runtime::block_on(crate::history::history_list(root.clone(), path(name))).unwrap().len();
+        assert_eq!(versions("a.php"), 2, "the text before and after the replace");
+        assert_eq!(versions("c.php"), 2);
+        assert_eq!(versions("b.php"), 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

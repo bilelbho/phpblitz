@@ -132,6 +132,54 @@ fn shells() -> Vec<Shell> {
 const PWSH_INTEGRATION: &str = include_str!("shell/integration.ps1");
 const BASH_INTEGRATION: &str = include_str!("shell/integration.bash");
 
+/// A folder only this user can use, for the bash integration script. Not the shared /tmp: another
+/// user there could swap the script (bash runs it) or plant a link to a file of ours.
+fn private_dir() -> std::io::Result<std::path::PathBuf> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+        let base = std::env::var_os("XDG_RUNTIME_DIR")
+            .map(std::path::PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache")))
+            .ok_or_else(|| std::io::Error::other("no home folder"))?;
+        let dir = base.join("phpblitz");
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
+        // An existing folder must be ours and private (not a link to someone else's).
+        let meta = std::fs::symlink_metadata(&dir)?;
+        let uid = std::fs::metadata(&base)?.uid();
+        if !meta.is_dir() || meta.uid() != uid {
+            return Err(std::io::Error::other("the integration folder isn't ours"));
+        }
+        if meta.permissions().mode() & 0o077 != 0 {
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
+        }
+        Ok(dir)
+    }
+    #[cfg(not(unix))]
+    {
+        // Windows: the temp folder is the user's own.
+        let dir = std::env::temp_dir().join("phpblitz");
+        std::fs::create_dir_all(&dir)?;
+        Ok(dir)
+    }
+}
+
+/// Writes the bash integration script into the private folder (a new file renamed into place, so
+/// a link already there is replaced, never followed). Returns its path.
+fn write_bash_integration() -> std::io::Result<std::path::PathBuf> {
+    let dir = private_dir()?;
+    let file = dir.join("integration.bash");
+    let temp = dir.join(format!("integration.{}.tmp", std::process::id()));
+    let _ = std::fs::remove_file(&temp);
+    {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&temp)?;
+        f.write_all(BASH_INTEGRATION.as_bytes())?;
+    }
+    std::fs::rename(&temp, &file)?;
+    Ok(file)
+}
+
 /// Adds shell integration: the shell marks each prompt and the exit code of the last command
 /// (OSC 133), which the terminal uses to draw command blocks. Shells it doesn't know run as is.
 fn with_integration(shell: &str, args: Vec<String>, cmd: &mut CommandBuilder) -> Vec<String> {
@@ -149,12 +197,7 @@ fn with_integration(shell: &str, args: Vec<String>, cmd: &mut CommandBuilder) ->
             out
         }
         "bash" if !has(&["-c", "--rcfile", "--init-file"]) => {
-            let dir = std::env::temp_dir().join("phpblitz");
-            let file = dir.join("integration.bash");
-            let written = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&file, BASH_INTEGRATION));
-            if written.is_err() {
-                return args;
-            }
+            let Ok(file) = write_bash_integration() else { return args };
             // --init-file replaces --login; the script loads the login files itself.
             let mut out: Vec<String> = args.into_iter().filter(|a| a != "--login" && a != "-l" && a != "-i").collect();
             out.extend(["--init-file".into(), crate::fs::norm(&file), "-i".into()]);
@@ -261,6 +304,21 @@ pub fn pty_kill(state: State<'_, PtyState>, id: u32) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bash_integration_goes_to_a_private_folder() {
+        let file = write_bash_integration().unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), BASH_INTEGRATION);
+        assert!(!file.starts_with("/tmp"), "{}", file.display());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(file.parent().unwrap()).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o700, "{mode:o}");
+        }
+        // Written again (each terminal start): replaced, not appended or refused.
+        assert_eq!(write_bash_integration().unwrap(), file);
+    }
 
     /// Runs a real shell in a pseudo-terminal and reads its output back.
     #[test]

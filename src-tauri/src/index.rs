@@ -817,55 +817,56 @@ pub async fn index_open(app: AppHandle, state: tauri::State<'_, IndexState>, roo
 #[tauri::command]
 pub async fn index_update(state: tauri::State<'_, IndexState>, changed: Vec<String>, removed: Vec<String>) -> Result<Vec<(String, Option<String>)>, String> {
     let index = state.index.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let scanned: Vec<(String, Option<CachedFile>)> = crate::mago::analysis_pool().install(|| {
-            changed
-                .par_iter()
-                .map(|path| {
-                    let file = std::fs::metadata(path).ok().filter(|m| m.len() <= MAX_FILE_BYTES).and_then(|meta| {
-                        let bytes = std::fs::read(path).ok()?;
-                        let mtime = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis() as u64);
-                        Some(CachedFile { mtime, size: meta.len(), symbols: scan(path, &bytes) })
-                    });
-                    (path.clone(), file)
-                })
-                .collect()
-        });
-        let mut idx = index.write().map_err(|e| e.to_string())?;
-        for path in &removed {
-            idx.remove(path);
-        }
-        let mut kinds = Vec::new();
-        for (path, file) in scanned {
-            match file {
-                Some(f) => {
-                    kinds.push((path.clone(), f.symbols.classes.first().map(|c| c.kind.clone())));
-                    idx.set(path, f);
-                }
-                None => idx.remove(&path),
+    tauri::async_runtime::spawn_blocking(move || update_from_disk(&index, &changed, &removed)).await.map_err(|e| e.to_string())?
+}
+
+/// Re-reads changed files from disk (a file that's gone is dropped) and drops removed ones.
+fn update_from_disk(index: &RwLock<ProjectIndex>, changed: &[String], removed: &[String]) -> Result<Vec<(String, Option<String>)>, String> {
+    let scanned: Vec<(String, Option<CachedFile>)> = crate::mago::analysis_pool().install(|| {
+        changed
+            .par_iter()
+            .map(|path| {
+                let file = std::fs::metadata(path).ok().filter(|m| m.len() <= MAX_FILE_BYTES).and_then(|meta| {
+                    let bytes = std::fs::read(path).ok()?;
+                    let mtime = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis() as u64);
+                    Some(CachedFile { mtime, size: meta.len(), symbols: scan(path, &bytes) })
+                });
+                (path.clone(), file)
+            })
+            .collect()
+    });
+    let mut idx = index.write().map_err(|e| e.to_string())?;
+    for path in removed {
+        idx.remove(path);
+    }
+    let mut kinds = Vec::new();
+    for (path, file) in scanned {
+        match file {
+            Some(f) => {
+                kinds.push((path.clone(), f.symbols.classes.first().map(|c| c.kind.clone())));
+                idx.set(path, f);
             }
+            None => idx.remove(&path),
         }
-        Ok(kinds)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    }
+    Ok(kinds)
 }
 
 /// An open file's current text (not saved yet). Returns its kind.
 #[tauri::command]
 pub async fn index_update_text(state: tauri::State<'_, IndexState>, path: String, text: String) -> Result<Option<String>, String> {
     let index = state.index.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let symbols = crate::mago::analysis_pool().install(|| scan(&path, text.as_bytes()));
-        let kind = symbols.classes.first().map(|c| c.kind.clone());
-        let mut idx = index.write().map_err(|e| e.to_string())?;
-        // Keep the disk stamp: a later index_open re-reads the file only if the disk changed.
-        let (mtime, size) = idx.files.get(&path).map_or((0, 0), |f| (f.mtime, f.size));
-        idx.set(path, CachedFile { mtime, size, symbols });
-        Ok(kind)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || update_text(&index, path, &text)).await.map_err(|e| e.to_string())?
+}
+
+fn update_text(index: &RwLock<ProjectIndex>, path: String, text: &str) -> Result<Option<String>, String> {
+    let symbols = crate::mago::analysis_pool().install(|| scan(&path, text.as_bytes()));
+    let kind = symbols.classes.first().map(|c| c.kind.clone());
+    let mut idx = index.write().map_err(|e| e.to_string())?;
+    // No disk stamp: these symbols are of text that may never be saved (the tab discarded, the
+    // app closed). The cache never trusts them, so the next index_open reads the file again.
+    idx.set(path, CachedFile { mtime: 0, size: 0, symbols });
+    Ok(kind)
 }
 
 /// One file's declarations, for the Structure panel and the breadcrumbs.
@@ -1540,6 +1541,35 @@ final class User extends Model implements HasName
 
 function helper(int $a, $b = 1): ?string { return null; }
 "#;
+
+    /// Unsaved text in the index, then the tab discarded: the index goes back to the file on disk,
+    /// and unsaved symbols are never stamped as matching the disk (the cache would trust them).
+    #[test]
+    fn discarded_edits_leave_the_index() {
+        let dir = std::env::temp_dir().join(format!("phpblitz-discard-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = crate::fs::norm(&dir.join("User.php"));
+        std::fs::write(&path, "<?php namespace App; class User {}").unwrap();
+        let index = RwLock::new(ProjectIndex::default());
+        update_from_disk(&index, std::slice::from_ref(&path), &[]).unwrap();
+        assert!(index.read().unwrap().by_fqn.contains_key(r"app\user"));
+
+        update_text(&index, path.clone(), "<?php namespace App; class Customer {}").unwrap();
+        {
+            let idx = index.read().unwrap();
+            assert!(idx.by_fqn.contains_key(r"app\customer") && !idx.by_fqn.contains_key(r"app\user"));
+            assert_eq!(idx.files[&path].mtime, 0, "unsaved symbols carry no disk stamp");
+        }
+
+        // Discard: what releaseFile asks for.
+        update_from_disk(&index, std::slice::from_ref(&path), &[]).unwrap();
+        let idx = index.read().unwrap();
+        assert!(idx.by_fqn.contains_key(r"app\user") && !idx.by_fqn.contains_key(r"app\customer"));
+        assert!(idx.files[&path].mtime > 0);
+        drop(idx);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn records_member_types_for_completion() {

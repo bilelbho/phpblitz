@@ -3,6 +3,7 @@
 // Sessions live outside React, so switching the bottom panel to Problems and back
 // (which unmounts the view) keeps shells, scrollback and running programs.
 
+import { plainCommands } from './plainCommands';
 import { Channel, invoke } from '@tauri-apps/api/core';
 import type { IMarker, ITheme, Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
@@ -35,6 +36,11 @@ export interface Session {
   opened: boolean;
   /** Each prompt (OSC 133 A) and where its command was typed (B), oldest first. */
   commands: { prompt: IMarker; input?: IMarker }[];
+  /**
+   * The shell is waiting at its prompt (OSC 133 B seen, Enter not pressed since). Not when a
+   * program runs (ssh, psql, tinker…), nor in shells without the integration.
+   */
+  atPrompt: boolean;
 }
 
 // The dark terminal palette.
@@ -189,6 +195,7 @@ class TerminalManager {
       element,
       opened: false,
       commands: [],
+      atPrompt: false,
     };
     this.wire(session);
     this.linkFiles(session);
@@ -258,6 +265,7 @@ class TerminalManager {
         // Markers of lines that scrolled out of the buffer are disposed.
         s.commands = s.commands.filter((c) => !c.prompt.isDisposed);
       } else if (kind === 'B') {
+        s.atPrompt = true;
         const last = s.commands[s.commands.length - 1];
         if (last && !last.input) last.input = s.term.registerMarker(0) ?? undefined;
       }
@@ -330,6 +338,7 @@ class TerminalManager {
     const { term } = s;
     this.commandBlocks(term);
     term.onData((data) => {
+      if (/[\r\n]/.test(data)) s.atPrompt = false;
       if (s.ptyId !== null && !s.exited) invoke('pty_write', { id: s.ptyId, data }).catch(() => {});
     });
     term.onTitleChange((title) => {
@@ -461,12 +470,18 @@ class TerminalManager {
   }
 
   /** Types `command` into the active tab (a new one when there is none or it ended) and presses Enter. */
+  /**
+   * Runs commands (a README's code block, an npm script) in the active tab if its shell waits at
+   * the prompt, else in a new tab: never typed into a running program (an SSH or database
+   * session). Control characters, invisible in the code block, are dropped.
+   */
   async run(command: string, cwd: string) {
-    let s = this.sessions.find((x) => x.id === this.activeId && !x.exited && x.ptyId !== null) ?? null;
+    let s = this.sessions.find((x) => x.id === this.activeId && !x.exited && x.ptyId !== null && x.atPrompt) ?? null;
     if (!s) s = await this.create({ cwd });
     if (!s || s.ptyId === null) return;
     this.setActive(s.id);
-    const lines = command.replace(/\r\n/g, '\n').trim().split('\n').join('\r');
+    const lines = plainCommands(command).split('\n').join('\r');
+    s.atPrompt = false;
     await invoke('pty_write', { id: s.ptyId, data: lines + '\r' }).catch(() => {});
     s.term.focus();
   }
