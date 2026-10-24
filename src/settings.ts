@@ -65,7 +65,17 @@ export interface EditorSettings {
 /** View ▸ Appearance ▸ Main Menu. */
 export type MainMenuMode = 'hamburger' | 'merged' | 'separate';
 
-export type UiTheme = 'blitz-dark' | 'blitz-light' | 'blitz-classic' | 'high-contrast';
+/**
+ * Islands (Blitz…): panels are rounded islands with gaps on a darker frame. Flat: the same colors,
+ * panels edge to edge with thin lines between them.
+ */
+export type UiTheme = 'blitz-dark' | 'blitz-light' | 'blitz-classic' | 'high-contrast' | 'flat-dark' | 'flat-light' | 'flat-classic';
+
+/** A theme's colors (one of the islands themes) and whether its panels are flat. */
+export function themeLook(theme: UiTheme): { colors: 'blitz-dark' | 'blitz-light' | 'blitz-classic' | 'high-contrast'; flat: boolean } {
+  const flat = theme.startsWith('flat-');
+  return { colors: (flat ? theme.replace('flat-', 'blitz-') : theme) as ReturnType<typeof themeLook>['colors'], flat };
+}
 
 /** Appearance & Behavior ▸ Appearance. */
 export interface UiSettings {
@@ -382,7 +392,9 @@ export function parseEnv(text: string): [string, string][] {
 /** The UI theme in effect (Sync with OS picks light or dark from Windows). */
 export function effectiveTheme(ui: UiSettings): UiTheme {
   if (ui.syncOs && typeof window !== 'undefined' && window.matchMedia) {
-    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'blitz-light' : 'blitz-dark';
+    // The OS picks light or dark; the chosen theme keeps its islands or flat panels.
+    const family = themeLook(ui.theme).flat ? 'flat' : 'blitz';
+    return `${family}-${window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'}`;
   }
   return ui.theme;
 }
@@ -390,7 +402,7 @@ export function effectiveTheme(ui: UiSettings): UiTheme {
 /** Editor color scheme for "Theme default": the scheme that goes with the UI theme. */
 export function editorSchemeOf(s: Settings): string {
   if (s.editor.scheme !== 'theme') return s.editor.scheme;
-  const theme = effectiveTheme(s.ui);
+  const theme = themeLook(effectiveTheme(s.ui)).colors;
   return theme === 'blitz-light' ? 'light' : theme === 'blitz-classic' ? 'classic-dark' : theme === 'high-contrast' ? 'high-contrast' : 'blitz-dark';
 }
 

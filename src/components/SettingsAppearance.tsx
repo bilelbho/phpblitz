@@ -5,12 +5,38 @@ import type { TabSettings, UiSettings, UiTheme } from '../settings';
 import { MAX_ZOOM, MIN_ZOOM } from '../uiSettings';
 
 // Our own names (the ids are kept so saved settings still match).
-export const THEMES: { id: UiTheme; label: string }[] = [
-  { id: 'blitz-dark', label: 'Blitz Dark' },
-  { id: 'blitz-light', label: 'Blitz Light' },
-  { id: 'blitz-classic', label: 'Blitz Classic' },
-  { id: 'high-contrast', label: 'High Contrast' },
+export const THEMES: { id: UiTheme; label: string; group: string }[] = [
+  { id: 'blitz-dark', label: 'Blitz Dark', group: 'Islands' },
+  { id: 'blitz-light', label: 'Blitz Light', group: 'Islands' },
+  { id: 'blitz-classic', label: 'Blitz Classic', group: 'Islands' },
+  { id: 'flat-dark', label: 'Dark', group: 'Flat' },
+  { id: 'flat-light', label: 'Light', group: 'Flat' },
+  { id: 'flat-classic', label: 'Classic', group: 'Flat' },
+  { id: 'high-contrast', label: 'High Contrast', group: '' },
 ];
+
+/** The themes as <option>s, Islands and Flat in groups (Settings and the welcome screen). */
+export function ThemeOptions() {
+  const groups = [...new Set(THEMES.map((t) => t.group))];
+  return (
+    <>
+      {groups.map((g) => {
+        const options = THEMES.filter((t) => t.group === g).map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.label}
+          </option>
+        ));
+        return g ? (
+          <optgroup key={g} label={g === 'Islands' ? 'Islands: rounded panels' : 'Flat: panels edge to edge'}>
+            {options}
+          </optgroup>
+        ) : (
+          options
+        );
+      })}
+    </>
+  );
+}
 
 function Check({ label, checked, onChange, help, disabled, hit }: { label: string; checked: boolean; onChange: (v: boolean) => void; help?: ReactNode; disabled?: boolean; hit: (l: string) => string }) {
   return (
@@ -63,7 +89,9 @@ export function AppearancePage({ value: ui, onChange, highlight, onEditorScheme 
           Theme:
         </label>
         <div className="settings-row">
-          <Select id="ui-theme" value={ui.theme} options={THEMES} onChange={(theme) => onChange({ theme })} />
+          <select id="ui-theme" className="settings-select" value={ui.theme} onChange={(e) => onChange({ theme: e.target.value as UiTheme })}>
+            <ThemeOptions />
+          </select>
           <label className={'settings-check' + hit('Sync with OS')} style={{ marginLeft: 14 }}>
             <input type="checkbox" className="checkbox" checked={ui.syncOs} onChange={(e) => onChange({ syncOs: e.target.checked })} />
             Sync with OS

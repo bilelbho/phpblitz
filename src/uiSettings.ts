@@ -3,7 +3,7 @@
 
 import { useEffect } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { effectiveTheme, getSettings, saveSettings, useSettings, type UiSettings } from './settings';
+import { effectiveTheme, getSettings, saveSettings, themeLook, useSettings, type UiSettings } from './settings';
 import { isTauri } from './platform';
 
 export const MIN_ZOOM = 50;
@@ -11,11 +11,13 @@ export const MAX_ZOOM = 200;
 
 function apply(ui: UiSettings) {
   const root = document.documentElement;
-  root.dataset.uiTheme = effectiveTheme(ui);
+  const look = themeLook(effectiveTheme(ui));
+  root.dataset.uiTheme = look.colors;
   const flag = (name: string, on: boolean) => {
     if (on) root.setAttribute(`data-${name}`, '');
     else root.removeAttribute(`data-${name}`);
   };
+  flag('flat', look.flat);
   flag('compact', ui.compact);
   flag('contrast-scrollbars', ui.contrastScrollbars);
   flag('no-menu-icons', !ui.menuIcons);

@@ -14,7 +14,7 @@ import { MAX_ZOOM, MIN_ZOOM } from '../uiSettings';
 import { openAppDialog, useAppDialog } from '../appDialogs';
 import { Icon, Logo } from './Icon';
 import { ContextMenu, type ContextItem } from './ContextMenu';
-import { THEMES } from './SettingsAppearance';
+import { ThemeOptions } from './SettingsAppearance';
 import { WindowControls } from './WindowControls';
 import { AboutDialog } from './lazy';
 import { ErrorLogDialog } from './ErrorLogDialog';
@@ -332,12 +332,9 @@ function Customize() {
       <h2>Appearance</h2>
       <div className="welcome-setting">
         <label htmlFor="welcome-theme">Theme:</label>
-        <select id="welcome-theme" className="settings-select" value={ui.theme} disabled={ui.syncOs} onChange={(e) => setUi({ theme: e.target.value as UiSettings['theme'] })}>
-          {THEMES.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.label}
-            </option>
-          ))}
+        {/* With Sync with OS the OS picks light or dark; the choice still picks islands or flat panels. */}
+        <select id="welcome-theme" className="settings-select" value={ui.theme} onChange={(e) => setUi({ theme: e.target.value as UiSettings['theme'] })}>
+          <ThemeOptions />
         </select>
         <label className="settings-check">
           <input type="checkbox" className="checkbox" checked={ui.syncOs} onChange={(e) => setUi({ syncOs: e.target.checked })} />

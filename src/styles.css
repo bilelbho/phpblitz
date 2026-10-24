@@ -7281,3 +7281,54 @@ body:has(.strip.right.with-names) .balloons {
 .surround-add {
   margin-top: 4px;
 }
+
+/* ── Flat themes (Dark, Light, Classic) ──────────────────────
+   The islands themes' colors with the panels edge to edge: the frame is the panels' own color,
+   and the 1 px gaps between panels (the splitters) are lines. */
+:root[data-flat] {
+  --gap: 1px;
+  --radius: 0px;
+  --frame: var(--island);
+}
+:root[data-flat] .splitter {
+  background: var(--line);
+}
+/* A 1 px line is too thin to grab: the splitter's hit area reaches 3 px to each side. */
+:root[data-flat] .splitter::before {
+  content: '';
+  position: absolute;
+}
+:root[data-flat] .splitter.v::before {
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  right: -3px;
+}
+:root[data-flat] .splitter.h::before {
+  left: 0;
+  right: 0;
+  top: -3px;
+  bottom: -3px;
+}
+:root[data-flat] .splitter.v::after {
+  left: -1px;
+  top: 0;
+  bottom: 0;
+}
+:root[data-flat] .splitter.h::after {
+  top: -1px;
+  left: 0;
+  right: 0;
+}
+:root[data-flat] .topbar {
+  border-bottom: 1px solid var(--line);
+}
+:root[data-flat] .statusbar {
+  border-top: 1px solid var(--line);
+}
+:root[data-flat] .strip.left {
+  border-right: 1px solid var(--line);
+}
+:root[data-flat] .strip.right {
+  border-left: 1px solid var(--line);
+}
