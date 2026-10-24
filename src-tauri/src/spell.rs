@@ -44,7 +44,8 @@ const CODE_WORDS: &str = "
     refactoring dataset datasets substring substrings whitelist blacklist allowlist denylist
     unprocessable unauthorized unauthenticated csrf xss cors cookie cookies favicon viewport
     const goto insteadof enddeclare declare require include once endswitch elseif finally namespace
-    schemas gmail expr
+    schemas gmail expr submenu submenus daterange daterangepicker addon addons docx odt timeframe timeframes
+    progressbar slugify slugger ical icalendar resname xliff cget
     href src srcset alt autofocus autocomplete autoplay nowrap maxlength minlength readonly novalidate
     colspan rowspan tabindex onclick onchange onsubmit enctype formaction textarea iframe noopener
     noreferrer nofollow viewbox stylesheet charset doctype tbody thead tfoot
@@ -238,8 +239,44 @@ fn find_typos_with(speller: &Speller, text: &str, known: &HashSet<String>) -> Ve
     typos
 }
 
-/// Words of the names the project declares (`App\Entity\TimesheetMeta` → app, entity, timesheet,
-/// meta; `hasTeamleadRole` → has, teamlead, role), rebuilt when the index changes.
+/// How many different names of the project's own a word must be in to count as a word: a
+/// misspelled name (`getClietn`) would otherwise make its own typo known as soon as it's indexed.
+const PROJECT_WORD_NAMES: usize = 3;
+
+/// The words of declared names that count as spelled right (lowercase): every word of vendor/
+/// names and of namespaces (`App\Entity`); in the project's own class, member and function names,
+/// a word in at least PROJECT_WORD_NAMES different names (teamlead: `TeamleadRole`,
+/// `hasTeamleadRole`, `isTeamlead`).
+fn known_words(names: &crate::index::DeclaredNames) -> HashSet<String> {
+    let words_of = |part: &str| split_words(part).into_iter().map(|(s, e)| part[s..e].to_ascii_lowercase()).collect::<Vec<_>>();
+    let mut known = HashSet::new();
+    for name in &names.vendor {
+        for part in name.split('\\') {
+            known.extend(words_of(part));
+        }
+    }
+    let mut own: HashSet<&str> = HashSet::new();
+    for name in &names.project {
+        let (namespace, short) = name.rsplit_once('\\').unwrap_or(("", name));
+        for part in namespace.split('\\') {
+            known.extend(words_of(part));
+        }
+        own.insert(short);
+    }
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for name in own {
+        let mut words = words_of(name);
+        words.sort_unstable();
+        words.dedup();
+        for word in words {
+            *counts.entry(word).or_default() += 1;
+        }
+    }
+    known.extend(counts.into_iter().filter(|&(_, n)| n >= PROJECT_WORD_NAMES).map(|(word, _)| word));
+    known
+}
+
+/// The words of declared names that count as known (see known_words), rebuilt when the index changes.
 /// The index revision they're of (0: none yet), and the words.
 static INDEX_WORDS: LazyLock<Mutex<(u64, std::sync::Arc<HashSet<String>>)>> = LazyLock::new(|| Mutex::new((0, Default::default())));
 
@@ -247,15 +284,7 @@ static INDEX_WORDS: LazyLock<Mutex<(u64, std::sync::Arc<HashSet<String>>)>> = La
 fn index_words(state: &crate::index::IndexState) -> std::sync::Arc<HashSet<String>> {
     let mut cache = INDEX_WORDS.lock().unwrap_or_else(PoisonError::into_inner);
     match crate::index::declared_names(state, cache.0) {
-        Ok(Some((revision, names))) => {
-            let mut words = HashSet::new();
-            for name in &names {
-                for part in name.split('\\') {
-                    words.extend(split_words(part).into_iter().map(|(s, e)| part[s..e].to_ascii_lowercase()));
-                }
-            }
-            *cache = (revision, std::sync::Arc::new(words));
-        }
+        Ok(Some((revision, names))) => *cache = (revision, std::sync::Arc::new(known_words(&names))),
         Ok(None) => {}
         Err(_) => return Default::default(),
     }
@@ -351,6 +380,62 @@ mod tests {
         tauri::async_runtime::block_on(spell_set_words(vec!["Qwertz".into()])).unwrap();
         assert!(typos("loadQwertzLayout").is_empty());
         tauri::async_runtime::block_on(spell_set_words(vec![])).unwrap();
+    }
+
+    /// A typo in a declared name stays a typo once indexed; a word the project uses in three names
+    /// (or a library uses at all, or a namespace) is the project's own.
+    #[test]
+    fn misspelled_declarations_do_not_learn_themselves() {
+        let names = crate::index::DeclaredNames {
+            project: [r"App\Entity\TeamleadRole", "hasTeamleadRole", "isTeamlead", "getClietn", "getClietn", r"Kimai\Plugin\Invoice"].map(String::from).into(),
+            vendor: [r"Scheb\TwoFactorBundle\Model\Totp\TotpInterface"].map(String::from).into(),
+        };
+        let known = known_words(&names);
+        assert!(known.contains("teamlead"), "in three names");
+        assert!(!known.contains("clietn"), "in one name, declared twice");
+        assert!(known.contains("kimai") && known.contains("scheb") && known.contains("totp"), "namespaces and vendor/");
+        let file = "<?php class A { public function getClietn() { return $this->isTeamlead(); } }";
+        let found: Vec<String> = find_typos_with(&SPELLER.read().unwrap(), file, &known).into_iter().map(|t| t.word).collect();
+        assert_eq!(found, ["Clietn"]);
+    }
+
+    /// PHPBLITZ_SPELL_BENCH=<project>: the words flagged in src/ that every declared word being
+    /// known didn't flag, most frequent first (what the PROJECT_WORD_NAMES rule adds).
+    #[test]
+    fn project_words_bench() {
+        let Ok(root) = std::env::var("PHPBLITZ_SPELL_BENCH") else { return };
+        let state = crate::index::load_project(&root);
+        let (_, names) = crate::index::declared_names(&state, 0).unwrap().unwrap();
+        let mut every: HashSet<String> = HashSet::new();
+        for name in names.project.iter().chain(&names.vendor) {
+            for part in name.split('\\') {
+                every.extend(split_words(part).into_iter().map(|(s, e)| part[s..e].to_ascii_lowercase()));
+            }
+        }
+        let known = known_words(&names);
+        let speller = SPELLER.read().unwrap();
+        let (mut files, mut added) = (vec![std::path::PathBuf::from(&root).join("src")], HashMap::<String, usize>::new());
+        let mut count = 0;
+        while let Some(path) = files.pop() {
+            if path.is_dir() {
+                files.extend(std::fs::read_dir(&path).unwrap().map(|e| e.unwrap().path()));
+                continue;
+            }
+            let Some(text) = path.extension().filter(|e| *e == "php").and_then(|_| std::fs::read_to_string(&path).ok()) else { continue };
+            count += 1;
+            let before: HashSet<String> = find_typos_with(&speller, &text, &every).into_iter().map(|t| t.word).collect();
+            for t in find_typos_with(&speller, &text, &known) {
+                if !before.contains(&t.word) {
+                    *added.entry(t.word).or_default() += 1;
+                }
+            }
+        }
+        let mut added: Vec<_> = added.into_iter().collect();
+        added.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        println!("{count} files; {} words newly flagged, {} times", added.len(), added.iter().map(|a| a.1).sum::<usize>());
+        for (word, n) in added.iter().take(80) {
+            println!("{n:5}  {word}");
+        }
     }
 
     #[test]

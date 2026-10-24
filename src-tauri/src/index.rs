@@ -649,23 +649,33 @@ pub(crate) fn overview(state: &IndexState) -> Result<(String, usize, usize), Str
     Ok((idx.root.clone(), idx.files.len(), idx.by_fqn.len()))
 }
 
-/// The names the project declares, as written: classes (`App\Entity\User`), their methods,
-/// properties and constants (`hasTeamleadRole`), and functions; with a value that changes with the
-/// index (the spell checker rebuilds its known words when it does).
-/// The names the project declares (classes, members, functions), unless the index hasn't changed
-/// since revision `seen`: then `None`, without copying anything.
-pub(crate) fn declared_names(state: &IndexState, seen: u64) -> Result<Option<(u64, Vec<String>)>, String> {
+/// Declared names, as written: classes (`App\Entity\User`), their methods, properties and
+/// constants (`hasTeamleadRole`), and functions.
+#[derive(Default)]
+pub(crate) struct DeclaredNames {
+    /// In the project's own files.
+    pub project: Vec<String>,
+    /// In vendor/.
+    pub vendor: Vec<String>,
+}
+
+/// The names the project declares, with the index revision they're of (the spell checker rebuilds
+/// its known words when it changes); `None` when the index hasn't changed since revision `seen`,
+/// without copying anything.
+pub(crate) fn declared_names(state: &IndexState, seen: u64) -> Result<Option<(u64, DeclaredNames)>, String> {
     let idx = state.index.read().map_err(|e| e.to_string())?;
     if idx.revision == seen {
         return Ok(None);
     }
-    let mut names = Vec::new();
-    for f in idx.files.values() {
+    let vendor = format!("{}/vendor/", idx.root);
+    let mut names = DeclaredNames::default();
+    for (path, f) in &idx.files {
+        let list = if path.starts_with(&vendor) { &mut names.vendor } else { &mut names.project };
         for c in &f.symbols.classes {
-            names.push(c.fqn.clone());
-            names.extend(c.members.iter().map(|m| m.name.clone()));
+            list.push(c.fqn.clone());
+            list.extend(c.members.iter().map(|m| m.name.clone()));
         }
-        names.extend(f.symbols.functions.iter().map(|func| func.name.clone()));
+        list.extend(f.symbols.functions.iter().map(|func| func.name.clone()));
     }
     Ok(Some((idx.revision, names)))
 }
@@ -1566,6 +1576,21 @@ fn find_usages(index: &RwLock<ProjectIndex>, target: Target, overrides: Option<H
 }
 
 #[cfg(test)]
+/// A whole project indexed from disk, vendor/ included (for benchmarks of other modules).
+pub(crate) fn load_project(root: &str) -> IndexState {
+    let files = php_files(root, &[]);
+    let parsed: Vec<(String, CachedFile)> = crate::mago::analysis_pool().install(|| {
+        files.par_iter().filter_map(|(p, m, s)| Some((p.clone(), CachedFile { mtime: *m, size: *s, symbols: scan(p, &std::fs::read(p).ok()?) }))).collect()
+    });
+    let mut idx = ProjectIndex { root: root.to_string(), ..Default::default() };
+    idx.files.extend(parsed);
+    idx.rebuild();
+    let state = IndexState::default();
+    *state.index.write().unwrap() = idx;
+    state
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1663,12 +1688,12 @@ function helper(int $a, $b = 1): ?string { return null; }
         let state = IndexState::default();
         update_text(&state.index, "/p/A.php".into(), "<?php class A { function getTotal() {} }").unwrap();
         let (first, names) = declared_names(&state, 0).unwrap().unwrap();
-        assert!(names.contains(&"getTotal".to_string()));
+        assert!(names.project.contains(&"getTotal".to_string()));
         assert!(declared_names(&state, first).unwrap().is_none(), "unchanged: nothing copied");
         update_text(&state.index, "/p/A.php".into(), "<?php class A { function getAmount() {} }").unwrap();
         let (second, names) = declared_names(&state, first).unwrap().unwrap();
         assert_ne!(first, second);
-        assert!(names.contains(&"getAmount".to_string()) && !names.contains(&"getTotal".to_string()));
+        assert!(names.project.contains(&"getAmount".to_string()) && !names.project.contains(&"getTotal".to_string()));
     }
 
     /// PHPBLITZ_INDEX_BENCH=<project>: how long Find Usages takes on a big project, and how long
