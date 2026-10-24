@@ -893,8 +893,11 @@ export function useWorkspace(backend: Backend) {
    */
   const applyFileEdits = useCallback(
     async (byFile: Map<string, { line: number; column: number; endColumn: number; text: string }[]>) => {
-      for (const [path, edits] of byFile) {
+      for (const [planned, edits] of byFile) {
         const ranges = edits.map((e) => ({ range: new monaco.Range(e.line, e.column, e.line, e.endColumn), text: e.text }));
+        // An open file is always edited in its editor: its positions come from the unsaved text,
+        // which the file on disk may not match. Drive letters can differ in case (c:/ vs C:/).
+        const path = planned in liveText.current ? planned : Object.keys(liveText.current).find((p) => p.toLowerCase() === planned.toLowerCase()) ?? planned;
         if (path in liveText.current) {
           const uri = monaco.Uri.file(path);
           // A tab whose editor hasn't been shown yet has no model: make it from the editor's text.

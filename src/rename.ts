@@ -192,6 +192,8 @@ function endOfString(text: string, i: number) {
 export function pathOf(model: monaco.editor.ITextModel): string {
   let p = decodeURIComponent(model.uri.path);
   if (/^\/[A-Za-z]:/.test(p)) p = p.slice(1);
+  // Monaco lower-cases the drive (c:/...); the workspace keys files as C:/...
+  if (/^[a-z]:/.test(p)) p = p[0].toUpperCase() + p.slice(1);
   return p;
 }
 

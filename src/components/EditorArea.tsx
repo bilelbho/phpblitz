@@ -13,7 +13,7 @@ import { bookmarks, useBookmarks } from '../bookmarks';
 import { BookmarksPopup, MnemonicDialog } from './BookmarkPopups';
 import { gutterMenu } from '../gutterMenu';
 import { todosInText } from '../todo';
-import { planRename, type RenamePlan } from '../rename';
+import { planRename, renameEdits, type RenamePlan } from '../rename';
 import { attachSpelling, correctedName, saveToDictionary, suggestionsFor, typoAt, typoMarker, typosOf, useTypoCount, type Typo } from '../editor/spelling';
 import { isScriptModel, scriptRenamePlan, SCRIPT_SOURCE } from '../jsProjects';
 import { setCursor } from '../cursorStore';
@@ -236,7 +236,6 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
   /** Rename (Shift+F6): from the symbol index (fast, no language server needed), else the language server. */
   const [renamePlan, setRenamePlan] = useState<RenamePlan | null>(null);
   /** The name the Rename dialog starts with (Typo: Rename to… fills in the correction). */
-  const [renameTo, setRenameTo] = useState<string | undefined>(undefined);
   const startRename = async () => {
     const editor = editorRef.current;
     const model = editor?.getModel();
@@ -275,7 +274,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       ],
     });
   };
-  /** In a name, the Rename dialog opens with the corrected name (every usage changes); elsewhere just the word. */
+  /** In a name, every usage is renamed to the corrected name at once (no dialog); elsewhere just the word. */
   const applyTypoFix = async (typo: Typo, suggestion: string) => {
     const editor = editorRef.current;
     const model = editor?.getModel();
@@ -285,8 +284,14 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     try {
       const plan = isScriptModel(model) ? await scriptRenamePlan(model, pos) : await planRename(latest.current.ws, model, pos);
       if (plan && !plan.error) {
-        setRenameTo(correctedName(model, typo, suggestion).replace(/^\$/, ''));
-        setRenamePlan(plan);
+        const ws = latest.current.ws;
+        const name = correctedName(model, typo, suggestion).replace(/^\$/, '');
+        const byFile = new Map([...renameEdits(plan, false)].map(([p, edits]) => [p, edits.map((e) => ({ ...e, text: name }))]));
+        await ws.applyFileEdits(byFile);
+        if (plan.file) await ws.renameItem(plan.file, `${name}.php`);
+        const count = [...byFile.values()].reduce((n, e) => n + e.length, 0);
+        ws.setStatus(`Renamed ${plan.kind} ${plan.oldName} → ${name}: ${count} ${count === 1 ? 'place' : 'places'}${byFile.size > 1 ? ` in ${byFile.size} files` : ''}`);
+        editor.focus();
         return;
       }
     } catch {
@@ -1205,10 +1210,8 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       <SymbolRenameDialog
         ws={ws}
         plan={renamePlan}
-        initialName={renameTo}
         onClose={() => {
           setRenamePlan(null);
-          setRenameTo(undefined);
           editorRef.current?.focus();
         }}
       />
