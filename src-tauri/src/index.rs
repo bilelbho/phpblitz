@@ -1528,6 +1528,16 @@ fn find_usages(index: &RwLock<ProjectIndex>, target: Target, overrides: Option<H
     let is_member = matches!(target, Target::Member { .. });
     let vendor = format!("{}/vendor/", idx.root);
     let with_vendor = include_vendor.unwrap_or(false);
+    // A member no class outside its own family declares (vendor/ included): on a value of unknown
+    // type it can only be this one, so those usages are sure, not dynamic (a misspelled name).
+    let only_one = is_member && {
+        let kind = match &target {
+            Target::Member { member_kind, .. } => member_kind.as_deref().unwrap_or(""),
+            _ => "",
+        };
+        let same = |m: &Member| (kind.is_empty() || m.kind == kind) && if m.kind == "method" { m.name.eq_ignore_ascii_case(&needle) } else { m.name == needle };
+        !idx.files.values().flat_map(|f| &f.symbols.classes).any(|c| c.members.iter().any(same) && !idx.is_a(&c.fqn, &class_fqn))
+    };
     let paths: Vec<&String> = idx.files.keys().filter(|p| with_vendor || !p.starts_with(&vendor)).collect();
     let files = paths.len();
     // The files to read, decided under the lock; members: the index already knows which names
@@ -1570,6 +1580,9 @@ fn find_usages(index: &RwLock<ProjectIndex>, target: Target, overrides: Option<H
             })
             .collect()
     });
+    if only_one {
+        items.iter_mut().for_each(|i| i.dynamic = false);
+    }
     items.sort_by(|a, b| a.dynamic.cmp(&b.dynamic).then_with(|| a.path.cmp(&b.path)).then_with(|| a.line.cmp(&b.line)).then_with(|| a.column.cmp(&b.column)));
     items.truncate(MAX_USAGES);
     Ok(UsagesResult { name: display, kind: kind.to_string(), title, container, declared_in, items, files })
@@ -1679,6 +1692,33 @@ function helper(int $a, $b = 1): ?string { return null; }
         assert!(!idx.by_fqn.contains_key("old"), "the file deleted while indexing");
         assert!(!idx.by_fqn.contains_key("foreign"), "another project's file");
         assert!(idx.replay.is_none(), "recording stops once installed");
+    }
+
+    /// On a value of unknown type, a method no other class declares can only be this one: a sure
+    /// usage. One that another class declares too stays dynamic.
+    #[test]
+    fn a_member_only_one_class_declares_is_a_sure_usage() {
+        let state = IndexState::default();
+        let files: HashMap<String, String> = [
+            ("/p/Shop.php", "<?php class Shop { function getClietn() {} function save() {} }"),
+            ("/p/Cart.php", "<?php class Cart { function save() {} }"),
+            ("/p/Uses.php", "<?php function f(Shop $shop, $any) {
+    $shop->getClietn();
+    $any->GETCLIETN();
+    $shop->save();
+}"),
+        ]
+        .map(|(p, t)| (p.to_string(), t.to_string()))
+        .into();
+        for (path, text) in &files {
+            update_text(&state.index, path.clone(), text).unwrap();
+        }
+        let dynamic = |name: &str| -> Vec<bool> {
+            let target = Target::Member { class: "Shop".into(), name: name.into(), member_kind: Some("method".into()) };
+            find_usages(&state.index, target, Some(files.clone()), None).unwrap().items.iter().map(|i| i.dynamic).collect()
+        };
+        assert_eq!(dynamic("getClietn"), [false, false]);
+        assert_eq!(dynamic("save"), [true], "Cart::save() too");
     }
 
     /// The spell checker's word list follows every change (a renamed method keeps the counts the
