@@ -493,6 +493,10 @@ textarea:focus-visible {
 .tree {
   padding: 2px 6px 6px;
 }
+/* Monaco's suggest list is a .tree too, sized to its rows: padding would cut the last one. */
+.monaco-editor .tree {
+  padding: 0;
+}
 .tree .row {
   border-radius: 4px;
 }
@@ -2202,8 +2206,9 @@ button.item:hover {
   border-radius: 4px;
   font-family: var(--mono);
 }
+/* Sides only: Monaco sizes the popup to its rows, so padding above or below cuts the last one. */
 .monaco-editor .suggest-widget .monaco-list {
-  padding: 3px;
+  padding: 0 3px;
 }
 .monaco-editor .suggest-widget .details-label,
 .monaco-editor .suggest-widget .label-description {
