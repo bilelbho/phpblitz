@@ -70,12 +70,16 @@ export interface Backend {
   readonly kind: 'disk' | 'sample';
   /** Absolute project root, forward slashes, no trailing slash. */
   readonly root: string;
+  /** Opened in Restricted Mode (trust.ts): no program runs in it. */
+  restricted?: boolean;
   readonly name: string;
 
   listDir(path: string): Promise<Entry[]>;
   /** All project files, excluding vendor/, node_modules/ and .git/. */
   listFiles(): Promise<string[]>;
   readFile(path: string): Promise<string>;
+  /** A file's bytes as they are (images). */
+  readBinary(path: string): Promise<ArrayBuffer>;
   writeFile(path: string, content: string): Promise<void>;
   /** Creates a file; rejects if it already exists. */
   createFile(path: string, content: string): Promise<void>;

@@ -44,7 +44,8 @@ export function DiffView({ ws, path, commit }: { ws: Workspace; path: string; co
       contextmenu: false,
     });
     editorRef.current = diff;
-    const language = languageOf(path);
+    // An open file's editor already knows its language (it may have been guessed from the text).
+    const language = monaco.editor.getModel(monaco.Uri.file(path))?.getLanguageId() ?? languageOf(path, ws.liveTextOf(path) ?? ws.loaded[path]);
 
     (async () => {
       try {

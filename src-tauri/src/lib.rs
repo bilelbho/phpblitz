@@ -14,6 +14,7 @@ mod project;
 mod pty;
 mod search;
 mod spell;
+mod trust;
 mod watcher;
 mod xdebug;
 
@@ -93,6 +94,8 @@ pub fn run() {
             fs::list_dir,
             fs::list_files,
             fs::read_file,
+            fs::read_binary,
+            trust::trust_restrict,
             fs::write_file,
             fs::create_file,
             fs::create_dir,

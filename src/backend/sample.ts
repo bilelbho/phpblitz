@@ -456,6 +456,11 @@ export class SampleBackend implements Backend {
     return src;
   }
 
+  // The sample project's files are text: an SVG is the only image it can hold.
+  async readBinary(path: string) {
+    return new TextEncoder().encode(await this.readFile(path)).buffer as ArrayBuffer;
+  }
+
   async writeFile(path: string, content: string) {
     this.files.set(path, content);
     if (!this.changes.has(path)) this.changes.set(path, 'M');

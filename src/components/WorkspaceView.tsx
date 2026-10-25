@@ -35,6 +35,7 @@ import { EndpointsPanel } from './EndpointsPanel';
 import { ComposerPanel } from './ComposerPanel';
 import { NpmPanel } from './NpmPanel';
 import { StatusBar } from './StatusBar';
+import { TrustDialog } from './TrustDialog';
 import { SearchEverywhere } from './SearchEverywhere';
 import { FindInFiles } from './FindInFiles';
 import { AboutDialog, DatabasePanel, SettingsDialog, StartupPerformance } from './lazy';
@@ -57,7 +58,7 @@ import { lastEditPlace } from '../navHistory';
 interface Props {
   backend: Backend;
   onOpenFolder: () => void;
-  onOpenPath: (path: string) => void;
+  onOpenPath: (path: string, opts?: { trusted?: boolean }) => void;
   onClose: () => void;
 }
 
@@ -78,6 +79,8 @@ function ToolWindow({ title, hint, onHide, children, style }: { title: string; h
 
 export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Props) {
   const ws = useWorkspace(backend);
+  /** Restricted Mode ▸ trust the project (it opens again, with everything running). */
+  const [trusting, setTrusting] = useState(false);
   useFileDrop(ws);
   const perfState = usePerf();
   const appDialog = useAppDialog();
@@ -707,7 +710,8 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
         </div>
       )}
       <ErrorBoundary name="Status bar">
-        <StatusBar ws={ws} />
+        <StatusBar ws={ws} onTrust={() => setTrusting(true)} />
+        {trusting && <TrustDialog root={backend.root} onTrust={() => onOpenPath(backend.root, { trusted: true })} onRestricted={() => setTrusting(false)} />}
       </ErrorBoundary>
       <ErrorBoundary name="Notifications">
         <NotificationBalloons ws={ws} />

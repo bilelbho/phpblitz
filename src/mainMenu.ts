@@ -3,6 +3,7 @@
 // button (View ▸ Appearance ▸ Main Menu). It lists what PHPBlitz can do; items that need an open
 // code editor are disabled without one.
 
+import { openOnboarding } from './onboarding';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import type { Workspace } from './useWorkspace';
@@ -767,6 +768,7 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
         },
         { label: 'Help', mnemonic: 'H', run: openUrl(`${REPO}#readme`) },
         { label: 'Keyboard Shortcuts…', mnemonic: 'K', run: () => openAppDialog('shortcuts') },
+        { label: 'Onboarding…', mnemonic: 'O', run: openOnboarding },
         { kind: 'sep' },
         {
           label: "What's New in PHPBlitz",

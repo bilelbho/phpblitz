@@ -118,7 +118,7 @@ function MagoStatus({ ws }: { ws: Workspace }) {
   );
 }
 
-export function StatusBar({ ws }: { ws: Workspace }) {
+export function StatusBar({ ws, onTrust }: { ws: Workspace; onTrust?: () => void }) {
   const cursor = useCursor();
   const errorCount = useErrorLog().length;
   const idx = useSymbols();
@@ -187,6 +187,12 @@ export function StatusBar({ ws }: { ws: Workspace }) {
       </nav>
       {nav && <NavBarPopup ws={ws} request={nav} onClose={() => setNav(null)} />}
       <span className="grow" />
+      {ws.restricted && (
+        <button type="button" className="item status-restricted" title="This project runs no programs (Git, PHP, Composer, tests, language servers) until you trust it. Click to trust it." onClick={onTrust}>
+          <Icon name="lock" size={13} />
+          Restricted Mode
+        </button>
+      )}
       {!ws.indexStats && (
         <span className="item muted" title="Indexing PHP files (project and vendor). Editing works meanwhile.">
           {idx.progress && idx.progress.total ? `Indexing… ${idx.progress.done.toLocaleString()} / ${idx.progress.total.toLocaleString()}` : 'Indexing…'}

@@ -12,6 +12,8 @@ export class DiskBackend implements Backend {
   readonly kind = 'disk' as const;
   readonly root: string;
   readonly name: string;
+  /** Opened in Restricted Mode (trust.ts): set before the workspace starts. */
+  restricted = false;
 
   constructor(root: string) {
     this.root = root.replace(/\\/g, '/').replace(/\/+$/, '');
@@ -37,6 +39,10 @@ export class DiskBackend implements Backend {
 
   readFile(path: string) {
     return invoke<string>('read_file', { path });
+  }
+
+  readBinary(path: string) {
+    return invoke<ArrayBuffer>('read_binary', { path });
   }
 
   writeFile(path: string, content: string) {

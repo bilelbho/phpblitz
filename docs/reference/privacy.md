@@ -2,6 +2,12 @@
 
 - **Opening a project never runs it.** PHPBlitz reads and parses its files. Your code runs only when
   you start it: tests, the debugger, the terminal, Composer.
+- **Restricted Mode for projects you haven't trusted.** A project can set up Git, PHP, Composer or
+  its tests to run commands of its own, so PHPBlitz asks before trusting one. In Restricted Mode
+  it reads, searches and analyzes the code, but starts no Git, PHP, Composer, test run or language
+  server in it; the terminal still works, since it runs only what you type. Trust it later from
+  *Restricted Mode* in the status bar. *Settings ▸ Appearance & Behavior ▸ Trusted Projects* lists
+  the trusted folders (each with every project inside it) and can turn the question off.
 - **No telemetry and no account.** The only thing PHPBlitz fetches on its own is the update check
   (`latest.json` from the GitHub Releases), which you can turn off in *Settings ▸ Appearance &
   Behavior ▸ Appearance*. Otherwise the network is used only for what you start, like Git push and

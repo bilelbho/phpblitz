@@ -34,7 +34,9 @@ function tabInfo(ws: Workspace, t: Tab): { name: string; icon: ReactNode; title:
   }
 }
 
-export function TabBar({ ws }: { ws: Workspace }) {
+/** `windowDrag`: in the title bar (Focus layout), the space beside the tabs moves the window. */
+export function TabBar({ ws, windowDrag }: { ws: Workspace; windowDrag?: boolean }) {
+  const dragRegion = windowDrag ? { 'data-tauri-drag-region': true } : {};
   const marks = useDirMarks();
   const opts = useSettings().tabs;
   const bar = useRef<HTMLDivElement>(null);
@@ -162,10 +164,11 @@ export function TabBar({ ws }: { ws: Workspace }) {
   const listed = hidden.size ? ws.tabs.filter((t) => hidden.has(t.id)) : ws.tabs;
 
   return (
-    <div className={`tabs tabs-${opts.mode} tabs-${opts.placement}`} role="tablist" aria-label="Open files" ref={bar}>
+    <div className={`tabs tabs-${opts.mode} tabs-${opts.placement}`} role="tablist" aria-label="Open files" ref={bar} {...dragRegion}>
       <div
         className="tabs-row"
         ref={row}
+        {...dragRegion}
         onScroll={measure}
         onWheel={(e) => {
           // A vertical wheel scrolls the tabs sideways.

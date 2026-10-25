@@ -5,7 +5,8 @@ import { setEditorCommands, setMainEditor } from '../editorCommands';
 import { stringContext } from '../completion/laravel';
 import { buildEditorMenu, codeActionsForSelection, contextActionsMenu, copyText, generateMenu, hasMagoActionsAtCaret, markersAt, quickFixesFor, referenceAt } from '../editorMenu';
 import { EditorHover, type HoverRequest } from './EditorHover';
-import { MarkdownView } from './lazy';
+import { CsvView, ImageView, MarkdownView, SvgView } from './lazy';
+import { isCsv, isRasterImage, isSvg } from '../fileKinds';
 import { runCodeBlock, shellBlocks } from '../markdownBlocks';
 import { IntentionPopup } from './IntentionPopup';
 import { useSettings, getSettings, matchesFilePatterns } from '../settings';
@@ -57,18 +58,31 @@ export function EditorArea({ ws }: { ws: Workspace }) {
     <section className="island" style={{ flex: '1 1 auto' }} aria-label="Editor">
       {ws.tabs.length > 0 && tabPlacement === 'top' && <TabBar ws={ws} />}
 
-      {tab?.kind === 'file' && ws.loaded[tab.path] !== undefined && (
+      {tab?.kind === 'file' && isRasterImage(tab.path) && (
+        <div className="editor-host">
+          <ImageView key={tab.path} ws={ws} path={tab.path} />
+        </div>
+      )}
+      {tab?.kind === 'file' && !isRasterImage(tab.path) && ws.loaded[tab.path] !== undefined && (
         <div className="editor-host">
           {/\.(md|markdown)$/i.test(tab.path) ? (
             <MarkdownView key={tab.path} ws={ws} path={tab.path}>
               {(onEditor) => <CodeEditor ws={ws} path={tab.path} onEditor={onEditor} />}
             </MarkdownView>
+          ) : isCsv(tab.path) ? (
+            <CsvView key={tab.path} ws={ws} path={tab.path}>
+              {(onEditor) => <CodeEditor ws={ws} path={tab.path} onEditor={onEditor} />}
+            </CsvView>
+          ) : isSvg(tab.path) ? (
+            <SvgView key={tab.path} ws={ws} path={tab.path}>
+              {(onEditor) => <CodeEditor ws={ws} path={tab.path} onEditor={onEditor} />}
+            </SvgView>
           ) : (
             <CodeEditor ws={ws} path={tab.path} />
           )}
         </div>
       )}
-      {tab?.kind === 'file' && ws.loaded[tab.path] === undefined && <div className="editor-empty">Loading…</div>}
+      {tab?.kind === 'file' && !isRasterImage(tab.path) && ws.loaded[tab.path] === undefined && <div className="editor-empty">Loading…</div>}
       {tab?.kind === 'table' && <TableEditor key={tab.id} ws={ws} source={tab.source} schema={tab.schema} table={tab.table} />}
       {tab?.kind === 'console' && <QueryConsole key={tab.id} ws={ws} source={tab.source} name={tab.name ?? 'console'} />}
       {tab?.kind === 'diff' && <DiffView key={tab.id} ws={ws} path={tab.path} commit={tab.commit} />}
@@ -172,6 +186,22 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     editorRef.current?.focus();
   }, []);
   const settings = useSettings().editor;
+  /** Vim mode: its mode and command line, under the editor (editor/vim.ts, loaded only when on). */
+  const vimBar = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const editor = editorRef.current;
+    const bar = vimBar.current;
+    if (!settings.vimMode || !ready || !editor || !bar) return;
+    let live = true;
+    let detach: (() => void) | undefined;
+    void import('../editor/vim').then((m) => {
+      if (live) detach = m.attachVim(editor, bar);
+    });
+    return () => {
+      live = false;
+      detach?.();
+    };
+  }, [settings.vimMode, ready]);
   /** The hover / F2 / Ctrl+Q popup. */
   const [hover, setHover] = useState<HoverRequest | null>(null);
   const hoverTimer = useRef(0);
@@ -311,6 +341,12 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
 
   const onMount: OnMount = (editor) => {
     editorRef.current = editor;
+    // A kept model made as plain text gets the language its text shows (symfony.lock is JSON).
+    const model = editor.getModel();
+    if (model?.getLanguageId() === 'plaintext') {
+      const guessed = languageOf(path, model.getValue());
+      if (guessed !== 'plaintext') monaco.editor.setModelLanguage(model, guessed);
+    }
     const detachSpelling = attachSpelling(editor);
     editor.onDidDispose(detachSpelling);
     trackActiveEditor(editor);
@@ -1227,7 +1263,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     <Editor
       path={monaco.Uri.file(path).toString()}
       defaultValue={ws.loaded[path]}
-      defaultLanguage={languageOf(path)}
+      defaultLanguage={languageOf(path, ws.loaded[path])}
       theme={themeId(settings.scheme)}
       keepCurrentModel
       onMount={onMount}
@@ -1236,7 +1272,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         readOnly: ws.readOnly.has(path),
         readOnlyMessage: { value: 'This file is read-only. Click the lock in the status bar to make it writable.' },
         // PHP: $ is part of a variable's name (double-click, Ctrl+←/→ and Alt+J take $name whole).
-        ...(languageOf(path) === 'php' ? { wordSeparators: '`~!@#%^&*()-=+[{]}\\|;:\'",.<>/?' } : {}),
+        ...(languageOf(path, ws.loaded[path]) === 'php' ? { wordSeparators: '`~!@#%^&*()-=+[{]}\\|;:\'",.<>/?' } : {}),
         fontFamily: `'${settings.fontFamily}', 'JetBrains Mono', Consolas, monospace`,
         fontSize: settings.fontSize,
         lineHeight: Math.round(settings.fontSize * settings.lineHeight),
@@ -1278,6 +1314,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       }}
     />
     </div>
+    {settings.vimMode && <div ref={vimBar} className="vim-bar" aria-label="Vim" />}
     </div>
   );
 }

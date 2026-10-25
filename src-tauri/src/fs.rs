@@ -96,6 +96,23 @@ pub async fn read_file(path: String) -> Result<String, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Images and other files shown as they are, not as text.
+const MAX_BINARY_BYTES: u64 = 50 * 1024 * 1024;
+
+/// A file's bytes as they are (the image viewer), sent to the page as an ArrayBuffer.
+#[tauri::command]
+pub async fn read_binary(path: String) -> Result<tauri::ipc::Response, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let meta = fs::metadata(&path).map_err(|e| e.to_string())?;
+        if meta.len() > MAX_BINARY_BYTES {
+            return Err("File is larger than 50 MB".into());
+        }
+        fs::read(&path).map(tauri::ipc::Response::new).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Saves a file atomically (see [`write_atomic`]), off the async workers. With the project's
 /// `root`, the save is kept in Local History (see [`crate::history`]).
 #[tauri::command]

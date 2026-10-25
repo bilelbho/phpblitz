@@ -88,6 +88,7 @@ pub fn lsp_start(
     cwd: String,
     on_event: Channel<LspEvent>,
 ) -> Result<u32, String> {
+    crate::trust::check(&cwd)?;
     let mut cmd = Command::new(&command);
     cmd.args(&args)
         .current_dir(&cwd)

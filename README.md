@@ -177,6 +177,10 @@ PHPBlitz keeps per-project files in a `.blitz` folder in your project:
 
 - Opening a project reads and parses its files; it never runs them. Your code runs only when you
   start it (tests, the debugger, the terminal, Composer).
+- A project you haven't trusted opens in Restricted Mode: no Git, PHP, Composer, test run or
+  language server starts in it until you trust it, since a project can set those up to run
+  commands. You can trust a folder with every project in it, or turn this off in Settings ▸
+  Appearance & Behavior ▸ Trusted Projects.
 - No telemetry and no account. The only thing PHPBlitz fetches on its own is the update check
   (`latest.json` from this repository's GitHub Releases), which you can turn off in Settings ▸
   Appearance & Behavior ▸ Appearance. Otherwise the network is used only for what you start, like

@@ -48,6 +48,8 @@ export interface EditorSettings {
   lightbulb: boolean;
   /** Show /** doc comments *\/ formatted (reader mode); Ctrl+Alt+Q toggles one. */
   renderDocs: boolean;
+  /** Vim's keys in the code editor (editor/vim.ts). */
+  vimMode: boolean;
   /** Editor ▸ General ▸ Soft Wraps: files soft-wrapped when opened ("*.md; *.txt"). Alt+Z toggles one editor. */
   softWrapFiles: string;
   /** Editor ▸ General ▸ Appearance (also in the gutter's right-click ▸ Appearance). */
@@ -212,6 +214,8 @@ export interface Settings {
   composer: { path: string };
   /** Settings ▸ Keymap: the chosen keymap, and the keys changed on top of it. */
   keymap: KeymapSettings;
+  /** Settings ▸ Trusted Projects: open projects not trusted yet in Restricted Mode (trust.ts). */
+  security: { restrictedMode: boolean };
 }
 
 /** The defaults. */
@@ -267,6 +271,7 @@ export const DEFAULT_SETTINGS: Settings = {
     inlayHints: true,
     lightbulb: true,
     renderDocs: true,
+    vimMode: false,
     softWrapFiles: '*.md; *.txt; *.rst; *.adoc',
     lineNumbers: true,
     foldingOutline: true,
@@ -322,6 +327,7 @@ export const DEFAULT_SETTINGS: Settings = {
   mago: { categories: { maintainability: 'weak' }, rules: { 'sensitive-parameter': 'weak' } },
   composer: { path: '' },
   keymap: { preset: 'phpblitz', overrides: {} },
+  security: { restrictedMode: true },
 };
 
 const KEY = 'phpblitz.settings';
@@ -355,6 +361,7 @@ function load(): Settings {
       // Saved levels replace the defaults as a whole (an empty list means "as Mago sets them").
       composer: { ...DEFAULT_SETTINGS.composer, ...(saved.composer ?? {}) },
       keymap: { ...DEFAULT_SETTINGS.keymap, ...(saved.keymap ?? {}) },
+      security: { ...DEFAULT_SETTINGS.security, ...(saved.security ?? {}) },
       mago: saved.mago ? { categories: saved.mago.categories ?? {}, rules: saved.mago.rules ?? {} } : DEFAULT_SETTINGS.mago,
     };
   } catch {

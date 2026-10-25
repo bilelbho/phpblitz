@@ -13,6 +13,7 @@ import { isLspActive, usageCount } from './lsp/monacoBridge';
 import { getSettings } from './settings';
 import { COMMANDS } from './keymap/catalog';
 import { reservedKeys, setEditorFinder } from './keymap/commands';
+import { vimReserves } from './editor/vimKeys';
 
 // Bundle Monaco instead of loading it from a CDN, so the IDE works offline.
 self.MonacoEnvironment = {
@@ -30,6 +31,7 @@ loader.config({ monaco });
 import './editor/themes';
 import './editor/phpGrammar';
 import './editor/dotenv';
+import './editor/csv';
 
 // "N usages" on their own line above declarations (code vision).
 const hintsChanged = new monaco.Emitter<monaco.languages.CodeLensProvider>();
@@ -99,7 +101,7 @@ setEditorFinder(() => {
     readOnly: () => editor.getOption(monaco.editor.EditorOption.readOnly),
     // The widgets can live outside the editor's own element (overflow widgets): only one editor has the focus.
     widgetOpen: () => !!document.querySelector('.suggest-widget.visible, .parameter-hints-widget.visible'),
-    reserves: (keys) => !!reservedKeys(editor)?.has(keys),
+    reserves: (keys) => !!reservedKeys(editor)?.has(keys) || vimReserves(editor, keys),
   };
 });
 

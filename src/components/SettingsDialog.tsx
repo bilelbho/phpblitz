@@ -16,6 +16,7 @@ import { AiAgentsPage } from './SettingsAi';
 import { MagoPage } from './SettingsMago';
 import { KeymapPage } from './SettingsKeymap';
 import { SurroundPage } from './SettingsSurround';
+import { TrustPage } from './SettingsTrust';
 
 interface Page {
   id: string;
@@ -56,6 +57,13 @@ const PAGES: Page[] = [
     keywords: 'theme blitz dark light classic high contrast sync os zoom font size scrollbars compact mode full path window header project colors toolbar smooth scrolling menu icons tree indent guides smaller indents tool window bars names updates check automatically new version main menu bar hamburger merge toolbar layout classic focus sidebar columns panels tabs in the top bar',
   },
   {
+    id: 'trust',
+    label: 'Trusted Projects',
+    group: 'Appearance & Behavior',
+    section: 'security',
+    keywords: 'trust trusted projects restricted mode security untrusted safe folders run programs git php composer language server',
+  },
+  {
     id: 'keymap',
     label: 'Keymap',
     group: 'Keymap',
@@ -67,7 +75,7 @@ const PAGES: Page[] = [
     label: 'General',
     group: 'Editor',
     section: 'editor',
-    keywords: 'soft wraps soft-wrap these files md txt appearance line numbers code folding outline indent guides whitespaces',
+    keywords: 'soft wraps soft-wrap these files md txt appearance line numbers code folding outline indent guides whitespaces vim neovim vi mode modal editing',
   },
   {
     id: 'gutter-icons',
@@ -161,6 +169,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
       mago: draft.mago,
       composer: { path: draft.composer.path.trim() },
       keymap: draft.keymap,
+      security: draft.security,
     };
     saveSettings(next);
     saveProjectPhp(root, php);
@@ -238,6 +247,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
               {active.id === 'mago' && <MagoPage ws={ws} value={draft.mago} onChange={(mago) => setDraft((d) => ({ ...d, mago }))} />}
               {active.id === 'debug' && <DebugPage value={draft.debug} onChange={setDebug} highlight={query.trim().toLowerCase()} />}
               {active.id === 'php' && <PhpPage ws={ws} draft={php} onChange={(patch) => setPhp((p) => ({ ...p, ...patch }))} composerPath={draft.composer.path} onComposerPath={(path) => setDraft((d) => ({ ...d, composer: { path } }))} />}
+              {active.id === 'trust' && <TrustPage restrictedMode={draft.security.restrictedMode} onChange={(restrictedMode) => setDraft((d) => ({ ...d, security: { restrictedMode } }))} highlight={query.trim().toLowerCase()} />}
               {active.id === 'appearance' && <AppearancePage value={draft.ui} onChange={setUi} highlight={query.trim().toLowerCase()} onEditorScheme={() => setCurrent('color-scheme')} />}
               {active.id === 'editor-tabs' && <EditorTabsPage value={draft.tabs} onChange={setTabs} highlight={query.trim().toLowerCase()} />}
               {active.id === 'surround' && <SurroundPage value={draft.editor} onChange={setEditor} />}
@@ -547,6 +557,15 @@ function EditorGeneralPage({ value: e, onChange, highlight }: { value: EditorSet
         <EditorCheck {...props} k="foldingOutline" label="Show code folding outline" />
         <EditorCheck {...props} k="indentGuides" label="Show indent guides" />
         <EditorCheck {...props} k="whitespaces" label="Show whitespaces" />
+      </div>
+      <h3 className="settings-section">Vim</h3>
+      <div className="settings-checks" style={{ gap: 10 }}>
+        <EditorCheck
+          {...props}
+          k="vimMode"
+          label="Vim mode"
+          help="Vim's keys in the editor: normal, insert and visual modes, motions, operators, counts, registers, macros and : commands (:w saves, :q closes the tab). The mode and command line show under the editor."
+        />
       </div>
     </>
   );

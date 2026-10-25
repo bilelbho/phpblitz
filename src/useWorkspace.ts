@@ -7,6 +7,7 @@ import type { Backend, CommitOptions, Entry, GitInfo, Package, Problem, RunResul
 import { testRunner, type Scope } from './tests/runner';
 import { baseName, relativePath } from './backend/types';
 import { languageOf, phpIndex, routesOf, structureOf, type PhpSymbol, type Route } from './php';
+import { isRasterImage } from './fileKinds';
 import { symbols } from './symbols';
 import { findUsages as indexFindUsages, setDefinitionOpener, targetAt } from './navigation';
 import { refreshUsageHints } from './monaco';
@@ -708,7 +709,7 @@ export function useWorkspace(backend: Backend) {
   /** Starts reading a file that is about to be opened, so the editor has it sooner. */
   const prefetchFile = useCallback(
     (path: string) => {
-      if (path in savedText.current || prefetched.current.has(path)) return;
+      if (path in savedText.current || prefetched.current.has(path) || isRasterImage(path)) return;
       const read = backend.readFile(path);
       read.catch(() => {});
       prefetched.current.set(path, read);
@@ -754,6 +755,11 @@ export function useWorkspace(backend: Backend) {
       activeIdRef.current = id;
       // Opening a file comes first: background work (indexing) waits.
       markBusy();
+      // Images are shown from their bytes by the image viewer, never kept as text.
+      if (isRasterImage(path)) {
+        openStarted.current.delete(path);
+        return;
+      }
       if (!(path in savedText.current)) {
         try {
           const ahead = prefetched.current.get(path);
@@ -979,7 +985,7 @@ export function useWorkspace(backend: Backend) {
         if (path in liveText.current) {
           const uri = monaco.Uri.file(path);
           // A tab whose editor hasn't been shown yet has no model: make it from the editor's text.
-          const model = monaco.editor.getModel(uri) ?? monaco.editor.createModel(liveText.current[path], languageOf(path), uri);
+          const model = monaco.editor.getModel(uri) ?? monaco.editor.createModel(liveText.current[path], languageOf(path, liveText.current[path]), uri);
           model.pushStackElement();
           model.pushEditOperations([], ranges, () => null);
           model.pushStackElement();
@@ -1374,6 +1380,8 @@ export function useWorkspace(backend: Backend) {
 
   const startLanguageServer = useCallback(async () => {
     if (backend.kind !== 'disk' || !isTauri) return;
+    // Restricted Mode: no language server (it would run in the project).
+    if (backend.restricted) return;
     await lspRef.current?.stop();
     lspRef.current = null;
     setActiveLsp(null);
@@ -2210,7 +2218,8 @@ export function useWorkspace(backend: Backend) {
       () => !cancelled && setHasComposer(true),
       () => {},
     );
-    perf.time('PHP version', backend.phpVersion(), (v) => v || 'PHP not found').then((v) => {
+    // Restricted Mode: PHP doesn't run, so there's nothing to check (nor to warn about).
+    if (!backend.restricted) perf.time('PHP version', backend.phpVersion(), (v) => v || 'PHP not found').then((v) => {
       if (cancelled) return;
       setPhpVersion(v);
       // With an interpreter set for the project, PHP on the PATH isn't needed.
@@ -2350,6 +2359,8 @@ export function useWorkspace(backend: Backend) {
     magoStatus, reanalyzeProject: openWithMago, projectProblems, projectProblemsTotal, projectProblemsHidden, refreshProjectProblems, composerInstall,
     applyFix, suppressProblem, disableMagoRule, openMagoConfig, applyFileEdits, prefetchFile, editorReady,
     notices, notify, dismissNotice, listening, setListening, phpVersion, status, setStatus,
+    /** Opened in Restricted Mode: no program runs in the project until it's trusted. */
+    restricted: !!backend.restricted,
   };
 }
 

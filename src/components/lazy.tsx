@@ -22,6 +22,9 @@ export const GitToolWindow = lazyNamed(() => import('./GitToolWindow').then((m) 
 export const TodoToolWindow = lazyNamed(() => import('./TodoToolWindow').then((m) => m.TodoToolWindow));
 export const TerminalView = lazyNamed(() => import('./TerminalView').then((m) => m.TerminalView));
 export const MarkdownView = lazyNamed(() => import('./MarkdownView').then((m) => m.MarkdownView));
+export const ImageView = lazyNamed(() => import('./FileViews').then((m) => m.ImageView));
+export const SvgView = lazyNamed(() => import('./FileViews').then((m) => m.SvgView));
+export const CsvView = lazyNamed(() => import('./FileViews').then((m) => m.CsvView));
 export const StartupPerformance = lazyNamed(() => import('./StartupPerformance').then((m) => m.StartupPerformance), null);
 export const AboutDialog = lazyNamed(() => import('./AboutDialog').then((m) => m.AboutDialog), null);
 export const SettingsDialog = lazyNamed(() => import('./SettingsDialog').then((m) => m.SettingsDialog), null);

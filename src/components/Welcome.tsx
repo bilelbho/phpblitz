@@ -1,5 +1,5 @@
 // The welcome window, shown when no project is open: recent projects with search, New Project,
-// Open and Clone Repository, plus a Customize page for the theme and font sizes.
+// Open and Clone Repository. Customize opens the onboarding screen (theme, layout, keymap…).
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
@@ -7,14 +7,11 @@ import { getVersion } from '@tauri-apps/api/app';
 import { homeDir } from '@tauri-apps/api/path';
 import { colorOfProject, projectInitials, shortPath } from '../projectColors';
 import { forgetProject, isTauri, pickFolder, recentProjects } from '../platform';
-import { KEYMAPS } from '../keymap/keymaps';
-import { shortcut } from '../keymap/store';
-import { getSettings, saveSettings, useSettings, type UiSettings } from '../settings';
-import { MAX_ZOOM, MIN_ZOOM } from '../uiSettings';
 import { openAppDialog, useAppDialog } from '../appDialogs';
+import { isTrusted } from '../trust';
+import { openOnboarding } from '../onboarding';
 import { Icon, Logo } from './Icon';
 import { ContextMenu, type ContextItem } from './ContextMenu';
-import { ThemeOptions } from './SettingsAppearance';
 import { WindowControls } from './WindowControls';
 import { AboutDialog } from './lazy';
 import { ErrorLogDialog } from './ErrorLogDialog';
@@ -28,14 +25,11 @@ interface Props {
   onOpenSample?: () => void;
 }
 
-type Page = 'projects' | 'customize';
-
 const nameOf = (path: string) => path.split('/').pop() || path;
 const parentOf = (path: string) => path.split('/').slice(0, -1).join('/');
 const toNative = (path: string) => (/^[A-Za-z]:\//.test(path) ? path.replace(/\//g, '\\') : path);
 
 export function Welcome({ onOpenFolder, onOpenPath, onOpenSample }: Props) {
-  const [page, setPage] = useState<Page>('projects');
   const [version, setVersion] = useState('');
   const [gear, setGear] = useState<{ x: number; y: number } | null>(null);
   const appDialog = useAppDialog();
@@ -65,11 +59,12 @@ export function Welcome({ onOpenFolder, onOpenPath, onOpenSample }: Props) {
               <span className="welcome-brand-version">{version || 'A fast PHP IDE'}</span>
             </span>
           </div>
-          {(['projects', 'customize'] as const).map((p) => (
-            <button key={p} type="button" className={'welcome-nav' + (page === p ? ' active' : '')} aria-current={page === p ? 'page' : undefined} onClick={() => setPage(p)}>
-              {p === 'projects' ? 'Projects' : 'Customize'}
-            </button>
-          ))}
+          <button type="button" className="welcome-nav active" aria-current="page">
+            Projects
+          </button>
+          <button type="button" className="welcome-nav" onClick={openOnboarding}>
+            Customize
+          </button>
           <span className="grow" />
           <UpdateNote />
           <button
@@ -85,7 +80,9 @@ export function Welcome({ onOpenFolder, onOpenPath, onOpenSample }: Props) {
             <Icon name="gear" size={16} />
           </button>
         </nav>
-        <section className="welcome-content">{page === 'projects' ? <Projects onOpenFolder={onOpenFolder} onOpenPath={onOpenPath} onOpenSample={onOpenSample} /> : <Customize />}</section>
+        <section className="welcome-content">
+          <Projects onOpenFolder={onOpenFolder} onOpenPath={onOpenPath} onOpenSample={onOpenSample} />
+        </section>
       </main>
       {gear && (
         <ContextMenu
@@ -153,6 +150,8 @@ function useRecent(): [Recent[], (path: string) => void] {
       const update = (patch: Partial<Recent>) => live && setList((l) => l.map((r) => (r.path === path ? { ...r, ...patch } : r)));
       invoke('list_dir', { path }).then(
         () =>
+          // Git runs only in trusted projects (a project can configure Git to run commands).
+          isTrusted(path) &&
           invoke<{ code: number; stdout: string }>('run_process', { cwd: path, program: 'git', args: ['branch', '--show-current'] }).then(
             (r) => r.code === 0 && r.stdout.trim() && update({ branch: r.stdout.trim() }),
             () => {},
@@ -317,73 +316,6 @@ function Projects({ onOpenFolder, onOpenPath, onOpenSample }: Props) {
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
       {dialogs}
     </>
-  );
-}
-
-function Customize() {
-  const settings = useSettings();
-  const setUi = (patch: Partial<UiSettings>) => saveSettings({ ...getSettings(), ui: { ...getSettings().ui, ...patch } });
-  const setEditorFont = (fontSize: number) => saveSettings({ ...getSettings(), editor: { ...getSettings().editor, fontSize } });
-  const ui = settings.ui;
-  const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
-
-  return (
-    <div className="welcome-customize">
-      <h2>Appearance</h2>
-      <div className="welcome-setting">
-        <label htmlFor="welcome-theme">Theme:</label>
-        {/* With Sync with OS the OS picks light or dark; the choice still picks islands or flat panels. */}
-        <select id="welcome-theme" className="settings-select" value={ui.theme} onChange={(e) => setUi({ theme: e.target.value as UiSettings['theme'] })}>
-          <ThemeOptions />
-        </select>
-        <label className="settings-check">
-          <input type="checkbox" className="checkbox" checked={ui.syncOs} onChange={(e) => setUi({ syncOs: e.target.checked })} />
-          Sync with OS
-        </label>
-      </div>
-      <div className="welcome-setting">
-        <label htmlFor="welcome-layout">Layout:</label>
-        <select id="welcome-layout" className="settings-select" value={ui.layout} onChange={(e) => setUi({ layout: e.target.value as UiSettings['layout'] })}>
-          <option value="classic">Classic</option>
-          <option value="focus">Focus</option>
-        </select>
-      </div>
-      <p className="muted">
-        {ui.layout === 'focus'
-          ? 'Tabs in the top bar; panels in columns you drag anywhere, beside, above or into each other.'
-          : 'Tool window bars on the sides and a bottom panel.'}
-      </p>
-      <div className="welcome-setting">
-        <label htmlFor="welcome-zoom">Zoom:</label>
-        <select id="welcome-zoom" className="settings-select" value={ui.zoom} onChange={(e) => setUi({ zoom: Number(e.target.value) })}>
-          {[80, 90, 100, 110, 125, 150, 175, 200]
-            .filter((z) => z >= MIN_ZOOM && z <= MAX_ZOOM)
-            .map((z) => (
-              <option key={z} value={z}>
-                {z}%
-              </option>
-            ))}
-        </select>
-      </div>
-      <h2>Editor</h2>
-      <div className="welcome-setting">
-        <label htmlFor="welcome-font">Font size:</label>
-        <input id="welcome-font" type="number" className="settings-select welcome-number" min={8} max={40} value={settings.editor.fontSize} onChange={(e) => e.target.value && setEditorFont(clamp(Number(e.target.value), 8, 40))} />
-      </div>
-      <h2>Keymap</h2>
-      <div className="welcome-setting">
-        <label htmlFor="welcome-keymap">Keys like in:</label>
-        <select id="welcome-keymap" className="settings-select" value={settings.keymap.preset} onChange={(e) => saveSettings({ ...getSettings(), keymap: { ...getSettings().keymap, preset: e.target.value } })}>
-          {KEYMAPS.map((k) => (
-            <option key={k.id} value={k.id}>
-              {k.label}
-            </option>
-          ))}
-        </select>
-      </div>
-      <p className="muted">Coming from another editor? Its keys work here. Change single shortcuts in Settings ▸ Keymap.</p>
-      <p className="muted">More options are in Settings{shortcut('phpblitz.settings') ? ` (${shortcut('phpblitz.settings')})` : ''} once a project is open.</p>
-    </div>
   );
 }
 

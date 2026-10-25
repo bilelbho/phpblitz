@@ -42,6 +42,7 @@ fn exec(cwd: &str, mut cmd: Command, label: &str) -> Result<RunResult, String> {
 /// Runs a program directly (no shell), e.g. `git status` or `php -l file.php`.
 #[tauri::command]
 pub async fn run_process(cwd: String, program: String, args: Vec<String>) -> Result<RunResult, String> {
+    crate::trust::check(&cwd)?;
     tauri::async_runtime::spawn_blocking(move || {
         let mut cmd = Command::new(&program);
         cmd.args(&args);
@@ -55,6 +56,7 @@ pub async fn run_process(cwd: String, program: String, args: Vec<String>) -> Res
 /// tools that ship as shell scripts (composer.bat on Windows).
 #[tauri::command]
 pub async fn run_shell(cwd: String, line: String) -> Result<RunResult, String> {
+    crate::trust::check(&cwd)?;
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(windows)]
         let cmd = {
@@ -242,6 +244,7 @@ const JOB_OUTPUT_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 /// with the environment variables that make them pick defaults instead of asking (CI=1, …).
 #[tauri::command]
 pub async fn job_run(state: tauri::State<'_, JobState>, id: u32, cwd: String, line: String, on_output: Channel<JobEvent>) -> Result<i32, String> {
+    crate::trust::check(&cwd)?;
     #[cfg(windows)]
     let mut cmd = {
         use std::os::windows::process::CommandExt;
@@ -269,6 +272,7 @@ pub async fn job_run(state: tauri::State<'_, JobState>, id: u32, cwd: String, li
 /// read as it comes.
 #[tauri::command]
 pub async fn job_exec(state: tauri::State<'_, JobState>, id: u32, cwd: String, program: String, args: Vec<String>, on_output: Channel<JobEvent>) -> Result<i32, String> {
+    crate::trust::check(&cwd)?;
     let mut cmd = Command::new(&program);
     cmd.args(&args);
     stream_job(&state, id, &cwd, cmd, on_output).await

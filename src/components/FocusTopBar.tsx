@@ -25,8 +25,8 @@ import { WindowControls } from './WindowControls';
  */
 const FOLD_ORDER = ['settings', 'search', 'debug', 'run', 'problems', 'ai', 'database', 'terminal'] as const;
 type Foldable = (typeof FOLD_ORDER)[number];
-/** Room kept for the project and branch buttons. */
-const START_ROOM = 150;
+/** Room kept for the main menu, project and branch buttons. */
+const START_ROOM = 184;
 
 interface Props {
   ws: Workspace;
@@ -122,11 +122,25 @@ export function FocusTopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch, t
       )}
       <header className="topbar focus-topbar" data-tauri-drag-region ref={bar}>
         <div className="focus-top-start" data-tauri-drag-region style={startWidth ? { flexBasis: startWidth } : undefined}>
+          {/* The main menu first, at the left, as in the Classic layout. */}
+          {ui.mainMenu !== 'separate' && (
+            <button
+              type="button"
+              className={'top-icon hamburger-btn' + (hamburger ? ' open' : '')}
+              aria-label="Main menu"
+              aria-haspopup="menu"
+              title="Main Menu"
+              onClick={(e) => setHamburger(hamburger ? null : e.currentTarget.getBoundingClientRect())}
+            >
+              <Icon name="menu" />
+            </button>
+          )}
+          {hamburger && <ContextMenu x={hamburger.left} y={hamburger.bottom + 4} items={hamburgerItems(menus)} ignoreClicksIn=".hamburger-btn" onClose={() => setHamburger(null)} />}
           <ProjectWidget ws={ws} onOpenFolder={onOpenFolder} onOpenPath={onOpenPath} onClose={onClose} />
           <BranchWidget ws={ws} />
         </div>
         <div className="focus-top-tabs" data-tauri-drag-region>
-          {ws.tabs.length > 0 ? <TabBar ws={ws} /> : <div className="drag" data-tauri-drag-region />}
+          {ws.tabs.length > 0 ? <TabBar ws={ws} windowDrag /> : <div className="drag" data-tauri-drag-region />}
         </div>
         <div className="focus-top-end" data-tauri-drag-region>
           <button
@@ -213,19 +227,6 @@ export function FocusTopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch, t
               <Icon name="gear" />
             </button>
           )}
-          {ui.mainMenu !== 'separate' && (
-            <button
-              type="button"
-              className={'top-icon hamburger-btn' + (hamburger ? ' open' : '')}
-              aria-label="Main menu"
-              aria-haspopup="menu"
-              title="Main Menu"
-              onClick={(e) => setHamburger(hamburger ? null : e.currentTarget.getBoundingClientRect())}
-            >
-              <Icon name="menu" />
-            </button>
-          )}
-          {hamburger && <ContextMenu x={hamburger.right - 240} y={hamburger.bottom + 4} items={hamburgerItems(menus)} ignoreClicksIn=".hamburger-btn" onClose={() => setHamburger(null)} />}
         </div>
         {ui.mainMenu !== 'separate' && <WindowControls />}
       </header>

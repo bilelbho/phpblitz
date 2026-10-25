@@ -1974,31 +1974,6 @@ button.item:hover {
   gap: 10px;
   margin: 22px 0 14px;
 }
-.welcome-customize {
-  max-width: 520px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.welcome-customize h2 {
-  margin: 8px 0 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-}
-.welcome-setting {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding-left: 12px;
-}
-.welcome-setting > label:first-child {
-  width: 80px;
-}
-.welcome-number {
-  min-width: 0;
-  width: 80px;
-}
 .welcome-dialog {
   width: 460px;
 }
@@ -7551,4 +7526,511 @@ body:has(.strip.right.with-names) .balloons {
 }
 .focus-main .tw-head :is(button, input, select, [role='tab']) {
   cursor: default;
+}
+
+/* ── File viewers: images, SVG preview, CSV tables (FileViews.tsx) ── */
+.file-view-pane {
+  position: relative;
+  flex: 1 1 50%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.image-view {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+.image-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 34px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted-2);
+  white-space: nowrap;
+}
+.md-split .image-bar {
+  padding-right: 120px; /* clear of the view switcher */
+}
+.image-btn {
+  min-width: 26px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 4px;
+  color: var(--text);
+}
+.image-btn:hover {
+  background: var(--hover-strong);
+}
+.image-btn.on {
+  background: var(--select);
+}
+.image-zoom {
+  min-width: 44px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.image-info {
+  margin-left: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.image-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  /* A checkerboard behind transparent pixels. */
+  background-color: var(--island);
+  background-image: linear-gradient(45deg, rgba(var(--ov), 0.05) 25%, transparent 25%, transparent 75%, rgba(var(--ov), 0.05) 75%),
+    linear-gradient(45deg, rgba(var(--ov), 0.05) 25%, transparent 25%, transparent 75%, rgba(var(--ov), 0.05) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+}
+.image-stage img {
+  display: block;
+  max-width: none;
+  image-rendering: auto;
+}
+.csv-view {
+  padding-top: 40px;
+}
+.csv-info {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 120px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  color: var(--muted-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.csv-grid {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+}
+
+/* ── Trust a project (TrustDialog.tsx, Settings ▸ Trusted Projects) ── */
+.pb-dialog.trust-dialog {
+  width: 520px;
+  max-width: calc(100vw - 32px);
+}
+.trust-head {
+  display: flex;
+  gap: 10px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.trust-warn {
+  flex: none;
+  margin-top: 2px;
+  color: var(--orange);
+}
+.trust-title {
+  font-weight: 600;
+}
+.trust-path {
+  margin-top: 4px;
+  color: var(--muted-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trust-body {
+  gap: 8px;
+  padding-top: 12px;
+}
+.trust-body p {
+  margin: 0;
+  line-height: 1.5;
+}
+.trust-body ul {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.6;
+}
+.trust-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.trust-folder {
+  padding: 2px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--input);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.trust-list {
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+.trust-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 4px 0 10px;
+}
+.trust-row + .trust-row {
+  border-top: 1px solid var(--line);
+}
+.trust-row .trust-path {
+  flex: 1;
+  margin: 0;
+  color: var(--text);
+}
+.trust-empty {
+  padding: 8px 10px;
+}
+.status-restricted {
+  color: var(--orange);
+}
+
+/* ── Vim mode: the mode and : command line under the editor (editor/vim.ts) ── */
+.vim-bar {
+  flex: none;
+  display: flex !important; /* monaco-vim shows and hides it with display: block / none */
+  align-items: center;
+  gap: 12px;
+  height: 24px;
+  padding: 0 10px;
+  border-top: 1px solid var(--line);
+  font: 12px/24px var(--mono);
+  color: var(--muted-2);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.vim-bar > span:first-child {
+  font-weight: 700;
+  color: var(--text);
+}
+.vim-bar[data-mode='insert'] > span:first-child {
+  color: var(--green);
+}
+.vim-bar[data-mode='visual'] > span:first-child {
+  color: var(--orange);
+}
+.vim-bar[data-mode='replace'] > span:first-child {
+  color: var(--red);
+}
+.vim-bar > span:last-child {
+  margin-left: auto;
+  float: none !important;
+}
+.vim-bar input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+.vim-bar .vim-notification {
+  color: var(--orange);
+}
+
+/* ── Onboarding (Onboarding.tsx) ── */
+.onboarding-app .onboarding {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 0 var(--gap) var(--gap);
+}
+.ob-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 36px 28px 48px;
+}
+.ob-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--line);
+}
+.ob-head h1 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.ob-head p {
+  margin: 4px 0 0;
+  color: var(--muted-2);
+}
+.ob-finish {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.ob-finish kbd {
+  margin-left: 8px;
+  font: 11px var(--mono);
+  opacity: 0.75;
+}
+.ob-section {
+  padding: 22px 0 0;
+}
+.ob-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.ob-section h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.ob-section-head p {
+  margin: 4px 0 0;
+  color: var(--muted-2);
+}
+.ob-segmented {
+  display: flex;
+  padding: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+}
+.ob-segmented button {
+  height: 26px;
+  padding: 0 14px;
+  border-radius: 4px;
+  color: var(--muted-2);
+}
+.ob-segmented button:hover {
+  color: var(--text);
+}
+.ob-segmented button.on {
+  background: var(--select);
+  color: var(--text);
+}
+.ob-themes {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.ob-layouts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.ob-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  color: var(--muted-2);
+  transition: border-color 0.15s;
+}
+.ob-card:hover:not(:disabled) {
+  border-color: var(--line-mid);
+}
+.ob-card.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  color: var(--text);
+}
+.ob-card:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.ob-card.wide {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  text-align: left;
+}
+.ob-card.wide .ob-preview {
+  width: 120px;
+  flex: none;
+}
+.ob-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ob-card-text b {
+  color: var(--text);
+  font-weight: 600;
+}
+.ob-preview {
+  display: block;
+  width: 100%;
+  border-radius: 5px;
+}
+.ob-keymaps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.ob-key {
+  height: 34px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+}
+.ob-key:nth-child(3n) {
+  border-right: 0;
+}
+.ob-key:nth-last-child(-n + 3) {
+  border-bottom: 0;
+}
+.ob-key:hover {
+  background: var(--hover);
+}
+.ob-key.on {
+  background: var(--select);
+}
+.ob-agents {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.ob-agent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+}
+.ob-agent b {
+  font-weight: 600;
+}
+.ob-found {
+  color: var(--green);
+  font-size: 12px;
+}
+.ob-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  cursor: pointer;
+}
+.ob-toggle > span:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ob-toggle-label {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+.ob-section .ob-toggle .ob-toggle-label {
+  font-size: 13px;
+}
+.ob-toggle-help {
+  color: var(--muted-2);
+  line-height: 1.45;
+}
+.ob-toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.ob-switch {
+  position: relative;
+  flex: none;
+  width: 32px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--hover-strong);
+  border: 1px solid var(--line-mid);
+  transition: background-color 0.15s;
+}
+.ob-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--muted-2);
+  transition: transform 0.15s, background-color 0.15s;
+}
+.ob-toggle input:checked + .ob-switch {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.ob-toggle input:checked + .ob-switch::after {
+  transform: translateX(14px);
+  background: #fff;
+}
+.ob-toggle input:focus-visible + .ob-switch {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.ob-last {
+  margin-top: 22px;
+  border-top: 1px solid var(--line);
+}
+.ob-note {
+  margin: 12px 0 0;
+  color: var(--muted-2);
+}
+@media (max-width: 640px) {
+  .ob-themes,
+  .ob-keymaps,
+  .ob-agents {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ob-layouts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ob-switch,
+  .ob-switch::after,
+  .ob-card {
+    transition: none;
+  }
+}
+.onboarding-over {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: var(--frame);
+}
+.onboarding-over > .app {
+  height: 100%;
+}
+.ob-key {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }

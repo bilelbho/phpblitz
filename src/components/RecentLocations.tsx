@@ -3,6 +3,7 @@
 // shows changed places only, Enter goes there.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import * as monaco from 'monaco-editor';
 import type { Workspace } from '../useWorkspace';
 import { baseName, relativePath } from '../backend/types';
 import { languageOf } from '../php';
@@ -158,7 +159,7 @@ function Location({
   useEffect(() => {
     if (code === undefined) return;
     let live = true;
-    void colorizeCode(code, languageOf(place.path)).then((h) => live && setHtml(h));
+    void colorizeCode(code, monaco.editor.getModel(monaco.Uri.file(place.path))?.getLanguageId() ?? languageOf(place.path, code)).then((h) => live && setHtml(h));
     return () => {
       live = false;
     };

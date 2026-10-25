@@ -360,6 +360,18 @@ function define(id: SchemeId, p: Palette) {
       r('strong.md', p.fg, 'bold'),
       r('emphasis.md', p.fg, 'italic'),
       r('number.json', p.number),
+      // YAML: keys like keywords, values as strings, &anchors and *aliases, !tags.
+      r('type.yaml', p.keyword),
+      r('namespace.yaml', p.constant, 'italic'),
+      r('tag.yaml', p.attribute),
+      r('meta.directive.yaml', p.keyword),
+      r('operators.yaml', p.fg),
+      r('key.ini', p.keyword),
+      r('predefined.sql', p.funcCall),
+      r('predefined.mysql', p.funcCall),
+      r('predefined.pgsql', p.funcCall),
+      // CSV: a color per column (editor/csv.ts).
+      ...[p.keyword, p.string, p.funcDecl, p.variable, p.number, p.attribute].map((c, i) => r(`csv.c${i}`, c)),
     ],
     colors: {
       'editor.background': p.bg,

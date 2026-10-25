@@ -286,14 +286,85 @@ export function routesOf(path: string, src: string): Route[] {
   return out;
 }
 
-export function languageOf(path: string): string {
-  const ext = path.split('.').pop()?.toLowerCase() ?? '';
-  if (path.endsWith('.blade.php')) return 'html';
-  const map: Record<string, string> = {
-    php: 'php', json: 'json', jsonc: 'json', js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript',
-    ts: 'typescript', mts: 'typescript', cts: 'typescript', tsx: 'typescript', vue: 'html', svelte: 'html', css: 'css', scss: 'scss', less: 'less',
-    html: 'html', xml: 'xml', md: 'markdown', markdown: 'markdown', yml: 'yaml', yaml: 'yaml', sql: 'sql', sh: 'shell', env: 'dotenv', ini: 'ini',
-  };
-  if (path.split('/').pop()?.startsWith('.env')) return 'dotenv';
-  return map[ext] ?? 'plaintext';
+/** Editor languages by extension. NEON (Nette) is close enough to YAML, TOML to INI. */
+const LANGUAGE_BY_EXT: Record<string, string> = {
+  php: 'php', phtml: 'php', inc: 'php', twig: 'twig', latte: 'html', tpl: 'html',
+  json: 'json', jsonc: 'json', json5: 'json', webmanifest: 'json', lock: 'json',
+  js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript',
+  ts: 'typescript', mts: 'typescript', cts: 'typescript', tsx: 'typescript',
+  vue: 'html', svelte: 'html', html: 'html', htm: 'html', hbs: 'handlebars', handlebars: 'handlebars', mustache: 'handlebars', pug: 'pug', liquid: 'liquid',
+  css: 'css', scss: 'scss', sass: 'scss', less: 'less',
+  xml: 'xml', xsd: 'xml', xsl: 'xml', xslt: 'xml', xlf: 'xml', xliff: 'xml', wsdl: 'xml', svg: 'xml', plist: 'xml', csproj: 'xml',
+  md: 'markdown', markdown: 'markdown', mdx: 'mdx', rst: 'restructuredtext',
+  yml: 'yaml', yaml: 'yaml', neon: 'yaml',
+  sql: 'sql', mysql: 'mysql', pgsql: 'pgsql', graphql: 'graphql', gql: 'graphql',
+  sh: 'shell', bash: 'shell', zsh: 'shell', ksh: 'shell', bat: 'bat', cmd: 'bat', ps1: 'powershell', psm1: 'powershell', psd1: 'powershell',
+  env: 'dotenv', ini: 'ini', cfg: 'ini', conf: 'ini', toml: 'ini', properties: 'ini', editorconfig: 'ini',
+  dockerfile: 'dockerfile', csv: 'csv', tsv: 'csv',
+  py: 'python', rb: 'ruby', go: 'go', rs: 'rust', java: 'java', kt: 'kotlin', cs: 'csharp', c: 'cpp', h: 'cpp', cpp: 'cpp', hpp: 'cpp',
+  lua: 'lua', pl: 'perl', swift: 'swift', proto: 'protobuf', r: 'r', dart: 'dart', scala: 'scala', ex: 'elixir', exs: 'elixir',
+};
+
+/** Files known by their whole name. */
+const LANGUAGE_BY_NAME: Record<string, string> = {
+  dockerfile: 'dockerfile', containerfile: 'dockerfile', vagrantfile: 'ruby', gemfile: 'ruby', rakefile: 'ruby',
+  '.babelrc': 'json', '.eslintrc': 'json', '.prettierrc': 'json', '.stylelintrc': 'json', '.swcrc': 'json',
+  '.bashrc': 'shell', '.zshrc': 'shell', '.profile': 'shell', '.htaccess': 'ini', '.npmrc': 'ini', '.gitconfig': 'ini', '.gitmodules': 'ini',
+};
+
+/**
+ * The language of a file whose name doesn't tell it (symfony.lock, a script without an
+ * extension), from its first lines. Plain text when nothing fits.
+ */
+export function guessLanguage(text: string): string {
+  const head = (text.charCodeAt(0) === 0xfeff ? text.slice(1) : text).slice(0, 4000); // without a byte order mark
+  const first = head.trimStart();
+  const shebang = /^#!\s*(\S+)(?:\s+(\S+))?/.exec(head);
+  if (shebang) {
+    const prog = (shebang[1].endsWith('/env') ? shebang[2] ?? '' : shebang[1]).split('/').pop() ?? '';
+    if (prog.startsWith('php')) return 'php';
+    if (/^(ba|z|k|da)?sh$/.test(prog)) return 'shell';
+    if (prog.startsWith('python')) return 'python';
+    if (prog === 'node') return 'javascript';
+    if (prog === 'ruby') return 'ruby';
+    if (prog === 'perl') return 'perl';
+  }
+  if (first.startsWith('<?php')) return 'php';
+  if (/^<\?xml\b/.test(first)) return 'xml';
+  if (/^<!doctype html|^<html\b/i.test(first)) return 'html';
+  if (/^<svg\b/.test(first)) return 'xml';
+  if (/^[{[]/.test(first)) {
+    try {
+      JSON.parse(text);
+      return 'json';
+    } catch {
+      // A JSON-looking start that doesn't parse: maybe a large or broken file. Its shape says JSON.
+      if (/^\{\s*"[^"\n]*"\s*:/.test(first) || /^\[\s*(?:[{["\d-]|true|false|null|\])/.test(first)) return 'json';
+    }
+  }
+  const lines = head.split(/\r?\n/).filter((l) => l.trim() && !/^\s*[#;]/.test(l)).slice(0, 20);
+  if (lines.length) {
+    if (/^\[[^\]]+\]\s*$/.test(lines[0].trim()) && lines.slice(1).some((l) => /^\s*[\w.-]+\s*=/.test(l))) return 'ini';
+    if (first.startsWith('---') || lines.filter((l) => /^\s*(?:- )?[\w"'./-]+:(?:\s|$)/.test(l)).length >= Math.max(2, lines.length * 0.6)) return 'yaml';
+  }
+  return 'plaintext';
+}
+
+/** The editor language of a file: from its name, or (with its text) guessed from the content. */
+export function languageOf(path: string, text?: string): string {
+  const byName = languageByName(path);
+  return byName === 'plaintext' && text !== undefined ? guessLanguage(text) : byName;
+}
+
+function languageByName(path: string): string {
+  const name = (path.split('/').pop() ?? '').toLowerCase();
+  if (name.endsWith('.blade.php')) return 'html';
+  if (name.startsWith('.env')) return 'dotenv';
+  if (name in LANGUAGE_BY_NAME) return LANGUAGE_BY_NAME[name];
+  // A template copy (phpunit.xml.dist, .env.example) has the language of the name before it.
+  const parts = name.split('.');
+  let ext = parts.pop() ?? '';
+  if ((ext === 'dist' || ext === 'example' || ext === 'sample') && parts.length > 1) ext = parts.pop()!;
+  if (ext === 'lock' && name !== 'composer.lock') return 'plaintext';
+  return LANGUAGE_BY_EXT[ext] ?? 'plaintext';
 }
