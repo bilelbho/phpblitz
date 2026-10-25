@@ -11,13 +11,14 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-3a3a3a?style=flat-square"></a>
-  <img alt="Windows · Linux" src="https://img.shields.io/badge/Windows%20%C2%B7%20Linux-desktop-2f7bf5?style=flat-square">
+  <img alt="Windows · macOS · Linux" src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-desktop-2f7bf5?style=flat-square">
   <img alt="Built with Rust" src="https://img.shields.io/badge/built%20with-Rust-b7410e?style=flat-square&logo=rust">
   <img alt="Status: early" src="https://img.shields.io/badge/status-early%20(0.x)-d69e2e?style=flat-square">
 </p>
 
 <p align="center">
   <a href="#download">Download</a> ·
+  <a href="https://bilelbho.github.io/phpblitz/">Documentation</a> ·
   <a href="#what-it-does">Features</a> ·
   <a href="#build-from-source">Build</a> ·
   <a href="#security">Security</a> ·
@@ -90,6 +91,24 @@ PHP, Git and Composer on your PATH turn on running PHP, tests, the Git tools and
   </tr>
 </table>
 
+<table>
+  <tr>
+    <td><img src=".github/assets/screenshots/focus.png" alt="The Focus layout: the editor tabs in the top bar, the Project sidebar, a controller in the editor with the terminal stacked below it, and the Problems panel as a column"></td>
+    <td><img src=".github/assets/screenshots/focus-groups.png" alt="Panels in groups: the sidebar's icons as a column on its left, and a column with Structure above a group of Problems, Terminal and Endpoints"></td>
+    <td><img src=".github/assets/screenshots/focus-drag.png" alt="Dragging the Problems panel onto the editor: the blue area and its label show it will go below the editor"></td>
+  </tr>
+  <tr>
+    <td align="center">Focus layout: tabs in the top bar, panels as columns</td>
+    <td align="center">Panels stacked and grouped, icons on any side</td>
+    <td align="center">Drag a panel anywhere: the hint says where</td>
+  </tr>
+</table>
+
+- **Layouts**: Classic (tool window bars and a bottom panel) or Focus (Settings ▸ Appearance ▸
+  Layout): the editor tabs in the top bar, panels in columns side by side, stacked or grouped as
+  tabs, the editor a panel like the others. Drag a panel by its header, icon or grip beside, above,
+  below or into another; resize anything; save a layout as a preset (Window ▸ Layouts). F6 moves
+  between panels, Ctrl+Shift+F12 maximizes one. The layout is kept for each project.
 - **Editor**: PHP highlighting, completion, rendered doc comments, bookmarks, soft wrap, Markdown preview,
   TODO comments (with a TODO tool window). Typos in names, comments and strings get a green wavy
   underline (camelCase and snake_case names are split into words); Alt+Enter renames to the

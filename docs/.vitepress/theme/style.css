@@ -1,0 +1,265 @@
+/* The site in PHPBlitz's own colors: the Flat Dark and Flat Light themes (src/styles.css) and the
+   editor schemes (src/editor/themes.ts). Panels edge to edge, divided by 1 px lines. */
+:root {
+  --vp-font-family-base: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --vp-font-family-mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
+  --vp-nav-height: 52px;
+
+  --ide-frame: #e8e9ed;
+  --ide-island: #ffffff;
+  --ide-raised: #f7f8fa;
+  --ide-line: #ebecf0;
+  --ide-line-strong: #d3d5db;
+  --ide-hover: #f2f3f5;
+  --ide-hover-soft: #f7f8fa;
+  --ide-hover-strong: #dfe1e5;
+  --ide-select: #d4e2ff;
+  --ide-text: #1e1f22;
+  --ide-text-strong: #000000;
+  --ide-muted: #818594;
+  --ide-muted-2: #6c707e;
+  --ide-icon: #6c707e;
+  --ide-folder: #6c707e;
+  --ide-blue: #3574f0;
+  --ide-blue-hover: #2f66d8;
+  --ide-blue-text: #2f5cb8;
+  --ide-green: #208a3c;
+  --ide-shadow: rgba(30, 31, 34, 0.18);
+  --hb-purple: #a945bd;
+  --hb-glow-1: rgba(53, 116, 240, 0.16);
+  --hb-glow-2: rgba(169, 69, 189, 0.10);
+
+  --syn-fg: #080808;
+  --syn-gutter: #adadad;
+  --syn-keyword: #0033b3;
+  --syn-string: #067d17;
+  --syn-doc: #8c8c8c;
+  --syn-func: #00627a;
+
+  --vp-c-bg: var(--ide-island);
+  --vp-c-bg-alt: var(--ide-island);
+  --vp-c-bg-elv: var(--ide-island);
+  --vp-c-bg-soft: var(--ide-raised);
+  --vp-c-divider: var(--ide-line);
+  --vp-c-border: var(--ide-line-strong);
+  --vp-c-gutter: var(--ide-line);
+  --vp-c-text-1: var(--ide-text);
+  --vp-c-text-2: #383a42;
+  --vp-c-text-3: var(--ide-muted);
+  --vp-c-brand-1: var(--ide-blue-text);
+  --vp-c-brand-2: var(--ide-blue);
+  --vp-c-brand-3: var(--ide-blue);
+  --vp-c-brand-soft: rgba(53, 116, 240, 0.12);
+  --vp-code-block-bg: var(--ide-island);
+  --vp-code-bg: var(--ide-hover);
+  --vp-code-color: var(--ide-text);
+  --vp-button-brand-bg: var(--ide-blue);
+  --vp-button-brand-hover-bg: var(--ide-blue-hover);
+  --vp-button-brand-active-bg: var(--ide-blue-hover);
+}
+.dark {
+  --ide-frame: #131416;
+  --ide-island: #1e1f22;
+  --ide-raised: #2b2d30;
+  --ide-line: #2b2d30;
+  --ide-line-strong: #43454a;
+  --ide-hover: #2b2d30;
+  --ide-hover-soft: #26282b;
+  --ide-hover-strong: #393b40;
+  --ide-select: #2e436e;
+  --ide-text: #dfe1e5;
+  --ide-text-strong: #ffffff;
+  --ide-muted: #868a91;
+  --ide-muted-2: #a8adbd;
+  --ide-icon: #ced0d6;
+  --ide-folder: #8f9bb3;
+  --ide-blue: #3574f0;
+  --ide-blue-hover: #4a83f2;
+  --ide-blue-text: #548af7;
+  --ide-green: #5fb865;
+  --ide-shadow: rgba(0, 0, 0, 0.6);
+  --hb-purple: #c77dbb;
+  --hb-glow-1: rgba(53, 116, 240, 0.26);
+  --hb-glow-2: rgba(199, 125, 187, 0.16);
+
+  --syn-fg: #bcbec4;
+  --syn-gutter: #4b5059;
+  --syn-keyword: #cf8e6d;
+  --syn-string: #6aab73;
+  --syn-doc: #5f826b;
+  --syn-func: #56a8f5;
+
+  --vp-c-text-2: #a8adbd;
+  --vp-c-brand-soft: rgba(53, 116, 240, 0.16);
+}
+
+/* The home page sits on the window frame's color, like the app around its panels. */
+.VPContent.is-home,
+.VPContent:has(.home) {
+  background: var(--ide-frame);
+}
+
+/* Top bar: one line under it, like the app's. */
+.VPNavBar,
+.VPNavBar.has-sidebar .content-body,
+.VPNavBar:not(.home) .content-body {
+  background-color: var(--ide-island) !important;
+}
+.VPNavBar .divider-line,
+.VPNavBar.has-sidebar .divider-line {
+  background-color: var(--ide-line) !important;
+}
+.VPNavBar .title {
+  font-size: 15px;
+  border-bottom: 0 !important;
+}
+.VPNavBarMenuLink {
+  font-size: 13px !important;
+}
+
+/* The sidebar as the Project tree: groups are folders, pages are files, the current one selected. */
+.VPSidebar {
+  border-right: 1px solid var(--ide-line);
+}
+@media (min-width: 960px) {
+  .VPSidebar {
+    padding-top: calc(var(--vp-nav-height) + 8px) !important;
+  }
+}
+.VPSidebar .group + .group {
+  border-top: 0 !important;
+  padding-top: 4px !important;
+}
+.VPSidebarItem.level-0 {
+  padding-bottom: 4px !important;
+}
+.VPSidebarItem.level-0 > .item > .text,
+.VPSidebarItem.level-0 > .item > h2.text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--ide-text) !important;
+  padding: 2px 0 !important;
+}
+.VPSidebarItem.level-0 > .item > .text::before,
+.VPSidebarItem.level-1 .link > .text::before {
+  content: '';
+  flex: none;
+  width: 15px;
+  height: 15px;
+  background: currentColor;
+  -webkit-mask: var(--icon) center / contain no-repeat;
+  mask: var(--icon) center / contain no-repeat;
+}
+.VPSidebarItem.level-0 > .item > .text::before {
+  color: var(--ide-folder);
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z'/%3E%3C/svg%3E");
+}
+.VPSidebarItem.level-1 .link > .text::before {
+  color: var(--ide-blue-text);
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6'/%3E%3C/svg%3E");
+}
+.VPSidebarItem.level-1 > .item {
+  padding-left: 22px !important;
+  margin: 0 -12px;
+  padding-right: 12px;
+  border-radius: 4px;
+}
+.VPSidebarItem.level-1 > .item:hover {
+  background: var(--ide-hover);
+}
+.VPSidebarItem.level-1 .link > .text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0 !important;
+  font-size: 13px !important;
+  line-height: 20px !important;
+  color: var(--ide-text) !important;
+}
+.VPSidebarItem.level-1.is-active > .item {
+  background: var(--ide-select);
+}
+.VPSidebarItem.level-1.is-active > .item .indicator {
+  display: none;
+}
+
+/* "On this page" as the Structure tool window. */
+.VPDocAsideOutline .content {
+  border-left: 1px solid var(--ide-line) !important;
+}
+.VPDocAsideOutline .outline-title {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--ide-text) !important;
+}
+.VPDocAsideOutline .outline-link {
+  font-size: 13px !important;
+}
+
+/* Code blocks as editor panels: a tab-like header line, the editor's colors. */
+.vp-doc div[class*='language-'] {
+  border: 1px solid var(--ide-line-strong);
+  border-radius: 6px !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+.vp-doc div[class*='language-'] > span.lang {
+  font-family: var(--vp-font-family-mono);
+  color: var(--ide-muted);
+}
+.vp-doc :not(pre) > code {
+  border: 1px solid var(--ide-line);
+  border-radius: 4px;
+}
+.vp-doc table {
+  border-radius: 6px;
+}
+.vp-doc th {
+  background: var(--ide-raised);
+  font-size: 13px;
+}
+
+/* Screenshots in pages: the app's window, with a thin frame. */
+.vp-doc img.shot,
+.shots img {
+  border-radius: 6px;
+  border: 1px solid var(--ide-line-strong);
+}
+.shots {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+  margin: 24px 0;
+}
+.shots figure {
+  margin: 0;
+}
+.shots figcaption {
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--vp-c-text-2);
+  text-align: center;
+}
+
+/* Keyboard keys in the shortcut tables. */
+.vp-doc kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--ide-line-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.8em;
+  line-height: 1.6;
+  background: var(--ide-raised);
+  white-space: nowrap;
+}
+
+/* Every clickable thing shows it. */
+button,
+[role='tab'] {
+  cursor: pointer;
+}

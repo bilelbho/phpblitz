@@ -1,0 +1,12 @@
+// The default theme with PHPBlitz's colors and fonts, and the home page component.
+import DefaultTheme from 'vitepress/theme';
+import type { Theme } from 'vitepress';
+import Home from './Home.vue';
+import './style.css';
+
+export default {
+  extends: DefaultTheme,
+  enhanceApp({ app }) {
+    app.component('Home', Home);
+  },
+} satisfies Theme;
