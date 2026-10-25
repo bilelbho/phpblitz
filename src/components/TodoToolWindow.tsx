@@ -12,7 +12,7 @@ import { useSettings } from '../settings';
 import { projectTodos, todosInText, type TodoItem } from '../todo';
 import { FileIcon } from './FileIcon';
 import { Icon } from './Icon';
-import { useHideTool } from './toolHide';
+import { HideToolButton, useHideTool } from './toolHide';
 
 type Row =
   | { kind: 'root'; key: string; depth: number; label: string }
@@ -131,9 +131,7 @@ export function TodoToolWindow({ ws }: { ws: Workspace }) {
         <button type="button" className="icon-btn small" title="Refresh" aria-label="Refresh" onClick={() => void refresh()}>
           <Icon name="refresh" size={13} />
         </button>
-        <button type="button" className="icon-btn small" aria-label="Hide tool window" title="Hide" onClick={hide}>
-          <Icon name="minus" size={14} />
-        </button>
+        <HideToolButton onHide={hide} />
       </div>
       <div className="todo-body">
         <div className="todo-tree tree" role="tree" tabIndex={0} onKeyDown={onKeyDown}>

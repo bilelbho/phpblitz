@@ -69,9 +69,39 @@ pub async fn blitz_write(root: String, name: String, text: String) -> Result<(),
     .map_err(|e| e.to_string())?
 }
 
+/// Keeps a settings file that can't be read (not JSON: a bad edit, a merge) before it is written
+/// fresh: copied into the cache folder, which git ignores, as `<name>.<seconds>.broken`. Returns
+/// the copy's path.
+#[tauri::command]
+pub async fn blitz_keep_broken(root: String, name: String) -> Result<String, String> {
+    let path = settings_file(&root, &name)?;
+    tauri::async_runtime::spawn_blocking(move || keep_broken(&root, &name, &path)).await.map_err(|e| e.to_string())?
+}
+
+fn keep_broken(root: &str, name: &str, path: &Path) -> Result<String, String> {
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let copy = cache_dir(root).map_err(|e| e.to_string())?.join(format!("{name}.{secs}.broken"));
+    std::fs::copy(path, &copy).map_err(|e| e.to_string())?;
+    Ok(copy.to_string_lossy().replace('\\', "/"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keeps_a_broken_settings_file_aside() {
+        let root = std::env::temp_dir().join(format!("phpblitz-broken-{}", std::process::id()));
+        let root_str = root.to_string_lossy().to_string();
+        let path = settings_file(&root_str, "project.json").unwrap();
+        dir(&root_str).unwrap();
+        std::fs::write(&path, "{ \"php\": ").unwrap();
+        let copy = keep_broken(&root_str, "project.json", &path).unwrap();
+        assert!(copy.contains("/.blitz/cache/project.json.") && copy.ends_with(".broken"), "{copy}");
+        assert_eq!(std::fs::read_to_string(&copy).unwrap(), "{ \"php\": ");
+        assert!(settings_file(&root_str, "../secrets.json").is_err(), "only the two settings files");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn creates_the_folder_with_its_gitignore() {

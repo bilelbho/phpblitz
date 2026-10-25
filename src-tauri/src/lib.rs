@@ -130,6 +130,7 @@ pub fn run() {
             js::js_type_files,
             blitz::blitz_read,
             blitz::blitz_write,
+            blitz::blitz_keep_broken,
             history::history_list,
             history::history_read,
             spell::spell_check,
@@ -169,6 +170,18 @@ pub fn run() {
             search::replace_in_files,
             search::replace_in_text,
         ])
+        .on_page_load(|webview, payload| {
+            // A page that (re)loads (Reload Window, a reload while developing) starts its own
+            // language servers and terminals: the previous page's are nobody's any more. Left
+            // running they pile up, and several servers on one project answer each other's
+            // questions (Find Usages finding nothing while the usage count says 341).
+            if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Started {
+                let app = webview.app_handle();
+                app.state::<lsp::LspState>().stop_all();
+                app.state::<pty::PtyState>().kill_all();
+                app.state::<process::JobState>().kill_all();
+            }
+        })
         .setup(|app| {
             // The window starts hidden and the UI shows it once it knows what to show (the welcome
             // screen, or the reopened project maximized). If the page never gets that far, it

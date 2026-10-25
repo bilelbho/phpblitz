@@ -342,6 +342,18 @@ function Customize() {
         </label>
       </div>
       <div className="welcome-setting">
+        <label htmlFor="welcome-layout">Layout:</label>
+        <select id="welcome-layout" className="settings-select" value={ui.layout} onChange={(e) => setUi({ layout: e.target.value as UiSettings['layout'] })}>
+          <option value="classic">Classic</option>
+          <option value="focus">Focus</option>
+        </select>
+      </div>
+      <p className="muted">
+        {ui.layout === 'focus'
+          ? 'Tabs in the top bar; panels in columns you drag anywhere, beside, above or into each other.'
+          : 'Tool window bars on the sides and a bottom panel.'}
+      </p>
+      <div className="welcome-setting">
         <label htmlFor="welcome-zoom">Zoom:</label>
         <select id="welcome-zoom" className="settings-select" value={ui.zoom} onChange={(e) => setUi({ zoom: Number(e.target.value) })}>
           {[80, 90, 100, 110, 125, 150, 175, 200]

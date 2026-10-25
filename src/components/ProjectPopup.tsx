@@ -6,7 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { Workspace } from '../useWorkspace';
 import { forgetProject, isTauri, recentProjects } from '../platform';
-import { colorOfProject, PROJECT_PALETTE, projectInitials, setProjectColor, shortPath } from '../projectColors';
+import { colorOfProject, NO_PROJECT_COLOR, PROJECT_PALETTE, projectHasNoColor, projectInitials, setProjectColor, shortPath } from '../projectColors';
 import { Icon } from './Icon';
 
 interface Props {
@@ -75,14 +75,26 @@ export function ProjectPopup({ ws, anchor, onOpenFolder, onOpenPath, onCloseProj
       </div>
       <div className="pp-colors" role="radiogroup" aria-label="Project color">
         <span className="pp-colors-label">Color:</span>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={projectHasNoColor(backend.root)}
+          aria-label="No project color"
+          title="No color"
+          className={'pp-swatch none' + (projectHasNoColor(backend.root) ? ' on' : '')}
+          onClick={() => {
+            setProjectColor(backend.root, NO_PROJECT_COLOR);
+            onColorChange();
+          }}
+        />
         {PROJECT_PALETTE.map((c) => (
           <button
             key={c}
             type="button"
             role="radio"
-            aria-checked={colorOfProject(backend.root, backend.name) === c}
+            aria-checked={!projectHasNoColor(backend.root) && colorOfProject(backend.root, backend.name) === c}
             aria-label={`Project color ${c}`}
-            className={'pp-swatch' + (colorOfProject(backend.root, backend.name) === c ? ' on' : '')}
+            className={'pp-swatch' + (!projectHasNoColor(backend.root) && colorOfProject(backend.root, backend.name) === c ? ' on' : '')}
             style={{ background: c }}
             onClick={() => {
               setProjectColor(backend.root, c);

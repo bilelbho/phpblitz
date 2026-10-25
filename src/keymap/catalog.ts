@@ -156,6 +156,10 @@ export const COMMANDS: Command[] = [
   p('tool.composer', 'Composer', 'Tool Windows'),
   p('tool.npm', 'npm', 'Tool Windows'),
   p('tool.notifications', 'Notifications', 'Tool Windows'),
+  // Also from the terminal: F6 is the way out of it.
+  p('panel.next', 'Focus Next Panel', 'Tool Windows', { always: true }),
+  p('panel.previous', 'Focus Previous Panel', 'Tool Windows', { always: true }),
+  p('panel.maximize', 'Maximize / Restore Panel', 'Tool Windows', { always: true }),
 
   // View
   p('zoomIn', 'Zoom In', 'View', { always: true }),

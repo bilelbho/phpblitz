@@ -41,6 +41,7 @@ import { diffLines, type Hunk } from '../git/diff';
 import type { BlameLine } from '../git/git';
 import { Icon } from './Icon';
 import { trackActiveEditor } from '../editor/active';
+import { pasteInto } from '../clipboard';
 import { caretMoved, edited } from '../navHistory';
 import { startInlineEdit } from '../ai/actions';
 import { gotoMethod, moveStatement, surroundWith, toggleCase } from '../editor/editingActions';
@@ -49,7 +50,9 @@ import { shortcut, withKeys } from '../keymap/store';
 
 export function EditorArea({ ws }: { ws: Workspace }) {
   const tab = ws.activeTab;
-  const tabPlacement = useSettings().tabs.placement;
+  const settings = useSettings();
+  // In the Focus layout the tabs are in the top bar.
+  const tabPlacement = settings.ui.layout === 'focus' ? 'none' : settings.tabs.placement;
   return (
     <section className="island" style={{ flex: '1 1 auto' }} aria-label="Editor">
       {ws.tabs.length > 0 && tabPlacement === 'top' && <TabBar ws={ws} />}
@@ -674,7 +677,8 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       { id: 'redo', label: 'Redo', shortcut: shortcut('redo'), run: trigger('redo') },
       { id: 'cut', label: 'Cut', shortcut: 'Ctrl+X', run: trigger('editor.action.clipboardCutAction') },
       { id: 'copy', label: 'Copy', shortcut: 'Ctrl+C', run: trigger('editor.action.clipboardCopyAction') },
-      { id: 'paste', label: 'Paste', shortcut: 'Ctrl+V', run: trigger('editor.action.clipboardPasteAction') },
+      // Not Monaco's Paste command: it reads the clipboard the way that makes the web view ask first.
+      { id: 'paste', label: 'Paste', shortcut: 'Ctrl+V', run: () => void pasteInto(editor) },
       { id: 'selectAll', label: 'Select All', shortcut: 'Ctrl+A', run: trigger('editor.action.selectAll') },
       { id: 'blockComment', label: 'Comment with Block Comment', shortcut: shortcut('editor.action.blockComment'), run: trigger('editor.action.blockComment') },
       { id: 'find', label: 'Find…', shortcut: shortcut('phpblitz.find'), run: () => openFind(false) },

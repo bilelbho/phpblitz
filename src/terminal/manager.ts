@@ -8,9 +8,12 @@ import { Channel, invoke } from '@tauri-apps/api/core';
 import type { IMarker, ITheme, Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
 import type { SearchAddon } from '@xterm/addon-search';
+import type { WebglAddon } from '@xterm/addon-webgl';
 import { useSyncExternalStore } from 'react';
 import { getSettings, parseEnv, type TerminalSettings } from '../settings';
 import { findFileRefs } from './fileLinks';
+import { readClipboard } from '../clipboard';
+import { runsInTerminal } from '../keymap/dispatcher';
 
 export interface ShellSpec {
   name: string;
@@ -34,6 +37,8 @@ export interface Session {
   search: SearchAddon;
   element: HTMLDivElement;
   opened: boolean;
+  /** Drawing with the GPU (Settings ▸ Terminal); none when off, unavailable or its context was lost. */
+  webgl: WebglAddon | null;
   /** Each prompt (OSC 133 A) and where its command was typed (B), oldest first. */
   commands: { prompt: IMarker; input?: IMarker }[];
   /**
@@ -194,6 +199,7 @@ class TerminalManager {
       search,
       element,
       opened: false,
+      webgl: null,
       commands: [],
       atPrompt: false,
     };
@@ -353,6 +359,8 @@ class TerminalManager {
     // Ctrl+C copies when text is selected (otherwise it interrupts); Ctrl+Shift+C/V always copy/paste.
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true;
+      // Keys of commands that work here too (F6 to the next panel, zoom…) go to them, not the shell.
+      if (runsInTerminal(e)) return false;
       const ctrl = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
       if (ctrl && key === 'c' && (e.shiftKey || term.hasSelection())) {
@@ -403,6 +411,7 @@ class TerminalManager {
       s.term.open(s.element);
       s.opened = true;
     }
+    void this.useGpu(s);
     this.fit(s);
     s.term.focus();
   }
@@ -509,25 +518,68 @@ class TerminalManager {
     return true;
   }
 
-  /** Font, cursor… apply to open tabs right away; the shell applies to new tabs. */
+  /**
+   * Draws a session with the GPU (WebGL), or stops (Settings ▸ Terminal ▸ GPU off): xterm draws
+   * with page elements then, as it does where WebGL isn't available. A lost GPU context (sleep, a
+   * driver update) drops back too; the next time the terminal is shown, the GPU is tried again.
+   * Only at 100% display scaling: at 125%, 150%… its rows come out taller than the command
+   * separators and error bars placed on them. The window moved to a screen with other scaling
+   * switches it (watchScaling).
+   */
+  private async useGpu(s: Session) {
+    this.watchScaling();
+    const on = getSettings().terminal.gpu && window.devicePixelRatio === 1;
+    if (!on && s.webgl) {
+      s.webgl.dispose();
+      s.webgl = null;
+    }
+    if (!on || s.webgl || !s.opened) return;
+    const { WebglAddon } = await import('./xterm');
+    if (s.webgl || this.sessions.indexOf(s) < 0) return;
+    try {
+      const addon = new WebglAddon();
+      addon.onContextLoss(() => {
+        addon.dispose();
+        if (s.webgl === addon) s.webgl = null;
+      });
+      s.term.loadAddon(addon);
+      s.webgl = addon;
+    } catch {
+      // No WebGL here (no GPU, or blocked): xterm keeps drawing with page elements.
+    }
+  }
+
+  private scalingWatched = false;
+  /** The display scaling changes (another screen, a new setting): GPU drawing on or off for every tab. */
+  private watchScaling() {
+    if (this.scalingWatched) return;
+    this.scalingWatched = true;
+    const watch = () => {
+      const query = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+      query.addEventListener(
+        'change',
+        () => {
+          for (const s of this.sessions) void this.useGpu(s);
+          watch();
+        },
+        { once: true },
+      );
+    };
+    watch();
+  }
+
+  /** Font, cursor, GPU… apply to open tabs right away; the shell applies to new tabs. */
   applySettings() {
     const opts = termOptions(getSettings().terminal);
     for (const s of this.sessions) {
       Object.assign(s.term.options, opts);
+      void this.useGpu(s);
       this.fit(s);
     }
   }
 }
 
 export const terminals = new TerminalManager();
-
-/**
- * The clipboard's text, read by the Rust side: the web view's own clipboard read makes the user
- * allow it first. (The browser preview has no Rust side.)
- */
-export function readClipboard(): Promise<string> {
-  return '__TAURI_INTERNALS__' in window ? invoke<string>('clipboard_read_text') : navigator.clipboard.readText();
-}
 
 export function useTerminals() {
   return useSyncExternalStore(terminals.subscribe, terminals.getSnapshot);

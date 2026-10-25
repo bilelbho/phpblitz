@@ -4,7 +4,7 @@ import { Icon, Logo, Play } from './Icon';
 import { MenuButton, type MenuEntry } from './Menu';
 import { WindowControls } from './WindowControls';
 import type { SearchTab } from './SearchEverywhere';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BranchesPopup } from './BranchesPopup';
 import { ProjectPopup } from './ProjectPopup';
 import { projectInitials, useProjectColor } from '../projectColors';
@@ -24,25 +24,11 @@ interface Props {
 }
 
 export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Props) {
-  const { backend } = ws;
   const runner = useTestRunner();
 
   const ui = useSettings().ui;
-  const branchButton = useRef<HTMLButtonElement>(null);
   const [hamburger, setHamburger] = useState<DOMRect | null>(null);
-
-
-  const [branches, setBranches] = useState<DOMRect | null>(null);
-  const [projects, setProjects] = useState<DOMRect | null>(null);
-  const color = useProjectColor(backend.root, backend.name);
-  const menus = mainMenu({
-    ws,
-    onOpenFolder,
-    onOpenPath,
-    onClose,
-    onSearch,
-    onBranches: () => branchButton.current && setBranches(branchButton.current.getBoundingClientRect()),
-  });
+  const menus = mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBranches: openBranches });
 
   const runMenu: MenuEntry[] = [
     { label: 'Run Tests', run: ws.runTests },
@@ -86,42 +72,8 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
             <MainMenuBar menus={menus} merged />
           </>
         )}
-        <button
-          type="button"
-          className={'widget' + (projects ? ' open' : '')}
-          aria-label={`Project ${backend.name}`}
-          aria-haspopup="dialog"
-          onClick={(e) => setProjects(projects ? null : (e.currentTarget as HTMLElement).getBoundingClientRect())}
-        >
-          <span className="project-square" style={{ background: color }}>
-            {projectInitials(backend.name)}
-          </span>
-          <span className="widget-text">{backend.name}</span>
-          <span className="chevron">
-            <Icon name="chevronDown" size={12} />
-          </span>
-        </button>
-        {projects && (
-          <ProjectPopup ws={ws} anchor={projects} onOpenFolder={onOpenFolder} onOpenPath={onOpenPath} onCloseProject={onClose} onColorChange={() => {}} onClose={() => setProjects(null)} />
-        )}
-        {ws.git && (
-          <button
-            type="button"
-            ref={branchButton}
-            className={'widget' + (branches ? ' open' : '')}
-            aria-label={`Git branch ${ws.git.branch}`}
-            aria-haspopup="dialog"
-            title="Git branches"
-            onClick={(e) => setBranches(branches ? null : (e.currentTarget as HTMLElement).getBoundingClientRect())}
-          >
-            <Icon name="branch" size={15} />
-            <span className="widget-text">{ws.git.branch}</span>
-            <span className="chevron">
-              <Icon name="chevronDown" size={12} />
-            </span>
-          </button>
-        )}
-        {branches && <BranchesPopup ws={ws} anchor={branches} onClose={() => setBranches(null)} />}
+        <ProjectWidget ws={ws} onOpenFolder={onOpenFolder} onOpenPath={onOpenPath} onClose={onClose} />
+        <BranchWidget ws={ws} />
 
         <div className="drag" data-tauri-drag-region />
 
@@ -172,6 +124,72 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
         <div className="drag" data-tauri-drag-region style={{ flex: '0 0 8px' }} />
         {ui.mainMenu !== 'separate' && <WindowControls />}
       </header>
+    </>
+  );
+}
+
+/** The project button: recent projects, open, close, the project's color. */
+export function ProjectWidget({ ws, onOpenFolder, onOpenPath, onClose }: Pick<Props, 'ws' | 'onOpenFolder' | 'onOpenPath' | 'onClose'>) {
+  const { backend } = ws;
+  const [projects, setProjects] = useState<DOMRect | null>(null);
+  const color = useProjectColor(backend.root, backend.name);
+  return (
+    <>
+      <button
+        type="button"
+        className={'widget' + (projects ? ' open' : '')}
+        aria-label={`Project ${backend.name}`}
+        aria-haspopup="dialog"
+        onClick={(e) => setProjects(projects ? null : (e.currentTarget as HTMLElement).getBoundingClientRect())}
+      >
+        <span className="project-square" style={{ background: color }}>
+          {projectInitials(backend.name)}
+        </span>
+        <span className="widget-text">{backend.name}</span>
+        <span className="chevron">
+          <Icon name="chevronDown" size={12} />
+        </span>
+      </button>
+      {projects && (
+        <ProjectPopup ws={ws} anchor={projects} onOpenFolder={onOpenFolder} onOpenPath={onOpenPath} onCloseProject={onClose} onColorChange={() => {}} onClose={() => setProjects(null)} />
+      )}
+    </>
+  );
+}
+
+const OPEN_BRANCHES = 'phpblitz:open-branches';
+
+/** Opens the branches popup of the top bar's branch button (Git ▸ Branches…). */
+export const openBranches = () => window.dispatchEvent(new Event(OPEN_BRANCHES));
+
+/** The Git branch button and its branches popup (none without a repository). */
+export function BranchWidget({ ws }: { ws: Workspace }) {
+  const [branches, setBranches] = useState<DOMRect | null>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const open = () => button.current && setBranches(button.current.getBoundingClientRect());
+    window.addEventListener(OPEN_BRANCHES, open);
+    return () => window.removeEventListener(OPEN_BRANCHES, open);
+  }, []);
+  if (!ws.git) return null;
+  return (
+    <>
+      <button
+        type="button"
+        ref={button}
+        className={'widget' + (branches ? ' open' : '')}
+        aria-label={`Git branch ${ws.git.branch}`}
+        aria-haspopup="dialog"
+        title="Git branches"
+        onClick={(e) => setBranches(branches ? null : (e.currentTarget as HTMLElement).getBoundingClientRect())}
+      >
+        <Icon name="branch" size={15} />
+        <span className="widget-text">{ws.git.branch}</span>
+        <span className="chevron">
+          <Icon name="chevronDown" size={12} />
+        </span>
+      </button>
+      {branches && <BranchesPopup ws={ws} anchor={branches} onClose={() => setBranches(null)} />}
     </>
   );
 }

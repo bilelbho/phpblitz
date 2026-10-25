@@ -11,7 +11,7 @@ import { copyText } from '../editorMenu';
 import { ContextMenu, type ContextItem } from './ContextMenu';
 import { Icon, type IconName } from './Icon';
 import { VarNode } from './VarNode';
-import { useHideTool } from './toolHide';
+import { HideToolButton, useHideTool } from './toolHide';
 import { getCursor } from '../cursorStore';
 
 export function DebugPanel({ ws }: { ws: Workspace }) {
@@ -42,9 +42,7 @@ export function DebugPanel({ ws }: { ws: Workspace }) {
           </span>
         ))}
         <span className="grow" />
-        <button type="button" className="icon-btn small" aria-label="Hide tool window" title="Hide" onClick={hide}>
-          <Icon name="minus" size={14} />
-        </button>
+        <HideToolButton onHide={hide} />
       </div>
 
       <div className="debug-toolbar" role="toolbar" aria-label="Debugger">

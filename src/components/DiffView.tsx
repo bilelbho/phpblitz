@@ -17,6 +17,10 @@ export function DiffView({ ws, path, commit }: { ws: Workspace; path: string; co
   const [inline, setInline] = useState(false);
   const [counts, setCounts] = useState<{ changes: number } | null>(null);
   const settings = useSettings().editor;
+  // Monaco has one theme for the page, set by whichever editor opens: the diff sets it too (a
+  // diff opened before any file would show Monaco's own white theme). 'theme' follows the UI theme.
+  const theme = themeId(settings.scheme);
+  useEffect(() => monaco.editor.setTheme(theme), [theme]);
 
   useEffect(() => {
     const el = host.current;
@@ -24,6 +28,7 @@ export function DiffView({ ws, path, commit }: { ws: Workspace; path: string; co
     let disposed = false;
     const owned: monaco.IDisposable[] = [];
     const diff = monaco.editor.createDiffEditor(el, {
+      theme,
       automaticLayout: true,
       renderSideBySide: !inline,
       originalEditable: false,

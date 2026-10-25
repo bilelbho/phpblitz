@@ -10,7 +10,7 @@ import { ContextMenu, type ContextItem } from './ContextMenu';
 import { Icon } from './Icon';
 import { copyText } from '../editorMenu';
 import { confirmDialog } from '../platform';
-import { useHideTool } from './toolHide';
+import { HideToolButton, useHideTool } from './toolHide';
 
 const PAGE = 300;
 const LANE_COLORS = ['#5f9ff5', '#e3a869', '#73bd79', '#c77dbb', '#2aacb8', '#e5c07b', '#f0727a', '#9d8cf5'];
@@ -116,9 +116,7 @@ export function GitToolWindow({ ws }: { ws: Workspace }) {
           Console
         </button>
         <span className="grow" />
-        <button type="button" className="icon-btn small" aria-label="Hide tool window" title="Hide" onClick={hide}>
-          <Icon name="minus" size={14} />
-        </button>
+        <HideToolButton onHide={hide} />
       </div>
       {!ws.git ? (
         <div className="empty">This project is not a Git repository, or Git is not installed.</div>

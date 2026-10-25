@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
+import * as monaco from 'monaco-editor';
 // The code editor and its PHP support load with the workspace, not at launch (see lazy.tsx).
 import '../monaco';
 import '../mago';
@@ -6,10 +7,14 @@ import type { Backend } from '../backend/types';
 import { tabOfTool, toolOfTab, useWorkspace } from '../useWorkspace';
 import { Icon, type IconName } from './Icon';
 import { Splitter } from './Splitter';
+import { ContextMenu } from './ContextMenu';
 import { TopBar } from './TopBar';
+import { FocusTopBar } from './FocusTopBar';
+import { FocusPresetDialog } from './FocusPresetDialog';
+import { usePresetDialog } from '../focusLayouts';
 import { ToolStrip, type StripItem, type ToolDrag } from './ToolStrip';
-import { isBottomTool, type Anchor, type Tool } from '../toolLayout';
-import { ToolHideContext } from './toolHide';
+import { columnShown, isBottomTool, isEditorColumn, type Anchor, type FocusDrop, type FocusGroup, type FocusPanel, type IconsSide, type Tool } from '../toolLayout';
+import { HideToolButton, ToolColumnContext, ToolHideContext } from './toolHide';
 import { ProjectTree } from './ProjectTree';
 import { CommitPanel } from './CommitPanel';
 import { StructurePanel } from './StructurePanel';
@@ -37,10 +42,10 @@ import { openAppDialog, useAppDialog } from '../appDialogs';
 import { LocalHistoryDialog, openLocalHistory, useLocalHistory } from './LocalHistoryDialog';
 import { perf, usePerf } from '../perf';
 import { GitDialogs } from './GitDialogs';
-import { useProjectColor } from '../projectColors';
+import { projectHasNoColor, useProjectColor } from '../projectColors';
 import { zoomBy } from '../uiSettings';
 import { RecentFiles, TOOL_WINDOWS } from './RecentFiles';
-import { DEFAULT_SETTINGS, getSettings, updateEditorSettings } from '../settings';
+import { DEFAULT_SETTINGS, getSettings, updateEditorSettings, useSettings } from '../settings';
 import { invoke } from '@tauri-apps/api/core';
 import { RELEASES_URL, restartToUpdate, useUpdateState } from '../updater';
 import { debug, useDebug } from '../debug/manager';
@@ -48,8 +53,6 @@ import { UsagesPopup } from './UsagesPopup';
 import { registerCommands } from '../keymap/commands';
 import { installDispatcher } from '../keymap/dispatcher';
 import { lastEditPlace } from '../navHistory';
-
-const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
 interface Props {
   backend: Backend;
@@ -66,9 +69,7 @@ function ToolWindow({ title, hint, onHide, children, style }: { title: string; h
         <span className="tw-title">{title}</span>
         {hint && <span className="tw-hint">{hint}</span>}
         <span className="grow" />
-        <button type="button" className="icon-btn small" aria-label={`Hide ${title}`} title="Hide" onClick={onHide}>
-          <Icon name="minus" size={14} />
-        </button>
+        <HideToolButton onHide={onHide} label={title} />
       </div>
       {children}
     </section>
@@ -116,11 +117,10 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
     announced.current = update.kind + version;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [update]);
-  const [leftWidth, setLeftWidth] = useState(330);
-  const [leftTopHeight, setLeftTopHeight] = useState(430);
-  const [rightTopHeight, setRightTopHeight] = useState(430);
-  const [rightWidth, setRightWidth] = useState(340);
-  const [bottomHeight, setBottomHeight] = useState(230);
+  // Classic: the sizes, saved with the project (useWorkspace).
+  const { leftWidth, leftTopHeight, rightTopHeight, rightWidth, bottomHeight } = ws.classicSizes;
+  const layout = useSettings().ui.layout;
+  const presetDialog = usePresetDialog();
   const openSearch = ws.openSearch;
 
   // The keymap's commands (Settings ▸ Keymap) that work anywhere in the window, and the key
@@ -136,6 +136,39 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
         fontSize: step === null ? DEFAULT_SETTINGS.editor.fontSize : Math.min(40, Math.max(8, getSettings().editor.fontSize + step)),
       });
     const stopped = () => debug.active?.status === 'break';
+    // F6 / Ctrl+Shift+F6: the next / previous panel on screen, in reading order (Focus: its groups;
+    // Classic: the tool windows and the editor), with something in it focused and a short outline.
+    const panelsOnScreen = () =>
+      [...document.querySelectorAll<HTMLElement>(getSettings().ui.layout === 'focus' ? '.focus-main .focus-group' : '.main .island')].filter(
+        (el) => el.offsetParent !== null && !el.parentElement?.closest('.island'),
+      );
+    const focusPanel = (step: number) => {
+      const list = panelsOnScreen();
+      if (!list.length) return;
+      const at = list.findIndex((el) => el.contains(document.activeElement));
+      const next = list[at < 0 ? (step > 0 ? 0 : list.length - 1) : (at + step + list.length) % list.length];
+      // A code editor through its own focus (focusing its hidden text area does nothing).
+      const editor = monaco.editor.getEditors().find((e) => next.contains(e.getDomNode()));
+      const target = next.querySelector<HTMLElement>('.xterm-helper-textarea, [role="tree"], [role="grid"], [tabindex="0"], input, textarea, button');
+      if (editor) editor.focus();
+      else if (target) target.focus();
+      else {
+        // Nothing to focus in it (the editor with no file open): the panel itself.
+        next.tabIndex = -1;
+        next.focus();
+      }
+      next.classList.remove('panel-flash');
+      void next.offsetWidth;
+      next.classList.add('panel-flash');
+      window.setTimeout(() => next.classList.remove('panel-flash'), 700);
+    };
+    /** Ctrl+Shift+F12 (Focus layout): the panel with the keyboard shown alone, or everything back. */
+    const toggleMaximized = () => {
+      const w = latest.current.ws;
+      if (w.focus.maximized) return w.maximizeFocusPanel(null);
+      const group = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('.focus-group');
+      w.maximizeFocusPanel((group?.dataset.active as FocusPanel | undefined) ?? 'editor');
+    };
     const unregister = registerCommands({
       'phpblitz.settings': () => w().openSettings(),
       'phpblitz.save': () => w().saveActive(),
@@ -167,6 +200,9 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
       'phpblitz.updateProject': { run: () => void w().runGit('Update project', () => w().gitRepo.pull()), enabled: () => !!w().git },
       'phpblitz.newBranch': { run: () => w().setGitDialog({ kind: 'newBranch' }), enabled: () => !!w().git },
       ...Object.fromEntries(TOOL_WINDOWS.map((t) => [`phpblitz.tool.${t.label.toLowerCase()}`, () => t.run(w())])),
+      'phpblitz.panel.next': () => focusPanel(1),
+      'phpblitz.panel.previous': () => focusPanel(-1),
+      'phpblitz.panel.maximize': { run: toggleMaximized, enabled: () => getSettings().ui.layout === 'focus' },
       'phpblitz.zoomIn': () => zoomBy(10),
       'phpblitz.zoomOut': () => zoomBy(-10),
       'phpblitz.zoomReset': () => zoomBy('reset'),
@@ -329,11 +365,10 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
     const bottom = ws.openTools[`${side}Bottom`];
     if (!top && !bottom) return null;
     const height = side === 'left' ? leftTopHeight : rightTopHeight;
-    const setHeight = side === 'left' ? setLeftTopHeight : setRightTopHeight;
     return (
       <div className="column" style={{ width: side === 'left' ? leftWidth : rightWidth }}>
         {top && toolWindow(top, bottom ? { flex: `0 0 ${height}px` } : undefined)}
-        {top && bottom && <Splitter dir="h" onDrag={(d) => setHeight((h) => clamp(h + d, 120, window.innerHeight - 260))} />}
+        {top && bottom && <Splitter dir="h" onDrag={(d) => ws.resizeClassic(side === 'left' ? 'leftTopHeight' : 'rightTopHeight', d, 120, window.innerHeight - 260)} />}
         {bottom && toolWindow(bottom)}
       </div>
     );
@@ -342,55 +377,330 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
   const rightColumn = column('right');
   const projectColor = useProjectColor(ws.backend.root, ws.backend.name);
 
-  return (
-    <div className="app" style={{ ['--project-color' as string]: projectColor }}>
-      <ErrorBoundary name="Toolbar">
-        <TopBar ws={ws} onOpenFolder={onOpenFolder} onOpenPath={onOpenPath} onClose={onClose} onSearch={openSearch} />
-      </ErrorBoundary>
-      <div className="main" ref={mainRef}>
-        <ToolStrip
-          side="left"
-          groups={[stripGroup('leftTop'), stripGroup('leftBottom')]}
-          bottomGroup={stripGroup('bottom')}
-          drag={drag}
-          onDragStart={startDrag}
-          onPick={(id) => ws.toggleTool(id as Tool)}
-        />
-
-        {leftColumn && (
-          <>
-            {leftColumn}
-            <Splitter dir="v" onDrag={(d) => setLeftWidth((w) => clamp(w + d, 200, 700))} />
-          </>
-        )}
-
+  // ── Focus layout ──
+  // Columns of groups of panels; the editor is a panel like the others.
+  const { focus } = ws;
+  const isResults = (p: FocusPanel): p is 'find' | 'usages' => p === 'find' || p === 'usages';
+  const panelLabel = (p: FocusPanel) => (p === 'editor' ? 'Editor' : p === 'find' ? 'Find' : p === 'usages' ? 'Usages' : toolInfo[p].label);
+  const iconOf = (p: FocusPanel): IconName => (p === 'editor' ? 'code' : isResults(p) ? 'search' : toolInfo[p].icon);
+  /** A panel's content: the editor, a tool window or results, with Maximize and Close in its header. */
+  const panelContent = (p: FocusPanel) => {
+    if (p === 'editor')
+      return (
         <div className="center">
           <ErrorBoundary name="Editor">
             <EditorArea ws={ws} />
           </ErrorBoundary>
-          {bottomShown && (
-            <>
-              <Splitter dir="h" onDrag={(d) => setBottomHeight((h) => clamp(h - d, 90, window.innerHeight - 200))} />
-              {ws.bottomSideTool ? (
-                toolWindow(ws.bottomSideTool, { flex: `0 0 ${bottomHeight}px` })
-              ) : (
-                <ErrorBoundary name="Bottom panel">
-                  <BottomPanel ws={ws} height={bottomHeight} />
-                </ErrorBoundary>
-              )}
-            </>
-          )}
         </div>
+      );
+    const maximized = focus.maximized === p;
+    return (
+      <ToolColumnContext.Provider value={{ maximized, toggleMaximized: () => ws.maximizeFocusPanel(maximized ? null : p) }}>
+        {isResults(p) ? (
+          <ToolHideContext.Provider value={() => ws.hideFocusPanel(p)}>
+            <ErrorBoundary name={panelLabel(p)}>
+              <BottomPanel ws={ws} tab={p} />
+            </ErrorBoundary>
+          </ToolHideContext.Provider>
+        ) : (
+          toolWindow(p, { flex: '1 1 auto' })
+        )}
+      </ToolColumnContext.Provider>
+    );
+  };
+  /** A group: its icons when it has several panels, the one shown, and a grip to drag it by. */
+  const focusGroup = (g: FocusGroup, style: React.CSSProperties) => (
+    <div key={g.active} className={`focus-group icons-${g.icons ?? 'top'}`} data-panels={g.panels.join(' ')} data-active={g.active} style={style}>
+      <div className="focus-grip" title={`Drag to move ${panelLabel(g.active)}`} onPointerDown={(e) => beginFocusDrag(e, g.active)} />
+      {g.panels.length > 1 && (
+        <div
+          className="focus-group-tabs"
+          role="tablist"
+          aria-label={`${panelLabel(g.active)} and ${g.panels.length - 1} more`}
+          aria-orientation={g.icons === 'left' || g.icons === 'right' ? 'vertical' : 'horizontal'}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setIconsMenu({ x: e.clientX, y: e.clientY, panel: g.active, side: g.icons ?? 'top' });
+          }}
+        >
+          {g.panels.map((p) => (
+            <button
+              key={p}
+              type="button"
+              role="tab"
+              data-panel={p}
+              className={'top-icon' + (g.active === p ? ' on' : '')}
+              aria-selected={g.active === p}
+              aria-label={panelLabel(p)}
+              title={`${panelLabel(p)} (drag to move it)`}
+              onPointerDown={(e) => beginFocusDrag(e, p)}
+              onClick={() => ws.showFocusPanel(p)}
+            >
+              <Icon name={iconOf(p)} />
+              {p !== 'editor' && !isResults(p) && toolInfo[p].dot && <span className="dot" />}
+            </button>
+          ))}
+        </div>
+      )}
+      {panelContent(g.active)}
+    </div>
+  );
 
-        {rightColumn && (
+  /** Right-click on a group's icons: which side of the group they are on. */
+  const [iconsMenu, setIconsMenu] = useState<{ x: number; y: number; panel: FocusPanel; side: IconsSide } | null>(null);
+
+  // Dragging a panel: by a group's icon, its header or its grip. It drops beside a column, above /
+  // below a group, or into a group (its middle).
+  const [focusDrag, setFocusDrag] = useState<{ panel: FocusPanel; icon: IconName; x: number; y: number; target: FocusDrop | null } | null>(null);
+  /** Where a drop at (x, y) puts the panel. */
+  const focusDropTarget = (panel: FocusPanel, x: number, y: number): FocusDrop | null => {
+    // On a group's icons: into that group, at the place between them (moved along its own row too).
+    const row = [...document.querySelectorAll<HTMLElement>('.focus-main .focus-group-tabs')].find((el) => {
+      const r = el.getBoundingClientRect();
+      return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    });
+    const rowPanels = (row?.closest<HTMLElement>('.focus-group')?.dataset.panels ?? '').split(' ') as FocusPanel[];
+    const rowRef = rowPanels.find((p) => p !== panel);
+    if (row && rowRef && panel !== 'editor' && !rowPanels.includes('editor')) {
+      const icons = [...row.querySelectorAll<HTMLElement>('[data-panel]')].filter((b) => b.dataset.panel !== panel);
+      // Icons on a side of the group are a column: places go top to bottom.
+      const vertical = row.getAttribute('aria-orientation') === 'vertical';
+      const before = (b: HTMLElement) => (vertical ? b.getBoundingClientRect().top + b.offsetHeight / 2 < y : b.getBoundingClientRect().left + b.offsetWidth / 2 < x);
+      return { kind: 'tab', ref: rowRef, index: icons.filter(before).length };
+    }
+    const over = [...document.querySelectorAll<HTMLElement>('.focus-main .focus-group')].find((el) => {
+      const r = el.getBoundingClientRect();
+      return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    });
+    if (!over) return null;
+    const panels = (over.dataset.panels ?? '').split(' ') as FocusPanel[];
+    // Its own group, alone in it: nowhere to go.
+    const ref = panels.find((p) => p !== panel);
+    if (!ref) return null;
+    const r = over.getBoundingClientRect();
+    const [left, right, top, bottom] = [(x - r.left) / r.width, (r.right - x) / r.width, (y - r.top) / r.height, (r.bottom - y) / r.height];
+    const edge = Math.min(left, right, top, bottom);
+    // The middle: into the group (nothing shares the editor's).
+    if (edge > 0.25 && panel !== 'editor' && !panels.includes('editor')) return { kind: 'tab', ref };
+    if (edge === left || edge === right) return { kind: 'column', ref, after: edge === right };
+    return { kind: 'stack', ref, below: edge === bottom };
+  };
+  /** A drag starts once the mouse moves a few pixels (a click stays a click). */
+  const beginFocusDrag = (e: React.PointerEvent, panel: FocusPanel) => {
+    if (e.button !== 0) return;
+    const [x0, y0] = [e.clientX, e.clientY];
+    const stop = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+    };
+    const move = (ev: PointerEvent) => {
+      if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
+      stop();
+      setFocusDrag({ panel, icon: iconOf(panel), x: ev.clientX, y: ev.clientY, target: focusDropTarget(panel, ev.clientX, ev.clientY) });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop);
+  };
+  /** A header (not its buttons or tabs) is the handle of the panel shown. */
+  const headerDrag = (e: React.PointerEvent) => {
+    const el = e.target as HTMLElement;
+    if (!el.closest('.tw-head') || el.closest('button, input, select, textarea, a, [role="tab"]')) return;
+    const group = el.closest<HTMLElement>('.focus-group');
+    if (group?.dataset.active) beginFocusDrag(e, group.dataset.active as FocusPanel);
+  };
+  const focusDragging = !!focusDrag;
+  useEffect(() => {
+    if (!focusDragging) return;
+    const move = (e: PointerEvent) => setFocusDrag((d) => d && { ...d, x: e.clientX, y: e.clientY, target: focusDropTarget(d.panel, e.clientX, e.clientY) });
+    const up = () =>
+      setFocusDrag((d) => {
+        if (d?.target) ws.moveFocusPanel(d.panel, d.target);
+        return null;
+      });
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && setFocusDrag(null);
+    document.body.style.cursor = 'grabbing';
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('keydown', key, true);
+    return () => {
+      document.body.style.cursor = '';
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('keydown', key, true);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusDragging]);
+  /** The blue area the dropped panel will take: half of the column beside, half of the group above / below, or the group. */
+  const focusDropArea = (() => {
+    const target = focusDrag?.target;
+    if (!target) return null;
+    const group = [...document.querySelectorAll<HTMLElement>('.focus-main .focus-group')].find((el) => (el.dataset.panels ?? '').split(' ').includes(target.ref!));
+    const r = (target.kind === 'column' ? group?.closest('.focus-col') : group)?.getBoundingClientRect();
+    if (!r) return null;
+    // A place among a group's icons: a bar between them.
+    if (target.kind === 'tab' && target.index !== undefined && group) {
+      const row = group.querySelector<HTMLElement>('.focus-group-tabs');
+      const icons = [...(row?.querySelectorAll<HTMLElement>('[data-panel]') ?? [])].filter((b) => b.dataset.panel !== focusDrag?.panel);
+      const rr = row?.getBoundingClientRect();
+      if (rr) {
+        const before = icons[target.index]?.getBoundingClientRect();
+        const last = icons[icons.length - 1]?.getBoundingClientRect();
+        if (row?.getAttribute('aria-orientation') === 'vertical') {
+          const y = before ? before.top - 2 : last ? last.bottom + 1 : rr.top + 4;
+          return { style: { left: rr.left + 4, top: y - 1, width: rr.width - 8, height: 3 }, label: null };
+        }
+        const x = before ? before.left - 2 : last ? last.right + 1 : rr.left + 4;
+        return { style: { left: x - 1, top: rr.top + 4, width: 3, height: rr.height - 8 }, label: null };
+      }
+    }
+    // What letting go does, said in the area it will take, naming the panel the group shows.
+    const shown = group?.dataset.active as FocusPanel | undefined;
+    const into = panelLabel(shown && shown !== focusDrag?.panel ? shown : target.ref!);
+    if (target.kind === 'tab') return { style: { left: r.left, top: r.top, width: r.width, height: r.height }, label: `Add to ${into}` };
+    if (target.kind === 'stack')
+      return { style: { left: r.left, top: target.below ? r.top + r.height / 2 : r.top, width: r.width, height: r.height / 2 }, label: target.below ? `Below ${into}` : `Above ${into}` };
+    const width = Math.min(r.width / 2, 320);
+    return { style: { left: target.after ? r.right - width : r.left, top: r.top, width, height: r.height }, label: target.after ? 'New column, right' : 'New column, left' };
+  })();
+
+  const shownColumns = focus.columns.map((col, c) => ({ col, c })).filter(({ col }) => isEditorColumn(col) || columnShown(col));
+  /**
+   * As a splitter drag starts: columns shrunk on screen (the window short of room) take the widths
+   * they show, all of them, so the edge starts under the mouse and the room a drag frees goes where
+   * the mouse is. Each move then adds its distance to the width as it is (moves come faster than
+   * the screen redraws: reading the screen on each would lose some).
+   */
+  const takeShownWidths = () => {
+    for (const { col, c } of shownColumns) {
+      const shown = document.querySelector<HTMLElement>(`.focus-main .focus-col[data-column="${c}"]`)?.getBoundingClientRect().width;
+      if (!isEditorColumn(col) && shown !== undefined && Math.abs(shown - col.width) > 1) ws.setFocusColumnWidth(c, shown);
+    }
+  };
+  const focusMain = (
+    <div className="main focus-main" ref={mainRef} onPointerDown={headerDrag}>
+      {focus.maximized ? (
+        <div className="focus-col" style={{ flex: '1 1 auto' }}>
+          {focusGroup({ panels: [focus.maximized], active: focus.maximized, hidden: false, weight: 1 }, { flex: '1 1 auto' })}
+        </div>
+      ) : (
+        shownColumns.map(({ col, c }, i) => {
+          const prev = shownColumns[i - 1];
+          const editor = isEditorColumn(col);
+          const groups = col.groups.map((g, gi) => ({ g, gi })).filter(({ g }) => !g.hidden);
+          // Shares of the column's height, relative to the groups shown: together they always fill it.
+          const total = groups.reduce((sum, { g }) => sum + g.weight, 0) || 1;
+          return (
+            <Fragment key={col.groups[0].panels[0]}>
+              {prev && (
+                <Splitter
+                  dir="v"
+                  onStart={takeShownWidths}
+                  onDrag={(d) => {
+                    // The editor's column takes what is left; between two others, they trade width.
+                    if (!isEditorColumn(prev.col)) ws.resizeFocusColumn(prev.c, d);
+                    if (!editor) ws.resizeFocusColumn(c, -d);
+                  }}
+                />
+              )}
+              {/* Short of room, the columns shrink together (to 200 px), never the editor below 360 px. */}
+              <div className={'focus-col' + (editor ? ' editor' : '')} data-column={c} style={editor ? { flex: '1 1 0', minWidth: 360 } : { flex: `0 1 ${col.width}px`, minWidth: 200 }}>
+                {groups.map(({ g }, j) => (
+                  <Fragment key={g.active}>
+                    {j > 0 && <Splitter dir="h" onDrag={(d) => ws.resizeFocusGroups(c, groups[j - 1].gi, d, mainRef.current?.clientHeight ?? 800)} />}
+                    {focusGroup(g, { flex: `${g.weight / total} 1 0` })}
+                  </Fragment>
+                ))}
+              </div>
+            </Fragment>
+          );
+        })
+      )}
+    </div>
+  );
+
+  const classicMain = (
+    <div className="main" ref={mainRef}>
+      <ToolStrip
+        side="left"
+        groups={[stripGroup('leftTop'), stripGroup('leftBottom')]}
+        bottomGroup={stripGroup('bottom')}
+        drag={drag}
+        onDragStart={startDrag}
+        onPick={(id) => ws.toggleTool(id as Tool)}
+      />
+
+      {leftColumn && (
+        <>
+          {leftColumn}
+          <Splitter dir="v" onDrag={(d) => ws.resizeClassic('leftWidth', d, 200, 700)} />
+        </>
+      )}
+
+      <div className="center">
+        <ErrorBoundary name="Editor">
+          <EditorArea ws={ws} />
+        </ErrorBoundary>
+        {bottomShown && (
           <>
-            <Splitter dir="v" onDrag={(d) => setRightWidth((w) => clamp(w - d, 220, 720))} />
-            {rightColumn}
+            <Splitter dir="h" onDrag={(d) => ws.resizeClassic('bottomHeight', -d, 90, window.innerHeight - 200)} />
+            {ws.bottomSideTool ? (
+              toolWindow(ws.bottomSideTool, { flex: `0 0 ${bottomHeight}px` })
+            ) : (
+              <ErrorBoundary name="Bottom panel">
+                <BottomPanel ws={ws} height={bottomHeight} />
+              </ErrorBoundary>
+            )}
           </>
         )}
-        <ToolStrip side="right" groups={[stripGroup('rightTop'), stripGroup('rightBottom')]} drag={drag} onDragStart={startDrag} onPick={(id) => ws.toggleTool(id as Tool)} />
       </div>
+
+      {rightColumn && (
+        <>
+          <Splitter dir="v" onDrag={(d) => ws.resizeClassic('rightWidth', -d, 220, 720)} />
+          {rightColumn}
+        </>
+      )}
+      <ToolStrip side="right" groups={[stripGroup('rightTop'), stripGroup('rightBottom')]} drag={drag} onDragStart={startDrag} onPick={(id) => ws.toggleTool(id as Tool)} />
+    </div>
+  );
+
+  return (
+    <div className={'app' + (layout === 'focus' ? ' focus' : '')} style={{ ['--project-color' as string]: projectHasNoColor(ws.backend.root) ? 'transparent' : projectColor }}>
+      <ErrorBoundary name="Toolbar">
+        {layout === 'focus' ? (
+          <FocusTopBar ws={ws} onOpenFolder={onOpenFolder} onOpenPath={onOpenPath} onClose={onClose} onSearch={openSearch} tools={toolInfo} />
+        ) : (
+          <TopBar ws={ws} onOpenFolder={onOpenFolder} onOpenPath={onOpenPath} onClose={onClose} onSearch={openSearch} />
+        )}
+      </ErrorBoundary>
+      {layout === 'focus' ? focusMain : classicMain}
       {dropArea && <div className="tool-drop-area" style={dropArea} />}
+      {iconsMenu && (
+        <ContextMenu
+          x={iconsMenu.x}
+          y={iconsMenu.y}
+          items={[
+            { label: 'Icons', head: true },
+            ...(['top', 'bottom', 'left', 'right'] as const).map((side) => ({
+              label: { top: 'On Top', bottom: 'At the Bottom', left: 'On the Left', right: 'On the Right' }[side],
+              checked: iconsMenu.side === side,
+              run: () => ws.setFocusIconsSide(iconsMenu.panel, side),
+            })),
+          ]}
+          onClose={() => setIconsMenu(null)}
+        />
+      )}
+      {focusDropArea && (
+        <div className="tool-drop-area focus-drop-hint" style={focusDropArea.style}>
+          {focusDropArea.label && <span>{focusDropArea.label}</span>}
+        </div>
+      )}
+      {focusDrag && (
+        // Beside the pointer, not under it: the bar between a group's icons stays in sight.
+        <div className="tool-drag-ghost" style={{ left: focusDrag.x + 10, top: focusDrag.y + 12 }}>
+          <Icon name={focusDrag.icon} size={17} />
+        </div>
+      )}
       {drag && (
         <div className="tool-drag-ghost" style={{ left: drag.x - 15, top: drag.y - 15 }}>
           <Icon name={drag.icon} size={17} />
@@ -433,6 +743,7 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
       <ErrorBoundary name="AI" variant="dialog" onClose={() => setAiDialog(null)}>
         <AiDialogs />
       </ErrorBoundary>
+      {presetDialog && <FocusPresetDialog dialog={presetDialog} layout={ws.focus} />}
       {perfState.open && <StartupPerformance onClose={() => perf.show(false)} />}
       {appDialog === 'errors' && <ErrorLogDialog onClose={() => openAppDialog(null)} />}
       {appDialog === 'shortcuts' && (

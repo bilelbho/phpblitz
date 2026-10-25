@@ -5,13 +5,14 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Workspace } from '../useWorkspace';
 import { useSettings } from '../settings';
-import { readClipboard, tabLabel, terminals, useTerminals, type Session, type ShellSpec } from '../terminal/manager';
+import { tabLabel, terminals, useTerminals, type Session, type ShellSpec } from '../terminal/manager';
+import { readClipboard } from '../clipboard';
 import { ContextMenu, type ContextItem } from './ContextMenu';
 import { Icon } from './Icon';
 import { TerminalFind } from './TerminalFind';
 import { useTabDrag } from './useTabDrag';
 import { terminalStartDir } from '../terminal/startDir';
-import { useHideTool } from './toolHide';
+import { HideToolButton, useHideTool } from './toolHide';
 
 
 type Zone = 'left' | 'right' | 'top' | 'bottom';
@@ -292,9 +293,7 @@ export function TerminalView({ ws }: { ws: Workspace }) {
         <button type="button" className="icon-btn small" aria-label="Options" title="Options" aria-haspopup="menu" onClick={optionsMenu}>
           <Icon name="more" size={14} />
         </button>
-        <button type="button" className="icon-btn small" aria-label="Hide tool window" title="Hide" onClick={hide}>
-          <Icon name="minus" size={14} />
-        </button>
+        <HideToolButton onHide={hide} />
       </div>
       {finding && <TerminalFind key={finding.id} session={finding} requests={findRequests} />}
       <div ref={body} className={'terminal-view' + (split ? (horizontal ? ' split-h' : ' split-v') : '')}>

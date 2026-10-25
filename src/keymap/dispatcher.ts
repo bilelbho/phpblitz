@@ -39,6 +39,15 @@ function typingKey(s: Stroke): boolean {
   return !s.mods.has('Ctrl') && !s.mods.has('Alt') && !s.mods.has('Meta') && !/^F\d+$/.test(s.key);
 }
 
+/**
+ * A key bound to a command that runs in the terminal too (Zoom, Settings, F6…): the terminal lets
+ * it through to the dispatcher instead of sending it to the shell (which would also mark it handled).
+ */
+export function runsInTerminal(e: KeyboardEvent): boolean {
+  const stroke = strokeOf(e);
+  return !!stroke && commandsFor(formatStroke(stroke)).some((id) => command(id)?.always);
+}
+
 /** Installs the dispatcher on the window; returns its removal. */
 export function installDispatcher({ forShell }: DispatchOptions): () => void {
   let chord: { first: string; at: number } | null = null;

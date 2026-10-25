@@ -658,6 +658,17 @@ textarea:focus-visible {
   flex: 1 1 auto;
   align-self: stretch;
 }
+/* The window buttons stay at the right end whatever the window's width: what doesn't fit in the
+   bar goes under them, never them out of sight. */
+.win-controls {
+  display: flex;
+  align-self: stretch;
+  flex: none;
+  position: sticky;
+  right: 0;
+  z-index: 3;
+  background: var(--frame);
+}
 .win-btn {
   width: 46px;
   height: 40px;
@@ -4583,6 +4594,11 @@ body {
 .pp-swatch.on {
   border-color: var(--text);
 }
+/* No color: an empty box struck through. */
+.pp-swatch.none {
+  background: linear-gradient(to top right, transparent calc(50% - 1px), var(--muted) calc(50% - 1px), var(--muted) calc(50% + 1px), transparent calc(50% + 1px));
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
 .pp-sep {
   height: 1px;
   margin: 6px 4px;
@@ -7325,9 +7341,6 @@ body:has(.strip.right.with-names) .balloons {
   left: 0;
   right: 0;
 }
-:root[data-flat] .topbar {
-  border-bottom: 1px solid var(--line);
-}
 :root[data-flat] .statusbar {
   border-top: 1px solid var(--line);
 }
@@ -7336,4 +7349,206 @@ body:has(.strip.right.with-names) .balloons {
 }
 :root[data-flat] .strip.right {
   border-left: 1px solid var(--line);
+}
+
+/* ── Focus layout (Settings ▸ Appearance ▸ Layout) ──────────
+   The editor tabs in the top bar, a sidebar on the left (switched by the icons above it) and tool
+   windows as columns right of the editor. The panels are islands as in Classic, so every theme
+   (Islands and Flat) applies as it is. */
+.app.focus .main {
+  padding: 0 var(--gap);
+}
+/* More columns than fit even shrunk: the area scrolls sideways rather than cutting them off. */
+.focus-main {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.focus-topbar {
+  gap: 0;
+}
+.focus-top-start {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+/* Short of room: the project and branch names are cut before anything else. */
+.focus-top-start .widget {
+  min-width: 0;
+  flex-shrink: 1;
+}
+.focus-top-start .widget-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.focus-top-tabs {
+  flex: 1 1 auto;
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+}
+.focus-top-tabs .tabs {
+  flex: 1 1 auto;
+  height: auto;
+  padding: 0;
+  border-bottom: 0;
+}
+.focus-top-end {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  /* Its icons fold into the ⋯ list when short of room (FocusTopBar): the project and branch give way. */
+  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  align-self: stretch;
+  padding-left: 6px;
+}
+.focus-top-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--line);
+}
+.top-icon.on {
+  background: rgba(var(--ov), 0.12);
+  color: var(--text);
+}
+.top-icon.with-count {
+  width: auto;
+  gap: 4px;
+  padding: 0 8px;
+}
+.top-count {
+  font-size: 12px;
+}
+/* A group with several panels is one island, its icons included (not on the frame and its glow). */
+.focus-group:has(> .focus-group-tabs) {
+  background: var(--island);
+  border-radius: var(--radius);
+}
+.focus-group-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 34px;
+  flex: none;
+  padding: 0 2px;
+}
+.focus-group-tabs .top-icon {
+  position: relative;
+  width: 30px;
+  height: 28px;
+}
+.focus-group-tabs .dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  background: var(--blue);
+}
+/* A column: its groups stacked. A group: its icons (several panels), then the one shown. Their
+   content (a terminal sized for it maximized) never keeps them wider or taller than their size. */
+.focus-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.focus-group {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.focus-group > :not(.focus-group-tabs):not(.focus-grip) {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}
+/* A group's icons on another side (right-click them): below its panel, or a column beside it. */
+.focus-group.icons-bottom > .focus-group-tabs,
+.focus-group.icons-right > .focus-group-tabs {
+  order: 2;
+}
+.focus-group.icons-left,
+.focus-group.icons-right {
+  flex-direction: row;
+}
+.focus-group.icons-left > .focus-group-tabs,
+.focus-group.icons-right > .focus-group-tabs {
+  flex-direction: column;
+  justify-content: flex-start;
+  width: 36px;
+  height: auto;
+  padding: 4px 0;
+}
+/* The grip at a group's top edge, shown on hover: drag the panel by it (the editor has no header). */
+.focus-grip {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  left: 50%;
+  width: 44px;
+  height: 10px;
+  margin-left: -22px;
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.focus-grip::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 12px;
+  right: 12px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--muted);
+}
+.focus-group:hover > .focus-grip,
+.focus-grip:hover {
+  opacity: 1;
+}
+/* Dragging a panel: what letting go does, in the middle of the area it will take. */
+.focus-drop-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.focus-drop-hint span {
+  /* Above the pointer, where the dragged icon doesn't cover it. */
+  transform: translateY(-34px);
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+/* A place among a group's icons: a solid bar between them. */
+.focus-drop-hint:empty {
+  background: var(--blue);
+  border-color: var(--blue);
+  border-radius: 2px;
+}
+/* F6 / Ctrl+Shift+F6: the panel reached, outlined a moment. */
+.panel-flash {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+  transition: outline-color 0.6s;
+}
+/* Headers and the sidebar's icons are handles: drag them between the sidebar and the columns. */
+.focus-main .tw-head {
+  cursor: grab;
+}
+.focus-main .tw-head :is(button, input, select, [role='tab']) {
+  cursor: default;
 }

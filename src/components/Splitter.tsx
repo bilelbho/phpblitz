@@ -1,11 +1,12 @@
 import { useState } from 'react';
 
-/** A 1px divider that can be dragged to resize the panel next to it. */
-export function Splitter({ dir, onDrag }: { dir: 'v' | 'h'; onDrag: (delta: number) => void }) {
+/** A 1px divider that can be dragged to resize the panel next to it. `onStart`: once, as a drag starts. */
+export function Splitter({ dir, onDrag, onStart }: { dir: 'v' | 'h'; onDrag: (delta: number) => void; onStart?: () => void }) {
   const [dragging, setDragging] = useState(false);
 
   const start = (e: React.MouseEvent) => {
     e.preventDefault();
+    onStart?.();
     let last = dir === 'v' ? e.clientX : e.clientY;
     setDragging(true);
     document.body.style.cursor = dir === 'v' ? 'col-resize' : 'row-resize';

@@ -12,6 +12,7 @@ import type { Entry } from '../backend/types';
 import { baseName, relativePath } from '../backend/types';
 import { useTreePrefs, type TreePrefs } from '../treePrefs';
 import { Icon } from './Icon';
+import { HideToolButton } from './toolHide';
 import { scrollRowIntoView, useVirtualRows } from './useVirtualRows';
 import { ContextMenu, type ContextItem } from './ContextMenu';
 import { NewItemDialog, type NewKind } from './NewItemDialog';
@@ -534,9 +535,7 @@ export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void 
         <button type="button" className="icon-btn small" aria-label="Options" title="Options" aria-haspopup="menu" onClick={(e) => menuAt(e, optionsMenu)}>
           <Icon name="more" size={15} />
         </button>
-        <button type="button" className="icon-btn small" aria-label="Hide Project" title="Hide" onClick={onHide}>
-          <Icon name="minus" size={14} />
-        </button>
+        <HideToolButton onHide={onHide} label="Project" />
       </div>
       <div ref={body} className="panel-body tree project-tree" role="tree" aria-label={VIEW_LABELS[prefs.view]} tabIndex={0} onKeyDown={onKeyDown}>
         <div ref={list} style={{ paddingTop: range.before, paddingBottom: range.after }}>

@@ -14,6 +14,7 @@ import { editorAction, editorCommand } from './editorCommands';
 import { runCommand } from './keymap/commands';
 import { getSettings, saveSettings, updateEditorSettings, DEFAULT_SETTINGS, type MainMenuMode, type UiSettings } from './settings';
 import { zoomBy } from './uiSettings';
+import { deleteFocusPreset, focusPresets, openPresetDialog, sameLayout } from './focusLayouts';
 import { isTauri, recentProjects } from './platform';
 import { debug } from './debug/manager';
 import { testRunner } from './tests/runner';
@@ -291,6 +292,13 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
             },
             { kind: 'sep' },
             {
+              label: 'Layout',
+              submenu: [
+                { label: 'Classic', checked: ui().layout === 'classic', run: () => setUi({ layout: 'classic' }) },
+                { label: 'Focus', checked: ui().layout === 'focus', run: () => setUi({ layout: 'focus' }) },
+              ],
+            },
+            {
               label: 'Main Menu',
               submenu: MAIN_MENU_MODES.map((m) => ({
                 label: m.label,
@@ -301,12 +309,13 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
             {
               label: 'Tool Window Bars',
               checked: ui().toolWindowBars,
+              disabled: ui().layout === 'focus',
               run: () => setUi({ toolWindowBars: !ui().toolWindowBars }),
             },
             {
               label: 'Tool Window Names',
               checked: ui().toolWindowNames,
-              disabled: !ui().toolWindowBars,
+              disabled: !ui().toolWindowBars || ui().layout === 'focus',
               run: () => setUi({ toolWindowNames: !ui().toolWindowNames }),
             },
           ],
@@ -675,8 +684,36 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
         {
           label: 'Layouts',
           mnemonic: 'L',
-          submenu: [{ label: 'Restore Default Layout', run: ws.resetToolLayout }],
+          submenu:
+            ui().layout === 'focus'
+              ? [
+                  ...focusPresets().map((p) => ({ label: p.name, checked: sameLayout(p.layout, ws.focus), run: () => ws.applyFocusLayout(p.layout) })),
+                  ...(focusPresets().length ? [{ kind: 'sep' as const }] : []),
+                  { label: 'Save Current Layout As…', run: () => openPresetDialog({ mode: 'save' }) },
+                  {
+                    label: 'Rename Layout',
+                    disabled: !focusPresets().length,
+                    submenu: focusPresets().map((p) => ({ label: p.name, run: () => openPresetDialog({ mode: 'rename', from: p.name }) })),
+                  },
+                  {
+                    label: 'Delete Layout',
+                    disabled: !focusPresets().length,
+                    submenu: focusPresets().map((p) => ({ label: p.name, run: () => deleteFocusPreset(p.name) })),
+                  },
+                  { kind: 'sep' as const },
+                  { label: 'Restore Default Layout', run: ws.resetToolLayout },
+                ]
+              : [{ label: 'Restore Default Layout', run: ws.resetToolLayout }],
         },
+        { label: 'Focus Next Panel', shortcut: shortcut('phpblitz.panel.next'), run: () => runCommand('phpblitz.panel.next', null) },
+        { label: 'Focus Previous Panel', shortcut: shortcut('phpblitz.panel.previous'), run: () => runCommand('phpblitz.panel.previous', null) },
+        {
+          label: ws.focus.maximized ? 'Restore Panel' : 'Maximize Panel',
+          shortcut: shortcut('phpblitz.panel.maximize'),
+          disabled: ui().layout !== 'focus',
+          run: () => runCommand('phpblitz.panel.maximize', null),
+        },
+        { kind: 'sep' },
         {
           label: 'Editor Tabs',
           mnemonic: 'T',

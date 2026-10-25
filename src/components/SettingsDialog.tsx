@@ -53,7 +53,7 @@ const PAGES: Page[] = [
     label: 'Appearance',
     group: 'Appearance & Behavior',
     section: 'ui',
-    keywords: 'theme blitz dark light classic high contrast sync os zoom font size scrollbars compact mode full path window header project colors toolbar smooth scrolling menu icons tree indent guides smaller indents tool window bars names updates check automatically new version main menu bar hamburger merge toolbar',
+    keywords: 'theme blitz dark light classic high contrast sync os zoom font size scrollbars compact mode full path window header project colors toolbar smooth scrolling menu icons tree indent guides smaller indents tool window bars names updates check automatically new version main menu bar hamburger merge toolbar layout classic focus sidebar columns panels tabs in the top bar',
   },
   {
     id: 'keymap',
@@ -352,6 +352,7 @@ function TerminalPage({ ws, value: t, onChange, highlight }: { ws: Workspace; va
         {check('pasteOnMiddleClick', 'Paste on middle mouse button click')}
         {check('overrideIdeShortcuts', 'Override IDE shortcuts')}
         {check('highlightLinks', 'Highlight hyperlinks (applies to new tabs)')}
+        {check('gpu', 'Use the GPU to draw (faster with a lot of output; at 100% display scaling only)')}
       </div>
       <div className="settings-grid">
         <span className={hit('Cursor shape')}>Cursor shape:</span>

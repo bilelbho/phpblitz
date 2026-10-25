@@ -24,6 +24,11 @@ export interface TerminalSettings {
   highlightLinks: boolean;
   cursorShape: 'block' | 'underline' | 'bar';
   cursorBlink: boolean;
+  /**
+   * Draw with the GPU (WebGL) when there is one, faster with a lot of output. Off by default: at
+   * display scaling other than 100% its rows don't line up with the command separators.
+   */
+  gpu: boolean;
 }
 
 export interface EditorSettings {
@@ -104,6 +109,11 @@ export interface UiSettings {
   /** Look for new versions in the background and download them. */
   checkUpdates: boolean;
   mainMenu: MainMenuMode;
+  /**
+   * Classic: tool window bars on the sides and a bottom panel. Focus: editor tabs in the top bar,
+   * a sidebar on the left and tool windows as columns right of the editor.
+   */
+  layout: 'classic' | 'focus';
 }
 
 /** Editor ▸ General ▸ Editor Tabs. */
@@ -228,6 +238,7 @@ export const DEFAULT_SETTINGS: Settings = {
     toolWindowNames: false,
     checkUpdates: true,
     mainMenu: 'merged',
+    layout: 'classic',
   },
   tabs: {
     placement: 'top',
@@ -287,6 +298,7 @@ export const DEFAULT_SETTINGS: Settings = {
     highlightLinks: true,
     cursorShape: 'block',
     cursorBlink: true,
+    gpu: false,
   },
   debug: {
     port: 9003,

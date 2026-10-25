@@ -7,7 +7,7 @@ import { Icon } from './Icon';
 import { FindResults } from './FindInFiles';
 import { DebugPanel, GitToolWindow, TerminalView, TodoToolWindow } from './lazy';
 import { isTauri } from '../platform';
-import { useHideTool } from './toolHide';
+import { HideToolButton, useHideTool } from './toolHide';
 import { TestResults } from './TestResults';
 import { useTestRunner } from '../tests/runner';
 
@@ -72,9 +72,7 @@ export function BottomPanel({ ws, height, tab: only }: { ws: Workspace; height?:
             <div className="tw-head">
               <span className="tw-title">Terminal</span>
               <span className="grow" />
-              <button type="button" className="icon-btn small" aria-label="Hide tool window" title="Hide" onClick={hide}>
-                <Icon name="minus" size={14} />
-              </button>
+              <HideToolButton onHide={hide} />
             </div>
             <div className="panel-body">
               <Terminal ws={ws} />
@@ -102,9 +100,7 @@ export function BottomPanel({ ws, height, tab: only }: { ws: Workspace; height?:
           </button>
         ))}
         <span className="grow" />
-        <button type="button" className="icon-btn small" aria-label="Hide tool window" title="Hide" onClick={hide}>
-          <Icon name="minus" size={14} />
-        </button>
+        <HideToolButton onHide={hide} />
       </div>
       <div className="panel-body">
         {tab === 'problems' && <Problems ws={ws} />}

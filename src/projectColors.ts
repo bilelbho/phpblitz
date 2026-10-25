@@ -5,6 +5,10 @@ import { useEffect, useReducer } from 'react';
 
 export const PROJECT_PALETTE = ['#3d7a4b', '#3574f0', '#9b5fc0', '#c2803a', '#2a8f96', '#c25863', '#5b7cc2', '#7d8f2e', '#b0569b', '#4f8a8b'];
 
+/** Chosen as a project's color: none (a gray badge, no glow over the toolbar). */
+export const NO_PROJECT_COLOR = 'none';
+const NEUTRAL = '#6f737a';
+
 const KEY = 'phpblitz.projectColors';
 
 function chosen(): Record<string, string> {
@@ -15,15 +19,20 @@ function chosen(): Record<string, string> {
   }
 }
 
-/** A project's color: chosen by the user, else derived from its name. */
+/** A project's color: chosen by the user (gray for no color), else derived from its name. */
 export function colorOfProject(root: string, name: string): string {
   const custom = chosen()[root];
+  if (custom === NO_PROJECT_COLOR) return NEUTRAL;
   if (custom) return custom;
   let h = 0;
   for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return PROJECT_PALETTE[h % 8];
 }
 
+/** No color chosen for the project: its badge is gray, and the toolbar has no glow. */
+export const projectHasNoColor = (root: string) => chosen()[root] === NO_PROJECT_COLOR;
+
+/** `color`: a palette color, NO_PROJECT_COLOR, or null for the one derived from the name. */
 export function setProjectColor(root: string, color: string | null) {
   const all = chosen();
   if (color) all[root] = color;

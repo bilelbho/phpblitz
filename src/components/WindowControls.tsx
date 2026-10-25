@@ -7,7 +7,7 @@ export function WindowControls() {
   if (!isTauri) return null;
   const win = getCurrentWindow();
   return (
-    <div style={{ display: 'flex', alignSelf: 'stretch' }}>
+    <div className="win-controls">
       <button type="button" className="win-btn" aria-label="Minimize" onClick={() => win.minimize()}>
         <Icon name="winMin" size={14} />
       </button>

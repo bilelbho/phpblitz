@@ -7,6 +7,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Workspace } from './useWorkspace';
 import { baseName, relativePath, type Problem } from './backend/types';
 import { isTauri } from './platform';
+import { pasteInto } from './clipboard';
 import { codeActionsAt, isLspActive, type CodeAction } from './lsp/monacoBridge';
 import { testMenuItems, testsOf } from './tests/gutter';
 import { testAt } from './tests/discover';
@@ -289,7 +290,8 @@ export function buildEditorMenu(
     SEP,
     { label: 'Cut', shortcut: 'Ctrl+X', icon: 'cut', run: run('editor.action.clipboardCutAction') },
     { label: 'Copy', shortcut: 'Ctrl+C', icon: 'copy', run: run('editor.action.clipboardCopyAction') },
-    { label: 'Paste', shortcut: 'Ctrl+V', icon: 'paste', run: run('editor.action.clipboardPasteAction') },
+    // Not Monaco's Paste command: it reads the clipboard the way that makes the web view ask first.
+    { label: 'Paste', shortcut: 'Ctrl+V', icon: 'paste', run: () => void pasteInto(editor) },
     {
       label: 'Copy Path/Reference…',
       submenu: [

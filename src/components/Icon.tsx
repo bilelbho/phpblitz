@@ -89,6 +89,10 @@ import {
   IconUser,
   IconX,
   type IconProps,
+  IconArrowsMaximize,
+  IconArrowsMinimize,
+  IconLayoutSidebar,
+  IconLayoutSidebarRight,
 } from '@tabler/icons-react';
 import type { ComponentType } from 'react';
 import { STROKE } from './FileIcon';
@@ -190,6 +194,10 @@ const ICONS = {
   chevronUp: IconChevronUp,
   winMin: IconMinus,
   winMax: IconSquare,
+  sidebar: IconLayoutSidebar,
+  panels: IconLayoutSidebarRight,
+  maximize: IconArrowsMaximize,
+  restore: IconArrowsMinimize,
   winClose: IconX,
   warning: IconAlertTriangle,
   error: IconAlertCircle,

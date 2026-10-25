@@ -187,9 +187,23 @@ export function AppearancePage({ value: ui, onChange, highlight, onEditorScheme 
       </div>
 
       <h3 className="settings-section">Tool Windows</h3>
-      <div className="settings-columns">
-        <Check label="Show tool window bars" checked={ui.toolWindowBars} onChange={(v) => onChange({ toolWindowBars: v })} help="The icon strips at the window's sides. Alt+1, Alt+9… still open tool windows." hit={hit} />
-        <Check label="Show tool window names" checked={ui.toolWindowNames} disabled={!ui.toolWindowBars} onChange={(v) => onChange({ toolWindowNames: v })} hit={hit} />
+      <div className="settings-grid">
+        <label htmlFor="ui-layout" className={hit('Layout')}>
+          Layout:
+        </label>
+        <Select
+          id="ui-layout"
+          value={ui.layout}
+          options={[
+            { id: 'classic', label: 'Classic: tool window bars and a bottom panel' },
+            { id: 'focus', label: 'Focus: tabs in the top bar, panels as columns' },
+          ]}
+          onChange={(layout) => onChange({ layout })}
+        />
+      </div>
+      <div className="settings-columns" style={{ marginTop: 8 }}>
+        <Check label="Show tool window bars" disabled={ui.layout === 'focus'} checked={ui.toolWindowBars} onChange={(v) => onChange({ toolWindowBars: v })} help="The icon strips at the window's sides. Alt+1, Alt+9… still open tool windows." hit={hit} />
+        <Check label="Show tool window names" checked={ui.toolWindowNames} disabled={!ui.toolWindowBars || ui.layout === 'focus'} onChange={(v) => onChange({ toolWindowNames: v })} hit={hit} />
       </div>
 
       <h3 className="settings-section">Updates</h3>

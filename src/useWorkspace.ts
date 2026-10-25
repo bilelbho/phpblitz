@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { invalidateLaravelFiles, setLaravelProject } from './completion/laravel';
 import { isScriptModel, scriptFileChanged, scriptFilesChanged, scriptProblem, scriptUsages, setScriptContext } from './jsProjects';
-import { anchorOf, DEFAULT_LAYOUT, isBottomTool, loadToolLayout, moveTool as moveToolIn, saveToolLayout, type Anchor, type BottomTool, type SideAnchor, type SideTool, type Tool, type ToolLayout } from './toolLayout';
+import { anchorOf, DEFAULT_LAYOUT, FOCUS_START, focusStateFrom, hidePanel, isBottomTool, loadToolLayout, movePanel, panelShown, resizeColumn, resizeGroups, setColumnWidth, setIconsSide, showPanel, toggleFirstColumn, moveTool as moveToolIn, saveToolLayout, type Anchor, type BottomTool, type FocusDrop, type FocusPanel, type FocusState, type IconsSide, type SideAnchor, type SideTool, type Tool, type ToolLayout } from './toolLayout';
 import * as monaco from 'monaco-editor';
 import type { Backend, CommitOptions, Entry, GitInfo, Package, Problem, RunResult } from './backend/types';
 import { testRunner, type Scope } from './tests/runner';
-import { baseName } from './backend/types';
+import { baseName, relativePath } from './backend/types';
 import { languageOf, phpIndex, routesOf, structureOf, type PhpSymbol, type Route } from './php';
 import { symbols } from './symbols';
 import { findUsages as indexFindUsages, setDefinitionOpener, targetAt } from './navigation';
@@ -40,6 +40,8 @@ import { planForTarget, renameEdits } from './rename';
 import { perf } from './perf';
 import { insertTab, nextActive, overLimit } from './tabPolicy';
 import { getSettings, useSettings } from './settings';
+import { loadFocusLayout, saveFocusLayout } from './focusLayouts';
+import { loadClassicLayout, saveClassicLayout, type ClassicSizes } from './classicLayout';
 import { composerTerminalLine } from './composer';
 import { Git } from './git/git';
 import type { SearchOptions, SearchResult } from './search';
@@ -103,6 +105,8 @@ export function toolOfTab(tab: BottomTab): BottomTool | null {
 }
 export const tabOfTool = (t: BottomTool): BottomTab => (t === 'composerLog' ? 'composer' : t);
 const ALL_TOOLS = Object.values(DEFAULT_LAYOUT).flat();
+/** Settings ▸ Appearance ▸ Layout is Focus: tool windows open in the sidebar or as columns. */
+const focusLayout = () => getSettings().ui.layout === 'focus';
 
 export interface LspStatus {
   state: 'off' | 'starting' | 'ready' | 'missing' | 'stopped' | 'error';
@@ -280,11 +284,38 @@ export function useWorkspace(backend: Backend) {
   const [toolLayout, setToolLayoutState] = useState<ToolLayout>(loadToolLayout);
   const toolLayoutRef = useRef(toolLayout);
   toolLayoutRef.current = toolLayout;
-  const [openTools, setOpenTools] = useState<Record<SideAnchor, Tool | null>>({ leftTop: 'project', leftBottom: null, rightTop: null, rightBottom: null });
+  // Classic: as this project left it (which tool windows are open, the sizes).
+  const [classicStart] = useState(() => loadClassicLayout(backend.root, toolLayout));
+  const [openTools, setOpenTools] = useState<Record<SideAnchor, Tool | null>>(classicStart.open);
   /** A side tool window (Project, Commit…) dragged into the bottom panel and open there. */
-  const [bottomSideTool, setBottomSideTool] = useState<SideTool | null>(null);
-  const [bottomTab, setBottomTab] = useState<BottomTab>('problems');
-  const [bottomOpen, setBottomOpen] = useState(true);
+  const [bottomSideTool, setBottomSideTool] = useState<SideTool | null>(classicStart.bottomSideTool);
+  const [bottomTab, setBottomTab] = useState<BottomTab>(classicStart.bottomTab);
+  const [bottomOpen, setBottomOpen] = useState(classicStart.bottomOpen);
+  /** Classic: the side columns' widths, their top tool window's height, the bottom panel's height. */
+  const [classicSizes, setClassicSizes] = useState<ClassicSizes>(classicStart.sizes);
+  /** A size `delta` px bigger, within bounds. */
+  const resizeClassic = useCallback(
+    (key: keyof ClassicSizes, delta: number, min: number, max: number) => setClassicSizes((s) => ({ ...s, [key]: Math.min(max, Math.max(min, s[key] + delta)) })),
+    [],
+  );
+  const classicChanged = useRef(false);
+  useEffect(() => {
+    // Not the state just loaded: only what changes after.
+    if (classicChanged.current) {
+      // Find and Usages results are gone after a restart: the bottom panel shows Problems then.
+      const tab = bottomTab === 'find' || bottomTab === 'usages' ? 'problems' : bottomTab;
+      saveClassicLayout(backend.root, { open: openTools, bottomOpen, bottomTab: tab, bottomSideTool, sizes: classicSizes });
+    }
+    classicChanged.current = true;
+  }, [backend.root, openTools, bottomOpen, bottomTab, bottomSideTool, classicSizes]);
+  /** Focus layout (Settings ▸ Appearance ▸ Layout): the sidebar and the columns, as this project left them. */
+  const [focus, setFocus] = useState<FocusState>(() => loadFocusLayout(backend.root));
+  const focusChanged = useRef(false);
+  useEffect(() => {
+    // Not the layout just loaded: only what changes after.
+    if (focusChanged.current) saveFocusLayout(backend.root, focus);
+    focusChanged.current = true;
+  }, [backend.root, focus]);
   const [searchOpen, setSearchOpen] = useState(false);
   /** Settings window (Ctrl+Alt+S), open on a page. */
   const [settingsPage, setSettingsPage] = useState<string | null>(null);
@@ -304,10 +335,12 @@ export function useWorkspace(backend: Backend) {
     setSearchOpen(true);
   }, []);
   // Which tool window is open where, for the callbacks below (they run outside renders).
-  const openRef = useRef({ openTools, bottomOpen, bottomTab, bottomSideTool });
-  openRef.current = { openTools, bottomOpen, bottomTab, bottomSideTool };
+  const openRef = useRef({ openTools, bottomOpen, bottomTab, bottomSideTool, focus });
+  openRef.current = { openTools, bottomOpen, bottomTab, bottomSideTool, focus };
+  // In the Focus layout the same calls open the sidebar or a column instead (focusLayout).
   const toolOpenNow = (t: Tool): boolean => {
-    const { openTools: open, bottomOpen: bOpen, bottomTab: tab, bottomSideTool: bSide } = openRef.current;
+    const { openTools: open, bottomOpen: bOpen, bottomTab: tab, bottomSideTool: bSide, focus: f } = openRef.current;
+    if (focusLayout()) return panelShown(f, t);
     const anchor = anchorOf(toolLayoutRef.current, t);
     if (anchor !== 'bottom') return open[anchor] === t;
     return bOpen && (isBottomTool(t) ? !bSide && toolOfTab(tab) === t : bSide === t);
@@ -315,6 +348,11 @@ export function useWorkspace(backend: Backend) {
   const isToolOpen = toolOpenNow;
   /** Opens a tool window where it lives, without closing it when it is already open. */
   const showTool = useCallback((t: Tool) => {
+    if (focusLayout()) {
+      if (isBottomTool(t)) setBottomTab(tabOfTool(t));
+      setFocus((f) => showPanel(f, t));
+      return;
+    }
     const anchor = anchorOf(toolLayoutRef.current, t);
     if (anchor === 'bottom') {
       if (isBottomTool(t)) {
@@ -325,6 +363,10 @@ export function useWorkspace(backend: Backend) {
     } else setOpenTools((o) => ({ ...o, [anchor]: t }));
   }, []);
   const hideTool = useCallback((t: Tool) => {
+    if (focusLayout()) {
+      setFocus((f) => hidePanel(f, t));
+      return;
+    }
     const anchor = anchorOf(toolLayoutRef.current, t);
     if (anchor === 'bottom') setBottomOpen(false);
     else setOpenTools((o) => (o[anchor] === t ? { ...o, [anchor]: null } : o));
@@ -344,6 +386,7 @@ export function useWorkspace(backend: Backend) {
     [hideTool, showTool],
   );
   const resetToolLayout = useCallback(() => {
+    if (focusLayout()) return setFocus(FOCUS_START);
     const open = ALL_TOOLS.filter(toolOpenNow);
     setOpenTools({ leftTop: null, leftBottom: null, rightTop: null, rightBottom: null });
     setBottomSideTool(null);
@@ -361,6 +404,11 @@ export function useWorkspace(backend: Backend) {
   const showBottom = useCallback(
     (t: BottomTab) => {
       const tool = toolOfTab(t);
+      if (focusLayout()) {
+        setBottomTab(t);
+        setFocus((f) => showPanel(f, tool ?? (t as 'find' | 'usages')));
+        return;
+      }
       if (tool && anchorOf(toolLayoutRef.current, tool) !== 'bottom') return showTool(tool);
       setBottomSideTool(null);
       setBottomTab(t);
@@ -368,6 +416,24 @@ export function useWorkspace(backend: Backend) {
     },
     [showTool],
   );
+
+  /** Focus layout: closes a panel's group (a tool window or the Find / Usages results); it stays in its place. */
+  const hideFocusPanel = useCallback((p: FocusPanel) => setFocus((f) => hidePanel(f, p)), []);
+  const showFocusPanel = useCallback((p: FocusPanel) => setFocus((f) => showPanel(f, p)), []);
+  const maximizeFocusPanel = useCallback((p: FocusPanel | null) => setFocus((f) => ({ ...f, maximized: p })), []);
+  /** The top bar's sidebar button: the column left of the editor's. */
+  const toggleFocusSidebar = useCallback(() => setFocus(toggleFirstColumn), []);
+  /** A column `width` px wide (as a splitter drag starts: the width it has on screen). */
+  const setFocusColumnWidth = useCallback((c: number, width: number) => setFocus((f) => setColumnWidth(f, c, width, window.innerWidth - 360)), []);
+  /** A column `delta` px wider: each mouse move of a splitter drag, added to the width as it is then. */
+  const resizeFocusColumn = useCallback((c: number, delta: number) => setFocus((f) => resizeColumn(f, c, delta, window.innerWidth - 360)), []);
+  /** The splitter below group `g` of column `c` moved (`height`: the column's). */
+  const resizeFocusGroups = useCallback((c: number, g: number, delta: number, height: number) => setFocus((f) => resizeGroups(f, c, g, delta, height)), []);
+  const moveFocusPanel = useCallback((p: FocusPanel, drop: FocusDrop) => setFocus((f) => movePanel(f, p, drop)), []);
+  /** The side of its group the icons of `p`'s group are on. */
+  const setFocusIconsSide = useCallback((p: FocusPanel, side: IconsSide) => setFocus((f) => setIconsSide(f, p, side)), []);
+  /** A preset: its panels, places and sizes. */
+  const applyFocusLayout = useCallback((layout: FocusState) => setFocus(focusStateFrom(layout)), []);
 
   // ── Editor tabs and documents ─────────────────────────────────
   const [tabs, setTabs] = useState<Tab[]>([]);
@@ -714,6 +780,18 @@ export function useWorkspace(backend: Backend) {
     },
     [backend, notify, releaseFile, checkFile],
   );
+
+  // A .blitz file that couldn't be used as it was (a bad edit, a merge): said once, when the project opens.
+  useEffect(() => {
+    for (const p of projectStorage.takeProblems())
+      notify({
+        title: `.blitz/${p.name} couldn't be read`,
+        body: p.copy ? `${p.message} The file as it was: ${relativePath(backend, p.copy)}` : p.message,
+        tone: 'warning',
+        action: p.copy ? { label: 'Open It', run: () => void openFile(p.copy!) } : undefined,
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // ── Back / Forward, Reopen Closed Tab (navHistory.ts) ─────────
   // Another file's tab in front is a move too (a click on the tab doesn't touch its caret).
   useEffect(() => {
@@ -2246,6 +2324,8 @@ export function useWorkspace(backend: Backend) {
     onEdit, onModelEdit, save, saveActive, goto, setGoto, breakpoints, toggleBreakpoint, structure, problems,
     // tool windows
     toolLayout, openTools, bottomSideTool, showTool, toggleTool, hideTool, isToolOpen, placeTool, resetToolLayout, toggleLeft, showLeft, setRightTool, toggleRight, bottomTab, bottomOpen, setBottomOpen, showBottom,
+    classicSizes, resizeClassic,
+    focus, hideFocusPanel, showFocusPanel, maximizeFocusPanel, toggleFocusSidebar, setFocusColumnWidth, resizeFocusColumn, resizeFocusGroups, moveFocusPanel, setFocusIconsSide, applyFocusLayout,
     searchOpen, setSearchOpen, searchTab, openSearch, recentFiles, forgetRecent, editedFiles, recentOpen, setRecentOpen,
     locationsOpen, setLocationsOpen, goToPlace, navigateBack, navigateForward, reopenClosedTab,
     settingsPage, openSettings: (page = 'terminal') => setSettingsPage(page), closeSettings: () => setSettingsPage(null),
