@@ -1674,6 +1674,28 @@ table.grid .number {
   padding: 0 6px;
   border-radius: 4px;
 }
+/* A narrow window (or a large zoom): the breadcrumbs and the last message give way first, then
+   the file's line separator, encoding and indentation; the rest always fits. */
+.statusbar {
+  overflow: hidden;
+}
+.statusbar > .item {
+  flex: none;
+  white-space: nowrap;
+}
+.statusbar > .item.status-message {
+  flex: 0 1 auto;
+  min-width: 40px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  line-height: 22px;
+}
+@media (max-width: 860px) {
+  .statusbar > .item.status-optional {
+    display: none;
+  }
+}
 button.item:hover {
   background: var(--hover-strong);
 }
@@ -5968,8 +5990,26 @@ body {
 }
 
 /* Help ▸ About PHPBlitz / Open Source Licenses */
+.empty.binary-file {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 100%;
+  text-align: center;
+}
 .about-dialog {
   width: min(640px, calc(100vw - 32px));
+  /* The buttons stay on screen in a small window: the text scrolls. */
+  max-height: calc(82vh - 16px); /* below the backdrop's 18vh top space */
+  display: flex;
+  flex-direction: column;
+}
+.about-dialog > .about-body,
+.about-dialog > .licenses-body {
+  min-height: 0;
+  overflow: auto;
 }
 .about-body {
   display: flex;

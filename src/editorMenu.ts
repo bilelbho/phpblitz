@@ -181,7 +181,7 @@ export function magoMenu(editor: Editor, ws: Workspace, path: string): ContextIt
         editor.trigger('phpblitz', 'editor.action.formatDocument', {});
       },
     },
-    { label: 'Re-analyze Project', icon: 'refresh', disabled: !disk || ws.magoStatus.state === 'analyzing', run: ws.reanalyzeProject },
+    { label: ws.magoStatus.state === 'analyzing' ? 'Restart Project Analysis' : 'Re-analyze Project', icon: 'refresh', disabled: !disk, run: ws.reanalyzeProject },
     { label: 'Show Project Errors', icon: 'error', disabled: !disk, run: () => ws.showBottom('problems') },
     SEP,
     { label: ws.magoStatus.summary?.configFile ? 'Open mago.toml' : 'Create mago.toml', disabled: !disk, run: ws.openMagoConfig },

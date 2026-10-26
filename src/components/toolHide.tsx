@@ -18,13 +18,15 @@ export function useHideTool(fallback: () => void): () => void {
 /** The buttons at the right end of a tool window's header: Hide (Close in a column), and Maximize in a column. */
 export function HideToolButton({ onHide, label = 'tool window' }: { onHide: () => void; label?: string }) {
   const column = useContext(ToolColumnContext);
+  // "Close Project" would read like File ▸ Close Project: "Close Project panel".
+  const name = label === 'tool window' ? label : `${label} panel`;
   return (
     <>
       {column && (
         <button
           type="button"
           className="icon-btn small"
-          aria-label={column.maximized ? `Restore ${label}` : `Maximize ${label}`}
+          aria-label={column.maximized ? `Restore ${name}` : `Maximize ${name}`}
           aria-pressed={column.maximized}
           title={column.maximized ? 'Restore' : 'Maximize'}
           onClick={column.toggleMaximized}
@@ -32,7 +34,7 @@ export function HideToolButton({ onHide, label = 'tool window' }: { onHide: () =
           <Icon name={column.maximized ? 'restore' : 'maximize'} size={14} />
         </button>
       )}
-      <button type="button" className="icon-btn small" aria-label={`${column ? 'Close' : 'Hide'} ${label}`} title={column ? 'Close' : 'Hide'} onClick={onHide}>
+      <button type="button" className="icon-btn small" aria-label={`${column ? 'Close' : 'Hide'} ${name}`} title={column ? 'Close' : 'Hide'} onClick={onHide}>
         <Icon name={column ? 'close' : 'minus'} size={14} />
       </button>
     </>

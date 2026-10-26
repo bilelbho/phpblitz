@@ -101,7 +101,7 @@ export function constraintsSql(driver: Driver, schema: string, table: string): s
      WHERE tc.table_schema = ${s} AND tc.table_name = ${t}
      GROUP BY tc.constraint_name, tc.constraint_type ORDER BY tc.constraint_type = 'PRIMARY KEY' DESC, tc.constraint_name`;
   // SQLite: the primary key from table_info, foreign keys from foreign_key_list.
-  return `SELECT 'pk_' || ${t}, 'pk', group_concat(name, ', '), NULL, NULL, NULL FROM (SELECT name FROM pragma_table_info(${t}) WHERE pk > 0 ORDER BY pk) HAVING count(*) > 0
+  return `SELECT 'pk_' || ${t}, 'pk', group_concat(name, ', '), NULL, NULL, NULL, NULL, NULL FROM (SELECT name FROM pragma_table_info(${t}) WHERE pk > 0 ORDER BY pk) HAVING count(*) > 0
     UNION ALL
     SELECT 'fk_' || ${t} || '_' || id, 'fk', group_concat("from", ', '), "table", group_concat("to", ', '), NULL, MAX(on_delete), MAX(on_update) FROM pragma_foreign_key_list(${t}) GROUP BY id`;
 }

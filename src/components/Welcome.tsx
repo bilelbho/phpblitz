@@ -182,8 +182,10 @@ function Projects({ onOpenFolder, onOpenPath, onOpenSample }: Props) {
   const search = useRef<HTMLInputElement>(null);
 
   const shown = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return q ? recent.filter((r) => r.name.toLowerCase().includes(q) || r.path.toLowerCase().includes(q)) : recent;
+    // C:\demo\kimai finds C:/demo/kimai: either slash.
+    const slashes = (s: string) => s.toLowerCase().replace(/\\/g, '/');
+    const q = slashes(query.trim());
+    return q ? recent.filter((r) => r.name.toLowerCase().includes(q) || slashes(r.path).includes(q)) : recent;
   }, [recent, query]);
   useEffect(() => setSelected(0), [query]);
   useEffect(() => search.current?.focus(), []);

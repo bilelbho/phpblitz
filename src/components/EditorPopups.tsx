@@ -6,6 +6,8 @@ import * as monaco from 'monaco-editor';
 import type { PhpSymbol } from '../php';
 import { Icon, Sym, Visibility } from './Icon';
 import { SYMBOL_KIND, symbolLabel } from './StructurePanel';
+import { jumpedTo } from '../navHistory';
+import { uriToPath } from '../lsp/client';
 
 type Editor = monaco.editor.IStandaloneCodeEditor;
 
@@ -27,6 +29,7 @@ export function GotoLineDialog({ editor, onClose }: { editor: Editor; onClose: (
     const model = editor.getModel()!;
     const column = Math.min(Math.max(Number(m[2] ?? 1), 1), model.getLineMaxColumn(line));
     onClose();
+    jumpedTo({ path: uriToPath(model.uri.toString()), line, column });
     editor.setPosition({ lineNumber: line, column });
     editor.revealPositionInCenter({ lineNumber: line, column });
     editor.focus();
@@ -47,7 +50,11 @@ export function GotoLineDialog({ editor, onClose }: { editor: Editor; onClose: (
               value={value}
               spellCheck={false}
               onChange={(e) => setValue(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && go()}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                go();
+              }}
             />
           </div>
           <span className="muted" style={{ fontSize: 12 }}>

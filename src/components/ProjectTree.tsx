@@ -510,7 +510,7 @@ export function ProjectTree({ ws, onHide }: { ws: Workspace; onHide: () => void 
   return (
     <>
       <div className="tw-head">
-        <button type="button" className="tw-tab view-switch" aria-haspopup="menu" onClick={(e) => menuAt(e, viewMenu)} title="Change view">
+        <button type="button" className="tw-tab view-switch" aria-haspopup="menu" aria-label={`${VIEW_LABELS[prefs.view]}: change view`} onClick={(e) => menuAt(e, viewMenu)} title="Change view">
           <span className="tw-title" style={{ padding: 0 }}>
             {VIEW_LABELS[prefs.view]}
           </span>

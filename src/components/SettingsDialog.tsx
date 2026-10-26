@@ -608,10 +608,14 @@ function DebugPage({ value: d, onChange, highlight }: { value: DebugSettings; on
           Debug port:
         </label>
         <div className="settings-row">
-          <div className="field" style={{ width: 90 }}>
+          <div className={'field' + (d.port >= 1 && d.port <= 65535 ? '' : ' invalid')} style={{ width: 90 }}>
             <input id="debug-port" value={d.port} onChange={(e) => onChange({ port: Number(e.target.value.replace(/\D/g, '')) || 0 })} />
           </div>
-          <span className="muted">Xdebug 3 connects to 9003 by default (xdebug.client_port).</span>
+          {d.port >= 1 && d.port <= 65535 ? (
+            <span className="muted">Xdebug 3 connects to 9003 by default (xdebug.client_port).</span>
+          ) : (
+            <span className="error-text">A port is 1 to 65535: Apply keeps {d.port > 65535 ? '65535' : '9003'}.</span>
+          )}
         </div>
         <label htmlFor="debug-children" className={hit('Max children')}>
           Max array items shown:

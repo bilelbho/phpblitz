@@ -14,6 +14,7 @@ import type { Commit } from '../git/git';
 import { projectStorage } from '../projectStorage';
 import { copyText, hasLocalHistory } from '../editorMenu';
 import { openLocalHistory } from './LocalHistoryDialog';
+import { NoGit } from './TrustDialog';
 
 const nativePath = (p: string) => (/^[A-Za-z]:\//.test(p) ? p.replace(/\//g, '\\') : p);
 const STATUS_LABEL = { M: 'modified', A: 'added', D: 'deleted', R: 'renamed', U: 'unversioned' } as const;
@@ -128,7 +129,7 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
     });
 
   if (!ws.gitLoaded) return <div className="empty">Reading Git status…</div>;
-  if (!ws.git) return <div className="empty">This project is not a Git repository, or Git is not installed.</div>;
+  if (!ws.git) return <NoGit restricted={ws.backend.restricted} />;
 
   const showDiff = (c: GitChange) => (c.status === 'U' ? ws.openFile(c.path) : ws.openDiff(c.path));
   const selectedChange = all.find((c) => c.path === selected);

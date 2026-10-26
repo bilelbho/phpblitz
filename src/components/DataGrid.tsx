@@ -1,7 +1,7 @@
 // Result grid for tables and query results: sorting, keyboard navigation, in-place editing
 // (double-click / Enter / F2), Set NULL, and copying cells or rows.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Column } from '../db/types';
 import { ContextMenu, type ContextItem } from './ContextMenu';
 
@@ -25,6 +25,10 @@ interface Props {
   onCloneRow?: (row: number) => void;
 }
 
+/** Above this many rows only the rows in view (and some around them) are in the page. */
+const VIRTUAL_FROM = 1000;
+const OVERSCAN = 30;
+
 const NUMERIC = /^(int|integer|bigint|smallint|tinyint|mediumint|decimal|numeric|real|double|float|money|serial|bigserial)/i;
 
 export function DataGrid({ columns, meta, rows, firstRow = 1, sort, onSort, edits, onEdit, rowState, onDeleteRows, onCloneRow }: Props) {
@@ -33,6 +37,23 @@ export function DataGrid({ columns, meta, rows, firstRow = 1, sort, onSort, edit
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
   const box = useRef<HTMLDivElement>(null);
   const editable = !!onEdit;
+  // Long tables (a big CSV): rows are all the same height (no wrapping), so the scroll position says which are in view.
+  const virtual = rows.length > VIRTUAL_FROM;
+  const [view, setView] = useState({ top: 0, height: 800 });
+  const [rowHeight, setRowHeight] = useState(25);
+  const start = virtual ? Math.max(0, Math.floor(view.top / rowHeight) - OVERSCAN) : 0;
+  const end = virtual ? Math.min(rows.length, Math.ceil((view.top + view.height) / rowHeight) + OVERSCAN) : rows.length;
+  const firstBodyRow = useRef<HTMLTableRowElement>(null);
+  useLayoutEffect(() => {
+    const h = firstBodyRow.current?.getBoundingClientRect().height;
+    if (virtual && h && Math.abs(h - rowHeight) > 0.5) setRowHeight(h);
+  }, [virtual, rowHeight, start]);
+  const onScroll = () => {
+    const el = box.current;
+    if (virtual && el) setView({ top: el.scrollTop, height: el.clientHeight });
+  };
+  // The viewport's size, once it's long enough to need it.
+  useEffect(onScroll, [virtual]);
 
   useEffect(() => {
     if (sel && (sel.r >= rows.length || sel.c >= columns.length)) setSel(rows.length && columns.length ? { r: Math.min(sel.r, rows.length - 1), c: Math.min(sel.c, columns.length - 1) } : null);
@@ -41,7 +62,14 @@ export function DataGrid({ columns, meta, rows, firstRow = 1, sort, onSort, edit
   // Keep the selected cell in view.
   useEffect(() => {
     if (!sel) return;
+    // A row out of the rendered ones: scrolled to, it renders.
+    if (virtual && box.current && (sel.r < start || sel.r >= end)) {
+      box.current.scrollTop = Math.max(0, sel.r * rowHeight - box.current.clientHeight / 2);
+      return;
+    }
     box.current?.querySelector(`[data-cell="${sel.r}:${sel.c}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    // Only when the selection moves, not while scrolling.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel]);
 
   const valueAt = (r: number, c: number) => (edits?.has(`${r}:${c}`) ? edits.get(`${r}:${c}`)! : rows[r]?.[c] ?? null);
@@ -125,7 +153,7 @@ export function DataGrid({ columns, meta, rows, firstRow = 1, sort, onSort, edit
 
   if (!columns.length) return <div className="empty">No columns.</div>;
   return (
-    <div ref={box} className="grid-wrap" tabIndex={0} onKeyDown={onKey}>
+    <div ref={box} className="grid-wrap" tabIndex={0} onKeyDown={onKey} onScroll={onScroll}>
       <table className="grid">
         <thead>
           <tr>
@@ -145,10 +173,12 @@ export function DataGrid({ columns, meta, rows, firstRow = 1, sort, onSort, edit
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, r) => {
+          {start > 0 && <tr aria-hidden style={{ height: start * rowHeight }} />}
+          {rows.slice(start, end).map((row, i) => {
+            const r = start + i;
             const state = rowState?.(r);
             return (
-              <tr key={r} className={state ? `row-${state}` : undefined}>
+              <tr key={r} ref={i === 0 ? firstBodyRow : undefined} className={state ? `row-${state}` : undefined}>
                 <td className="num">{state === 'new' ? '+' : firstRow + r}</td>
                 {row.map((_, c) => {
                   const v = valueAt(r, c);
@@ -194,6 +224,7 @@ export function DataGrid({ columns, meta, rows, firstRow = 1, sort, onSort, edit
               </tr>
             );
           })}
+          {end < rows.length && <tr aria-hidden style={{ height: (rows.length - end) * rowHeight }} />}
         </tbody>
       </table>
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}

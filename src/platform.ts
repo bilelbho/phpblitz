@@ -1,4 +1,4 @@
-import { ask, open } from '@tauri-apps/plugin-dialog';
+import { ask, message, open } from '@tauri-apps/plugin-dialog';
 
 /** True inside the Tauri desktop window, false in a plain browser (npm run dev). */
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -6,6 +6,15 @@ export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in
 export async function confirmDialog(message: string): Promise<boolean> {
   if (isTauri) return ask(message, { title: 'PHPBlitz', kind: 'warning' });
   return window.confirm(message);
+}
+
+/** Save / Don't Save / Cancel, for unsaved files about to be left behind. */
+export async function askUnsaved(text: string): Promise<'save' | 'discard' | 'cancel'> {
+  if (!isTauri) return window.confirm(`${text}
+
+OK saves them first.`) ? 'save' : 'cancel';
+  const picked = await message(text, { title: 'PHPBlitz', kind: 'warning', buttons: { yes: 'Save', no: "Don't Save", cancel: 'Cancel' } });
+  return picked === 'Save' ? 'save' : picked === "Don't Save" ? 'discard' : 'cancel';
 }
 
 export async function pickFolder(): Promise<string | null> {

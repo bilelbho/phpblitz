@@ -3,12 +3,15 @@ import * as monaco from 'monaco-editor';
 // The code editor and its PHP support load with the workspace, not at launch (see lazy.tsx).
 import '../monaco';
 import '../mago';
-import type { Backend } from '../backend/types';
+import { baseName, type Backend } from '../backend/types';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { askUnsaved, isTauri } from '../platform';
+import { confirmLeave, setUnsavedGuard } from '../unsavedGuard';
 import { tabOfTool, toolOfTab, useWorkspace } from '../useWorkspace';
 import { Icon, type IconName } from './Icon';
 import { Splitter } from './Splitter';
 import { ContextMenu } from './ContextMenu';
-import { TopBar } from './TopBar';
+import { openBranches, TopBar } from './TopBar';
 import { FocusTopBar } from './FocusTopBar';
 import { FocusPresetDialog } from './FocusPresetDialog';
 import { usePresetDialog } from '../focusLayouts';
@@ -35,7 +38,7 @@ import { EndpointsPanel } from './EndpointsPanel';
 import { ComposerPanel } from './ComposerPanel';
 import { NpmPanel } from './NpmPanel';
 import { StatusBar } from './StatusBar';
-import { TrustDialog } from './TrustDialog';
+import { onAskTrust, TrustDialog } from './TrustDialog';
 import { SearchEverywhere } from './SearchEverywhere';
 import { FindInFiles } from './FindInFiles';
 import { AboutDialog, DatabasePanel, SettingsDialog, StartupPerformance } from './lazy';
@@ -81,6 +84,7 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
   const ws = useWorkspace(backend);
   /** Restricted Mode ▸ trust the project (it opens again, with everything running). */
   const [trusting, setTrusting] = useState(false);
+  useEffect(() => onAskTrust(() => setTrusting(true)), []);
   useFileDrop(ws);
   const perfState = usePerf();
   const appDialog = useAppDialog();
@@ -130,6 +134,28 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
   // dispatcher that runs them. In a code editor, its own actions with the same ids come first.
   const latest = useRef({ ws, openSearch });
   latest.current = { ws, openSearch };
+
+  // Unsaved files when the window closes (close button, File ▸ Exit, Alt+F4) or the project changes.
+  useEffect(() => {
+    setUnsavedGuard(async () => {
+      const w = latest.current.ws;
+      const paths = [...w.dirty];
+      if (!paths.length) return true;
+      const names = paths.slice(0, 5).map(baseName).join('\n') + (paths.length > 5 ? `\nand ${paths.length - 5} more` : '');
+      const answer = await askUnsaved(`${paths.length === 1 ? 'This file has' : `${paths.length} files have`} unsaved changes:\n\n${names}\n\nSave before closing?`);
+      if (answer === 'cancel') return false;
+      if (answer === 'discard') return true;
+      const saved = await Promise.all(paths.map((p) => w.save(p)));
+      return saved.every(Boolean);
+    });
+    const closing = isTauri ? getCurrentWindow().onCloseRequested(async (e) => {
+      if (!(await confirmLeave())) e.preventDefault();
+    }) : null;
+    return () => {
+      setUnsavedGuard(null);
+      void closing?.then((stop) => stop());
+    };
+  }, []);
   useEffect(() => {
     const w = () => latest.current.ws;
     const search = (tab: Parameters<typeof openSearch>[0]) => () => latest.current.openSearch(tab);
@@ -763,6 +789,7 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
             initialTab={ws.searchTab}
             onClose={() => ws.setSearchOpen(false)}
             actions={{ openFolder: onOpenFolder, closeProject: onClose }}
+            menus={mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch: openSearch, onBranches: openBranches })}
           />
         </ErrorBoundary>
       )}

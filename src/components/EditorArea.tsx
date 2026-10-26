@@ -9,7 +9,7 @@ import { CsvView, ImageView, MarkdownView, SvgView } from './lazy';
 import { isCsv, isRasterImage, isSvg } from '../fileKinds';
 import { runCodeBlock, shellBlocks } from '../markdownBlocks';
 import { IntentionPopup } from './IntentionPopup';
-import { useSettings, getSettings, matchesFilePatterns } from '../settings';
+import { useSettings, getSettings, matchesFilePatterns, updateEditorSettings } from '../settings';
 import { bookmarks, useBookmarks } from '../bookmarks';
 import { BookmarksPopup, MnemonicDialog } from './BookmarkPopups';
 import { gutterMenu } from '../gutterMenu';
@@ -41,9 +41,11 @@ import { HunkPopup } from './HunkPopup';
 import { diffLines, type Hunk } from '../git/diff';
 import type { BlameLine } from '../git/git';
 import { Icon } from './Icon';
+import { invoke } from '@tauri-apps/api/core';
+import { isTauri } from '../platform';
 import { trackActiveEditor } from '../editor/active';
 import { pasteInto } from '../clipboard';
-import { caretMoved, edited } from '../navHistory';
+import { caretMoved, edited, jumpedTo } from '../navHistory';
 import { startInlineEdit } from '../ai/actions';
 import { gotoMethod, moveStatement, surroundWith, toggleCase } from '../editor/editingActions';
 import { surroundKey, surroundTemplates } from '../editor/surround';
@@ -58,6 +60,19 @@ export function EditorArea({ ws }: { ws: Workspace }) {
     <section className="island" style={{ flex: '1 1 auto' }} aria-label="Editor">
       {ws.tabs.length > 0 && tabPlacement === 'top' && <TabBar ws={ws} />}
 
+      {tab?.kind === 'file' && ws.binaryFiles.has(tab.path) && (
+        <div className="editor-host">
+          <div className="empty binary-file">
+            <Icon name="binaryFile" size={28} />
+            <div>{tab.path.split('/').pop()} is a binary file (not UTF-8 text): it can’t be shown or edited here.</div>
+            {isTauri && ws.backend.kind === 'disk' && (
+              <button type="button" className="btn" onClick={() => void invoke('reveal_in_explorer', { path: tab.path }).catch(() => {})}>
+                Show in Explorer
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       {tab?.kind === 'file' && isRasterImage(tab.path) && (
         <div className="editor-host">
           <ImageView key={tab.path} ws={ws} path={tab.path} />
@@ -358,7 +373,19 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     testGutter.current = setupTestGutter(editor, () => latest.current.path);
     editor.onDidDispose(() => testGutter.current?.dispose());
     decorations.current = editor.createDecorationsCollection();
-    editor.addAction({ id: 'phpblitz.save', label: 'Save', run: () => latest.current.ws.save(latest.current.path) });
+    // Ctrl+wheel: the editor font size (Settings ▸ Editor ▸ Font follows), not a scroll.
+    editor.getDomNode()?.addEventListener(
+      'wheel',
+      (e) => {
+        if (!e.ctrlKey || !e.deltaY) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const size = getSettings().editor.fontSize + (e.deltaY < 0 ? 1 : -1);
+        updateEditorSettings({ fontSize: Math.min(40, Math.max(8, size)) });
+      },
+      { capture: true, passive: false },
+    );
+    editor.addAction({ id: 'phpblitz.save', label: 'Save', run: () => void latest.current.ws.save(latest.current.path) });
 
     // The language-server features (their keys come from the keymap: keymap/).
     const run = (id: string) => () => editor.trigger('phpblitz', id, {});
@@ -824,10 +851,8 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       const pos = editor.getPosition();
       if (pos) setCursor({ line: pos.lineNumber, col: pos.column });
     });
-    // Edits go to the workspace with Monaco's change ranges; the text itself is read only when needed.
+    // The workspace hears of edits from the document itself (useWorkspace); here: where the user typed.
     editor.onDidChangeModelContent((e) => {
-      const model = editor.getModel();
-      if (model) latest.current.ws.onModelEdit(latest.current.path, model, e);
       if (!e.isFlush && e.changes.length) edited(latest.current.path, e.changes[0].range.startLineNumber);
     });
     // The selection before a mouse press in the gutter (Monaco has already changed it when we hear of the press).
@@ -1161,6 +1186,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     // A dangling `->` means "finish this expression": put the caret there and offer completion.
     const dangling = !g.column && /->\s*$/.test(text);
     const column = g.column ?? (dangling ? model.getLineMaxColumn(line) : model.getLineFirstNonWhitespaceColumn(line) || 1);
+    jumpedTo({ path, line, column });
     editor.setPosition({ lineNumber: line, column });
     editor.revealLineInCenter(line);
     editor.focus();

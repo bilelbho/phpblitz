@@ -4,6 +4,11 @@ import { baseName, relativePath } from '../backend/types';
 import { symbols, useSymbols, type SearchHit } from '../symbols';
 import { editorCommands } from '../editorCommands';
 import { Badge, Icon } from './Icon';
+import type { ContextItem } from './ContextMenu';
+import type { TopMenu } from '../mainMenu';
+import { COMMANDS } from '../keymap/catalog';
+import { canRun, runCommand } from '../keymap/commands';
+import { shortcut } from '../keymap/store';
 
 export type SearchTab = 'all' | 'classes' | 'files' | 'symbols' | 'actions';
 
@@ -38,9 +43,11 @@ interface Props {
   initialTab: SearchTab;
   onClose: () => void;
   actions: { openFolder: () => void; closeProject: () => void };
+  /** The main menu: everything in it is an action too. */
+  menus: TopMenu[];
 }
 
-export function SearchEverywhere({ ws, initialTab, onClose, actions }: Props) {
+export function SearchEverywhere({ ws, initialTab, onClose, actions, menus }: Props) {
   const [tab, setTab] = useState<SearchTab>(initialTab);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(0);
@@ -79,6 +86,16 @@ export function SearchEverywhere({ ws, initialTab, onClose, actions }: Props) {
     act('Find in Files…', 'Ctrl+Shift+F', () => ws.openFindInFiles('find'));
     act('Replace in Files…', 'Ctrl+Shift+R', () => ws.openFindInFiles('replace'));
     for (const c of editorCommands()) act(c.label, c.shortcut ?? 'Editor', c.run);
+    // The main menu's items (as they are now: disabled ones aren't offered), then the keymap's commands.
+    const walk = (items: ContextItem[], trail: string) => {
+      for (const it of items) {
+        if (it.kind === 'sep' || it.head || it.disabled) continue;
+        if (it.submenu) walk(it.submenu, `${trail} ▸ ${it.label}`);
+        else if (it.run) act(it.label, it.shortcut ? `${trail} · ${it.shortcut}` : trail, it.run);
+      }
+    };
+    for (const m of menus) walk(m.items(), m.label);
+    for (const c of COMMANDS) if (!c.monaco && canRun(c.id)) act(c.label, shortcut(c.id) ?? c.group, () => void runCommand(c.id, null));
     return out;
     // phpIndex is mutable; indexVersion tells us when it changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps

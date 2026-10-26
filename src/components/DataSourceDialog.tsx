@@ -58,7 +58,9 @@ export function DataSourceDialog({ ws, source, importFromEnv, onClose }: { ws: W
   const typedPassword = () => (password || !hasSaved ? password : undefined);
 
   const runTest = async () => {
-    setTest({ state: 'running', text: 'Connecting…' });
+    // Windows waits about 2 s per address before reporting a refused port (localhost has two).
+    const target = ds.driver === 'sqlite' ? '' : ` to ${ds.host.trim() || 'localhost'}:${ds.port ?? ''}`;
+    setTest({ state: 'running', text: `Connecting${target}…` });
     try {
       const version = await invoke<string>('db_test', { source: ds, password: typedPassword() ?? null });
       setTest({ state: 'ok', text: `Succeeded. ${version}` });

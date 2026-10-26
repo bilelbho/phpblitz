@@ -62,6 +62,11 @@ export function SymbolRenameDialog({ ws, plan, onClose }: { ws: Workspace; plan:
             {plan.kind === 'variable' || plan.kind === 'property' ? <span className="muted" style={{ paddingLeft: 6 }}>$</span> : null}
             <input id="rename-to" ref={input} value={name} spellCheck={false} onChange={(e) => setName(e.target.value.replace(/^\$/, ''))} />
           </div>
+          {name && !validName(name, plan.script) && (
+            <div className="error-text">
+              Not a valid name: letters, digits{plan.script ? ', _ and $' : ' and _'} only, not starting with a digit.
+            </div>
+          )}
           <div className="muted" style={{ fontSize: 12 }}>
             {count} {count === 1 ? 'usage' : 'usages'} in {files.size} {files.size === 1 ? 'file' : 'files'}
             {extraDeclarations > 0 && ` · also renames ${extraDeclarations} ${extraDeclarations === 1 ? 'override or implementation' : 'overrides and implementations'}`}

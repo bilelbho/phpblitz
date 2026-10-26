@@ -108,7 +108,7 @@ function MagoStatus({ ws }: { ws: Workspace }) {
         (s.summary.integrations.length ? ` · ${s.summary.integrations.join(', ')} rules` : '') +
         (s.summary.needsInstall ? ' · type checking is off until you run composer install' : '')
       : s.state === 'analyzing'
-        ? 'Mago is analyzing the project in the background. Open files are already checked.'
+        ? 'Mago is analyzing the project in the background. Open files are already checked.\nProblems ▸ Restart Analysis starts it over.'
         : `Mago failed: ${s.message ?? ''}. Click to retry`;
   return (
     <button type="button" className="item" title={title} onClick={() => (s.state === 'error' ? ws.reanalyzeProject() : ws.showBottom('problems'))}>
@@ -199,7 +199,11 @@ export function StatusBar({ ws, onTrust }: { ws: Workspace; onTrust?: () => void
         </span>
       )}
       {chord && <span className="item">{displayKeys(chord)} was pressed. Waiting for the second key…</span>}
-      {ws.status && <span className="item muted">{ws.status}</span>}
+      {ws.status && (
+        <span className="item muted status-message" title={ws.status}>
+          {ws.status}
+        </span>
+      )}
       {errorCount > 0 && (
         <button type="button" className="item status-errors" title="Errors in this session: open the Error Log" onClick={() => openAppDialog('errors')}>
           <Icon name="warning" size={13} />
@@ -220,13 +224,13 @@ export function StatusBar({ ws, onTrust }: { ws: Workspace; onTrust?: () => void
           <span className="item" title="Line:Column">
             {cursor.line}:{cursor.col}
           </span>
-          <span className="item" title="Line separator">
+          <span className="item status-optional" title="Line separator">
             {lineEnding}
           </span>
-          <span className="item" title="File encoding">
+          <span className="item status-optional" title="File encoding">
             UTF-8
           </span>
-          <span className="item" title="Indentation">
+          <span className="item status-optional" title="Indentation">
             4 spaces
           </span>
         </>

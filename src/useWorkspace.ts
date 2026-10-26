@@ -443,6 +443,8 @@ export function useWorkspace(backend: Backend) {
   const savedText = useRef<Record<string, string>>({});
   /** Editor documents edited since their text was last read: read on demand, not per keystroke. */
   const staleModels = useRef(new Map<string, monaco.editor.ITextModel>());
+  /** Open files with unsaved changes whose file changed on disk meanwhile: Save asks first. */
+  const changedOnDisk = useRef(new Set<string>());
   /**
    * The current text of each open file (unsaved edits included). Typing only marks the file
    * stale; its text is read from the editor the first time something asks for it (save, search,
@@ -470,7 +472,17 @@ export function useWorkspace(backend: Backend) {
       },
     }),
   );
+  // Closing or switching the project drops its editor documents: a project opened next (or this
+  // one again) reads its files from disk, not this window's leftover unsaved text.
+  useEffect(
+    () => () => {
+      for (const model of monaco.editor.getModels()) if (model.uri.scheme === 'file') model.dispose();
+    },
+    [],
+  );
   const [dirty, setDirty] = useState<Set<string>>(new Set());
+  /** Open files that aren't text (not UTF-8): their tab says so instead of an editor. */
+  const [binaryFiles, setBinaryFiles] = useState<ReadonlySet<string>>(new Set());
   const [activeText, setActiveText] = useState('');
   const [goto, setGoto] = useState<GotoRequest | null>(null);
   const [breakpoints, setBreakpoints] = useState<Record<string, number[]>>({});
@@ -676,6 +688,13 @@ export function useWorkspace(backend: Backend) {
     }
     analysisQueue.current?.drop(path);
     largeFiles.current.delete(path);
+    setBinaryFiles((b) => {
+      if (!b.has(path)) return b;
+      const next = new Set(b);
+      next.delete(path);
+      return next;
+    });
+    changedOnDisk.current.delete(path);
     // Drop the editor model after the tab switch, so a reopened file is read from disk again.
     const uri = monaco.Uri.file(path);
     window.setTimeout(() => monaco.editor.getModel(uri)?.dispose(), 0);
@@ -777,6 +796,10 @@ export function useWorkspace(backend: Backend) {
             checkFile(path, text, ANALYSIS_DELAY);
           }
         } catch (e) {
+          if (/not UTF-8/i.test(String(e))) {
+            setBinaryFiles((b) => new Set(b).add(path));
+            return;
+          }
           setTabs((t) => t.filter((x) => x.id !== id));
           notify({ title: `Could not open ${baseName(path)}`, body: String(e), tone: 'error' });
           return;
@@ -971,6 +994,38 @@ export function useWorkspace(backend: Backend) {
     [checkFile, pinTab],
   );
 
+  // Every open file's document, shown or not: an edit in a tab in the background (Replace in Files,
+  // Load from disk, a refactoring) is tracked like typing, so Save writes it.
+  const onModelEditRef = useRef(onModelEdit);
+  onModelEditRef.current = onModelEdit;
+  useEffect(() => {
+    const subs = new Map<monaco.editor.ITextModel, monaco.IDisposable>();
+    const watch = (model: monaco.editor.ITextModel) => {
+      if (model.uri.scheme !== 'file' || subs.has(model)) return;
+      const uri = model.uri.toString();
+      let path: string | undefined;
+      subs.set(
+        model,
+        model.onDidChangeContent((e) => {
+          // The tab's own spelling of the path (drive letters can differ in case).
+          path ??= Object.keys(savedText.current).find((p) => monaco.Uri.file(p).toString() === uri);
+          if (path) onModelEditRef.current(path, model, e);
+        }),
+      );
+    };
+    monaco.editor.getModels().forEach(watch);
+    const created = monaco.editor.onDidCreateModel(watch);
+    const disposed = monaco.editor.onWillDisposeModel((model) => {
+      subs.get(model)?.dispose();
+      subs.delete(model);
+    });
+    return () => {
+      created.dispose();
+      disposed.dispose();
+      for (const sub of subs.values()) sub.dispose();
+    };
+  }, []);
+
   /**
    * Edits several files as one refactoring (Rename). Open files change in their editor (undoable,
    * unsaved like any edit); the others are changed on disk. `edits`: 1-based line, UTF-16 columns.
@@ -1157,14 +1212,16 @@ export function useWorkspace(backend: Backend) {
   const save = useCallback(
     async (path: string) => {
       const text = liveText.current[path];
-      if (text === undefined) return;
+      if (text === undefined) return true;
+      if (changedOnDisk.current.has(path) && !(await confirmDialog(`${baseName(path)} changed on disk after you started editing it. Save your version over it?`))) return false;
       try {
         await backend.writeFile(path, text);
       } catch (e) {
         notify({ title: `Could not save ${baseName(path)}`, body: String(e), tone: 'error' });
-        return;
+        return false;
       }
       savedText.current[path] = text;
+      changedOnDisk.current.delete(path);
       invalidateLaravelFiles([path]);
       scriptFileChanged(path, text);
       lspRef.current?.didSave(path, text);
@@ -1185,6 +1242,7 @@ export function useWorkspace(backend: Backend) {
       // Edited the Mago configuration: reload the project with it.
       if (path === `${backend.root}/mago.toml`) reanalyzeRef.current?.();
       refreshGit();
+      return true;
     },
     [backend, notify, refreshGit, reindexRoutes, refreshProjectProblems, analyze],
   );
@@ -1474,14 +1532,35 @@ export function useWorkspace(backend: Backend) {
 
   const reloadFromDisk = useCallback((path: string, text: string) => {
     savedText.current[path] = text;
+    changedOnDisk.current.delete(path);
     const model = monaco.editor.getModel(monaco.Uri.file(path));
-    if (model && model.getValue() !== text) {
+    if (model) {
+      if (model.getValue() === text) return;
       // A full-range edit (not setValue) keeps Ctrl+Z working across the reload.
       model.pushStackElement();
       model.pushEditOperations([], [{ range: model.getFullModelRange(), text }], () => null);
       model.pushStackElement();
+    } else if (path in liveText.current) {
+      // A tab not shown yet: its editor will start from this text.
+      liveText.current[path] = text;
+      setLoaded((l) => ({ ...l, [path]: text }));
+      setDirty((d) => {
+        if (!d.has(path)) return d;
+        const next = new Set(d);
+        next.delete(path);
+        return next;
+      });
     }
   }, []);
+  /** Load from disk: the file as it is now (it may have changed again since the notification). */
+  const loadFromDisk = useCallback(
+    (path: string) =>
+      void backend.readFile(path).then(
+        (text) => reloadFromDisk(path, text),
+        (e) => notify({ title: `Could not read ${baseName(path)}`, body: String(e), tone: 'error' }),
+      ),
+    [backend, reloadFromDisk, notify],
+  );
 
   // Set once deleteItems exists (further down).
   const deleteItemsRef = useRef<(paths: string[]) => Promise<void>>(async () => {});
@@ -1592,8 +1671,9 @@ export function useWorkspace(backend: Backend) {
               title: `${name} changed on disk`,
               body: 'You also have unsaved changes in the editor. Keep yours, or load the version on disk.',
               tone: 'warning',
-              action: { label: 'Load from disk', run: () => reloadFromDisk(path, text) },
+              action: { label: 'Load from disk', run: () => loadFromDisk(path) },
             });
+            changedOnDisk.current.add(path);
           } else {
             reloadFromDisk(path, text);
           }
@@ -1637,7 +1717,7 @@ export function useWorkspace(backend: Backend) {
         vendorTimer.current = window.setTimeout(() => reanalyzeRef.current?.(), 3000);
       }
     },
-    [backend, loadDir, notify, reloadFromDisk, reindexRoutes, refreshGit, refreshProjectProblems],
+    [backend, loadDir, notify, reloadFromDisk, loadFromDisk, reindexRoutes, refreshGit, refreshProjectProblems],
   );
 
   // Mark Directory As: the project's marks, with defaults from composer.json's autoload sections.
@@ -1895,13 +1975,14 @@ export function useWorkspace(backend: Backend) {
         if (path in liveText.current) {
           const text = await backend.readFile(path);
           if (dirtyRef.current.has(path)) {
-            notify({ title: `${baseName(path)} has unsaved changes`, body: 'Reload anyway?', tone: 'warning', action: { label: 'Load from disk', run: () => reloadFromDisk(path, text) } });
+            notify({ title: `${baseName(path)} has unsaved changes`, body: 'Reload anyway?', tone: 'warning', action: { label: 'Load from disk', run: () => loadFromDisk(path) } });
+            changedOnDisk.current.add(path);
           } else reloadFromDisk(path, text);
         }
       }
       refreshGit();
     },
-    [backend, loadDir, notify, refreshGit, reloadFromDisk],
+    [backend, loadDir, notify, refreshGit, reloadFromDisk, loadFromDisk],
   );
 
   // ── Mago project analysis ─────────────────────────────────────
@@ -2330,14 +2411,14 @@ export function useWorkspace(backend: Backend) {
     // tabs and editor
     isLargeFile: (path: string) => largeFiles.current.has(path),
     tabs, activeId, setActiveId, activeTab, activePath, loaded, dirty, openFile, openTable, openConsole, closeTab, closeTabs, moveTab,
-    onEdit, onModelEdit, save, saveActive, goto, setGoto, breakpoints, toggleBreakpoint, structure, problems,
+    onEdit, onModelEdit, binaryFiles, save, saveActive, goto, setGoto, breakpoints, toggleBreakpoint, structure, problems,
     // tool windows
     toolLayout, openTools, bottomSideTool, showTool, toggleTool, hideTool, isToolOpen, placeTool, resetToolLayout, toggleLeft, showLeft, setRightTool, toggleRight, bottomTab, bottomOpen, setBottomOpen, showBottom,
     classicSizes, resizeClassic,
     focus, hideFocusPanel, showFocusPanel, maximizeFocusPanel, toggleFocusSidebar, setFocusColumnWidth, resizeFocusColumn, resizeFocusGroups, moveFocusPanel, setFocusIconsSide, applyFocusLayout,
     searchOpen, setSearchOpen, searchTab, openSearch, recentFiles, forgetRecent, editedFiles, recentOpen, setRecentOpen,
     locationsOpen, setLocationsOpen, goToPlace, navigateBack, navigateForward, reopenClosedTab,
-    settingsPage, openSettings: (page = 'terminal') => setSettingsPage(page), closeSettings: () => setSettingsPage(null),
+    settingsPage, openSettings: (page = 'appearance') => setSettingsPage(page), closeSettings: () => setSettingsPage(null),
     findInFiles, openFindInFiles, closeFindInFiles: () => setFindInFiles(null), findResults, setFindResults,
     savedTextOf: (path: string) => savedText.current[path], liveTextOf: (path: string) => liveText.current[path],
     // git

@@ -70,6 +70,26 @@ export function caretMoved(place: Place) {
 export function fileShown(path: string) {
   if (current?.path === path) return;
   caretMoved(lastIn.get(path) ?? { path, line: 1, column: 1 });
+  shown = { path, at: Date.now() };
+}
+/** The file just shown: a jump into it right after is one jump (from the file before), not two. */
+let shown: { path: string; at: number } | null = null;
+
+/** An explicit jump (Go to Line, a search result, a usage, Structure): worth coming back from, however near. */
+export function jumpedTo(place: Place) {
+  const prev = current;
+  const arriving = shown?.path === place.path && Date.now() - shown.at < 1000;
+  shown = null;
+  if (travelling || arriving || !prev || prev.path !== place.path || prev.line === place.line) {
+    caretMoved(place);
+    return;
+  }
+  current = place;
+  lastIn.set(place.path, place);
+  pushBack(prev);
+  forward = [];
+  remember(prev, false);
+  remember(place, false);
 }
 
 /** Text was typed or pasted at `line`. */
@@ -146,6 +166,7 @@ export function resetHistory() {
   forward = [];
   current = null;
   travelling = null;
+  shown = null;
   edits = [];
   editStep = 0;
   lastIn.clear();

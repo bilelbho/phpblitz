@@ -199,11 +199,10 @@ function Problems({ ws }: { ws: Workspace }) {
             type="button"
             className="btn small ghost"
             onClick={() => ws.reanalyzeProject()}
-            disabled={ws.magoStatus.state === 'analyzing'}
-            title="Re-run Mago's analysis on the whole project"
+            title={ws.magoStatus.state === 'analyzing' ? 'Start the analysis over (if it seems stuck)' : "Re-run Mago's analysis on the whole project"}
           >
             <Icon name="refresh" size={13} />
-            {ws.magoStatus.state === 'analyzing' ? 'Analyzing…' : 'Re-analyze Project'}
+            {ws.magoStatus.state === 'analyzing' ? 'Restart Analysis' : 'Re-analyze Project'}
           </button>
         )}
       </div>

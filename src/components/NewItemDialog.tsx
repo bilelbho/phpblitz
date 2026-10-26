@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Workspace } from '../useWorkspace';
 import { relativePath } from '../backend/types';
+import { fileNameProblem } from '../fileNames';
 
 export type NewKind = 'file' | 'class' | 'dir';
 type ClassKind = 'class' | 'interface' | 'trait' | 'enum';
@@ -56,7 +57,11 @@ export function NewItemDialog({ ws, kind, dir, onClose, onCreated }: { ws: Works
   const create = async () => {
     const trimmed = name.trim().replace(/\\/g, '/');
     if (!trimmed) return setError('Enter a name.');
-    if (trimmed.split('/').some((part) => !part || part === '.' || part === '..')) return setError('Invalid name.');
+    const problem = trimmed
+      .split('/')
+      .map(fileNameProblem)
+      .find((p) => p);
+    if (problem) return setError(problem);
     if (kind === 'class') {
       const className = trimmed.replace(/\.php$/, '');
       if (!PHP_NAME.test(className)) return setError('A class name must be a valid PHP identifier.');

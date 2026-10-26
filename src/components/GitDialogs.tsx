@@ -75,11 +75,29 @@ function PromptFor({ ws, request, onClose }: { ws: Workspace; request: GitDialog
   useEffect(() => {
     input.current?.select();
   }, []);
+  // Local branch names: a new (or renamed) branch can't take one that exists.
+  const [taken, setTaken] = useState<Set<string>>(new Set());
+  const kind = request.kind;
+  useEffect(() => {
+    if (kind !== 'newBranch' && kind !== 'renameBranch') return;
+    let live = true;
+    repo.branches().then(
+      (list) => live && setTaken(new Set(list.filter((b) => !b.remote).map((b) => b.name))),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [repo, kind]);
   if (!spec) return null;
 
   const name = value.trim();
-  const invalid = spec.branchName && name && (/[\s~^:?*[\\]|\.\.|^[-/]|[/.]$|@\{|\.lock$/.test(name) ? 'Not a valid name' : '');
-  const canSubmit = (spec.optional || !!name) && !invalid;
+  const unchanged = request.kind === 'renameBranch' && name === request.branch;
+  const invalid =
+    spec.branchName &&
+    name &&
+    (/[\s~^:?*[\\]|\.\.|^[-/]|[/.]$|@\{|\.lock$/.test(name) ? 'Not a valid name' : taken.has(name) && !unchanged ? `A branch named '${name}' already exists` : '');
+  const canSubmit = (spec.optional || !!name) && !invalid && !unchanged;
 
   const submit = async () => {
     if (!canSubmit) return;

@@ -43,10 +43,20 @@ export function AboutDialog({ view: initial, onClose }: { view: 'about' | 'licen
   useEffect(() => {
     if (isTauri) getVersion().then(setVersion, () => {});
   }, []);
+  // Esc closes it wherever the focus is (a click on its text leaves the focus on the page).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="pb-dialog about-dialog" role="dialog" aria-modal="true" aria-label={view === 'about' ? 'About PHPBlitz' : 'Open Source Licenses'} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      <div className="pb-dialog about-dialog" role="dialog" aria-modal="true" aria-label={view === 'about' ? 'About PHPBlitz' : 'Open Source Licenses'}>
         {view === 'about' ? (
           <div className="about-body">
             <Logo size={48} />
@@ -91,7 +101,7 @@ export function AboutDialog({ view: initial, onClose }: { view: 'about' | 'licen
           <button type="button" className="btn" onClick={() => setView(view === 'about' ? 'licenses' : 'about')}>
             {view === 'about' ? 'Open Source Licenses' : 'About'}
           </button>
-          <button type="button" className="btn primary" onClick={onClose}>
+          <button type="button" className="btn primary" onClick={onClose} autoFocus>
             Close
           </button>
         </div>
@@ -159,6 +169,11 @@ function Licenses() {
             )}
           </div>
         ))}
+        {!list.length && (
+          <div className="muted" style={{ padding: '12px 8px' }}>
+            No package or license matches “{query.trim()}”.
+          </div>
+        )}
       </div>
       <button type="button" className="btn small" style={{ alignSelf: 'flex-start' }} onClick={() => void showTexts()}>
         Show full license texts

@@ -43,6 +43,27 @@ export function installNativeFeel() {
     if (isBrowserShortcut(e)) e.preventDefault();
   });
 
+  // Enter in a popup (Go to Line, Search Everywhere, a list) that opens a place and focuses the
+  // editor: the key's newline would follow the focus and land in the code. An Enter that started
+  // outside an editor types nothing into one.
+  let enterFromOutside = false;
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      enterFromOutside = e.key === 'Enter' && !(e.target instanceof Element && e.target.closest('.monaco-editor'));
+      if (enterFromOutside) window.setTimeout(() => (enterFromOutside = false));
+    },
+    true,
+  );
+  const swallowStrayEnter = (e: Event) => {
+    if (enterFromOutside && e.target instanceof Element && e.target.closest('.monaco-editor')) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+  };
+  window.addEventListener('keypress', swallowStrayEnter, true);
+  window.addEventListener('beforeinput', swallowStrayEnter, true);
+
   // No autofill suggestions popping up under the IDE's fields.
   window.addEventListener(
     'focusin',

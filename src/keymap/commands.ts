@@ -24,6 +24,12 @@ export function registerCommands(map: Record<string, Handler | (() => void)>): (
   };
 }
 
+/** A handler is registered for it and can run now (Find Action lists it). */
+export function canRun(id: string): boolean {
+  const h = handlers.get(id);
+  return !!h && (!h.enabled || h.enabled());
+}
+
 /** What the dispatcher needs of a Monaco code editor. */
 export interface KeyEditor {
   hasTextFocus(): boolean;

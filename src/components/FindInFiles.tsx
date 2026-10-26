@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as monaco from 'monaco-editor';
 import type { Workspace } from '../useWorkspace';
 import { baseName, relativePath } from '../backend/types';
+import { languageOf } from '../php';
 import { confirmDialog, isTauri } from '../platform';
 import { replaceInFiles, replaceInText, searchInFiles, type SearchMatch, type SearchOptions, type SearchResult } from '../search';
 import { Icon } from './Icon';
@@ -106,13 +107,15 @@ export function FindInFiles({ ws }: { ws: Workspace }) {
     setBusy(true);
     try {
       const { path, match } = current;
-      const source = ws.liveTextOf(path) ?? (await ws.backend.readFile(path));
+      const live = ws.liveTextOf(path);
+      const source = live ?? (await ws.backend.readFile(path));
       const lines = source.split('\n');
       const lineText = lines[match.line - 1] ?? '';
       const found = lineText.slice(match.column - 1, match.endColumn - 1);
       const { text: replaced } = await replaceInText(options, replacement, found);
-      const model = monaco.editor.getModel(monaco.Uri.file(path));
-      if (model) {
+      if (live !== undefined) {
+        const uri = monaco.Uri.file(path);
+        const model = monaco.editor.getModel(uri) ?? monaco.editor.createModel(live, languageOf(path, live), uri);
         model.pushEditOperations([], [{ range: new monaco.Range(match.line, match.column, match.line, match.endColumn), text: replaced }], () => null);
       } else {
         lines[match.line - 1] = lineText.slice(0, match.column - 1) + replaced + lineText.slice(match.endColumn - 1);
@@ -137,10 +140,14 @@ export function FindInFiles({ ws }: { ws: Workspace }) {
       const closed: string[] = [];
       let skipped: { path: string; reason: string }[] = [];
       for (const { path } of result.files) {
-        const model = monaco.editor.getModel(monaco.Uri.file(path));
-        if (model) {
-          const r = await replaceInText(options, replacement, model.getValue());
+        const live = ws.liveTextOf(path);
+        if (live !== undefined) {
+          // An open file is edited in its editor (undoable), shown or not: a tab not shown yet
+          // has no model, so it gets one from its unsaved text.
+          const r = await replaceInText(options, replacement, live);
           if (r.count) {
+            const uri = monaco.Uri.file(path);
+            const model = monaco.editor.getModel(uri) ?? monaco.editor.createModel(live, languageOf(path, live), uri);
             model.pushStackElement();
             model.pushEditOperations([], [{ range: model.getFullModelRange(), text: r.text }], () => null);
             model.pushStackElement();

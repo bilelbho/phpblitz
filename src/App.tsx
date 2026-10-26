@@ -18,6 +18,7 @@ import { isTrusted, restrictProject } from './trust';
 import { finishOnboarding, needsOnboarding, OPEN_ONBOARDING } from './onboarding';
 import { Onboarding } from './components/Onboarding';
 import { syncMcpServer } from './mcp';
+import { confirmLeave } from './unsavedGuard';
 
 const OPEN_PROJECT_KEY = 'phpblitz.openProject';
 
@@ -66,6 +67,8 @@ export default function App() {
   }, []);
 
   const openPath = useCallback(async (path: string, opts?: { trusted?: boolean }) => {
+    // The open project's unsaved files first: Cancel keeps it open.
+    if (!(await confirmLeave())) return;
     const b = new DiskBackend(path);
     // Asked before anything runs: a project not trusted yet opens in Restricted Mode unless trusted now.
     const trusted = opts?.trusted || isTrusted(b.root) || (await new Promise<boolean>((resolve) => setAsking({ root: b.root, answer: resolve })));
@@ -178,7 +181,8 @@ export default function App() {
         backend={backend}
         onOpenFolder={openFolder}
         onOpenPath={openPath}
-        onClose={() => {
+        onClose={async () => {
+          if (!(await confirmLeave())) return;
           if (backend.restricted) void restrictProject(backend.root, false);
           setOpenProject(null);
           void projectStorage.close();

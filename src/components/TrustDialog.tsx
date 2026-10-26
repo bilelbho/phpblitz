@@ -12,6 +12,29 @@ function shown(path: string): string {
   return win ? p.replace(/\//g, '\\') : p;
 }
 
+const ASK_TRUST = 'phpblitz:ask-trust';
+/** Opens the trust question for the open project (from a panel Restricted Mode keeps empty). */
+export const askTrust = () => window.dispatchEvent(new Event(ASK_TRUST));
+export function onAskTrust(fn: () => void): () => void {
+  window.addEventListener(ASK_TRUST, fn);
+  return () => window.removeEventListener(ASK_TRUST, fn);
+}
+
+/** Git panels without a repository: why (Restricted Mode doesn't run Git), and the way out. */
+export function NoGit({ restricted }: { restricted?: boolean }) {
+  if (!restricted) return <div className="empty">This project is not a Git repository, or Git is not installed.</div>;
+  return (
+    <div className="empty">
+      Restricted Mode: Git doesn't run in a project you haven't trusted.
+      <div style={{ marginTop: 8 }}>
+        <button type="button" className="btn" onClick={askTrust}>
+          Trust Project…
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function TrustDialog({ root, onTrust, onRestricted }: { root: string; onTrust: () => void; onRestricted: () => void }) {
   const parent = root.replace(/\\/g, '/').replace(/\/[^/]+\/?$/, '');
   const [all, setAll] = useState(false);

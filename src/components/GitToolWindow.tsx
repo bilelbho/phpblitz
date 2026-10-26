@@ -11,6 +11,7 @@ import { Icon } from './Icon';
 import { copyText } from '../editorMenu';
 import { confirmDialog } from '../platform';
 import { HideToolButton, useHideTool } from './toolHide';
+import { NoGit } from './TrustDialog';
 
 const PAGE = 300;
 const LANE_COLORS = ['#5f9ff5', '#e3a869', '#73bd79', '#c77dbb', '#2aacb8', '#e5c07b', '#f0727a', '#9d8cf5'];
@@ -119,7 +120,7 @@ export function GitToolWindow({ ws }: { ws: Workspace }) {
         <HideToolButton onHide={hide} />
       </div>
       {!ws.git ? (
-        <div className="empty">This project is not a Git repository, or Git is not installed.</div>
+        <NoGit restricted={ws.backend.restricted} />
       ) : tab === 'log' ? (
         <GitLog ws={ws} />
       ) : (

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { caretMoved, edited, fileShown, goBack, goForward, recentPlaces, resetHistory, tabClosed, takeClosed, type Place } from './navHistory';
+import { caretMoved, edited, fileShown, goBack, goForward, jumpedTo, recentPlaces, resetHistory, tabClosed, takeClosed, type Place } from './navHistory';
 
 const at = (path: string, line: number): Place => ({ path, line, column: 1 });
 
@@ -49,6 +49,22 @@ describe('Back and Forward', () => {
     caretMoved(at('d.php', 1));
     expect(go(goForward)).toBeNull();
     expect(go(goBack)).toEqual(at('b.php', 1));
+  });
+});
+
+describe('Explicit jumps', () => {
+  it('records Go to Line and search results however near they land', () => {
+    caretMoved(at('a.php', 10));
+    jumpedTo(at('a.php', 14));
+    caretMoved(at('a.php', 14));
+    expect(go(goBack)).toEqual(at('a.php', 10));
+  });
+
+  it('counts a jump into a file just opened once, from the file before', () => {
+    caretMoved(at('a.php', 10));
+    fileShown('b.php');
+    jumpedTo(at('b.php', 3));
+    expect(go(goBack)).toEqual(at('a.php', 10));
   });
 });
 

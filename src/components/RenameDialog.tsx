@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Workspace } from '../useWorkspace';
 import { baseName, relativePath } from '../backend/types';
+import { fileNameProblem } from '../fileNames';
 import { structureOf } from '../php';
 import { symbols } from '../symbols';
 
@@ -44,7 +45,8 @@ export function RenameDialog({ ws, path, isDir, onClose, onRenamed }: { ws: Work
   const submit = async () => {
     const trimmed = name.trim();
     if (!trimmed || trimmed === old) return onClose();
-    if (/[\\/:*?"<>|]/.test(trimmed) || trimmed === '.' || trimmed === '..') return setError('A name can’t contain \\ / : * ? " < > |');
+    const problem = fileNameProblem(trimmed);
+    if (problem) return setError(problem);
     setBusy(true);
     try {
       const to = await ws.renameItem(path, trimmed, willRenameClass ? { from: className!, to: newStem } : undefined);
