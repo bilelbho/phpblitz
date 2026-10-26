@@ -18,7 +18,7 @@
 
 <p align="center">
   <a href="#download">Download</a> ·
-  <a href="https://bilelbho.github.io/phpblitz/">Documentation</a> ·
+  <a href="https://phpblitz.com/">Documentation</a> ·
   <a href="#what-it-does">Features</a> ·
   <a href="#build-from-source">Build</a> ·
   <a href="#security">Security</a> ·

@@ -3,23 +3,23 @@ import { blitzDark, blitzLight } from './blitz-shiki';
 
 const repo = 'https://github.com/bilelbho/phpblitz';
 
-// The documentation site: https://bilelbho.github.io/phpblitz/ (built by .github/workflows/docs.yml).
+// The documentation site: https://phpblitz.com/ (built by .github/workflows/docs.yml).
 export default defineConfig({
   title: 'PHPBlitz',
   description: 'A fast, open source PHP IDE, built with Rust.',
   lang: 'en-US',
-  base: '/phpblitz/',
+  base: '/',
   cleanUrls: true,
   lastUpdated: true,
   appearance: 'dark',
   head: [
-    ['link', { rel: 'icon', type: 'image/png', href: '/phpblitz/logo.png' }],
+    ['link', { rel: 'icon', type: 'image/png', href: '/logo.png' }],
     ['link', { rel: 'preconnect', href: 'https://fonts.googleapis.com' }],
     ['link', { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' }],
     ['link', { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap' }],
     ['meta', { name: 'theme-color', content: '#1e1f22' }],
     ['meta', { property: 'og:title', content: 'PHPBlitz: a fast, open source PHP IDE' }],
-    ['meta', { property: 'og:image', content: 'https://bilelbho.github.io/phpblitz/screenshots/editor.png' }],
+    ['meta', { property: 'og:image', content: 'https://phpblitz.com/screenshots/editor.png' }],
   ],
   markdown: { theme: { light: blitzLight, dark: blitzDark } },
   themeConfig: {
