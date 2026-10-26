@@ -11,6 +11,8 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    # Docs-only pushes don't rebuild the app (path filters never apply to tags: releases always build).
+    paths-ignore: ['docs/**', '**.md']
   pull_request:
   workflow_dispatch:
 
