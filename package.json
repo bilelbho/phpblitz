@@ -25,7 +25,7 @@
     "@fontsource/inter": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
     "@monaco-editor/react": "^4.6.0",
-    "@tabler/icons-react": "^3.49.0",
+    "@tabler/icons-react": "^3.50.0",
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-dialog": "^2.8.3",
     "@tauri-apps/plugin-process": "^2.4.0",
@@ -44,7 +44,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
-    "@tauri-apps/cli": "^2.12.3",
+    "@tauri-apps/cli": "^2.12.4",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
@@ -52,7 +52,7 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "globals": "^16.5.0",
     "typescript": "^5.5.4",
-    "typescript-eslint": "^8.72.0",
+    "typescript-eslint": "^8.72.1",
     "vite": "^5.4.0",
     "vitepress": "^1.6.4",
     "vitest": "^3.2.7"
