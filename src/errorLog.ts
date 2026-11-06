@@ -71,7 +71,15 @@ export function installErrorLog() {
   if (installed) return;
   installed = true;
   window.addEventListener('error', (e) => logError('Unhandled error', e.error ?? e.message));
-  window.addEventListener('unhandledrejection', (e) => logError('Background task', e.reason));
+  window.addEventListener('unhandledrejection', (e) => {
+    // The editor's own cancellation of work it no longer needs (switching files mid-highlight): not an error.
+    const r = e.reason as { name?: string; message?: string } | null;
+    if (r?.name === 'Canceled' && r.message === 'Canceled') {
+      e.preventDefault();
+      return;
+    }
+    logError('Background task', e.reason);
+  });
 }
 
 let version = '';

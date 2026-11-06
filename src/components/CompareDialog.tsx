@@ -7,11 +7,13 @@ import type { Workspace } from '../useWorkspace';
 import type { Commit, FileChange } from '../git/git';
 import { baseName, relativePath } from '../backend/types';
 import { FileIcon } from './FileIcon';
+import { useDialogFocus } from './useDialogFocus';
 
 const STATUS: Record<FileChange['status'], string> = { A: 'added', M: 'modified', D: 'deleted', R: 'renamed', C: 'copied', T: 'type changed' };
 
 /** `right` null: the working tree. */
 export function CompareDialog({ ws, left, right, onClose }: { ws: Workspace; left: string; right: string | null; onClose: () => void }) {
+  const box = useDialogFocus();
   const [files, setFiles] = useState<FileChange[] | null>(null);
   const [commits, setCommits] = useState<{ onlyRight: Commit[]; onlyLeft: Commit[] } | null>(null);
   const [tab, setTab] = useState<'commits' | 'files'>(right ? 'commits' : 'files');
@@ -70,6 +72,8 @@ export function CompareDialog({ ws, left, right, onClose }: { ws: Workspace; lef
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
+        ref={box}
+        tabIndex={-1}
         className="pb-dialog compare-dialog"
         role="dialog"
         aria-modal="true"

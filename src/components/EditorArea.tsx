@@ -479,7 +479,10 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     // ── Hover popup: problems with their quick fix, and documentation ──
     /** Screen box of the word at `pos`, for placing the popup under it. */
     const wordBox = (pos: monaco.IPosition) => {
-      const rect = editor.getDomNode()!.getBoundingClientRect();
+      // Null once the editor is gone (Ctrl+click opened another file before the hover's delay ended).
+      const node = editor.getDomNode();
+      if (!node) return null;
+      const rect = node.getBoundingClientRect();
       const word = editor.getModel()?.getWordAtPosition(pos);
       const c = editor.getScrolledVisiblePosition(word ? { lineNumber: pos.lineNumber, column: word.startColumn } : pos);
       return c ? { x: rect.left + c.left, top: rect.top + c.top, bottom: rect.top + c.top + c.height } : null;
@@ -511,6 +514,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       window.clearTimeout(hoverTimer.current);
       hoverTimer.current = window.setTimeout(closeMouseHover, 300);
     });
+    editor.onDidDispose(() => window.clearTimeout(hoverTimer.current));
     editor.addAction({
       id: 'phpblitz.quickDoc',
       label: 'Quick Documentation',

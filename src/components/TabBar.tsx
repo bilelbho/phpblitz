@@ -83,13 +83,17 @@ export function TabBar({ ws, windowDrag }: { ws: Workspace; windowDrag?: boolean
     setHidden((h) => (h.size === next.size && [...next].every((id) => h.has(id)) ? h : next));
   };
   useLayoutEffect(measure);
+  // The row's size changes (window, panels): measured again. One observer, not one per render (each
+  // new one reports at once, which measured again after every render).
+  const measureNow = useRef(measure);
+  measureNow.current = measure;
   useLayoutEffect(() => {
     const el = row.current;
     if (!el) return;
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver(() => measureNow.current());
     observer.observe(el);
     return () => observer.disconnect();
-  });
+  }, [opts.mode]);
   // Keep the active tab in view.
   useEffect(() => {
     const el = row.current?.querySelector<HTMLElement>(`[data-tab="${CSS.escape(ws.activeId ?? '')}"]`);

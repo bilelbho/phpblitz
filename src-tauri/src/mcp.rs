@@ -438,7 +438,7 @@ fn call(app: &AppHandle, name: &str, args: &Value) -> Result<String, String> {
             root(app)?;
             let query = arg(args, "query").ok_or("query is required")?;
             let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(20).clamp(1, 100) as usize;
-            let hits = serde_json::to_value(block(index::index_search(app.state(), query.to_string(), Some(limit)))?).map_err(|e| e.to_string())?;
+            let hits = serde_json::to_value(block(index::index_search(app.state(), query.to_string(), Some(limit), None))?).map_err(|e| e.to_string())?;
             let lines: Vec<String> = hits
                 .as_array()
                 .into_iter()

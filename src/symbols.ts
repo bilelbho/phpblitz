@@ -197,16 +197,16 @@ class Symbols {
     }, 16);
   }
 
-  /** Classes, methods and functions matching a query, best first. */
-  async search(query: string, limit = 80): Promise<SearchHit[]> {
-    if (this.rust) return invoke<SearchHit[]>('index_search', { query, limit }).catch(() => []);
+  /** Classes, methods and functions matching a query, best first; `kind`: only classes, or only methods and functions. */
+  async search(query: string, limit = 80, kind?: 'class' | 'symbol'): Promise<SearchHit[]> {
+    if (this.rust) return invoke<SearchHit[]>('index_search', { query, limit, kind: kind ?? null }).catch(() => []);
     const q = query.trim().toLowerCase();
     const out: [number, SearchHit][] = [];
     for (const c of phpIndex.all()) {
       const n = c.name.toLowerCase();
       const s = !q ? 3 : n === q ? 0 : n.startsWith(q) ? 1 : n.includes(q) ? 2 : -1;
-      if (s >= 0) out.push([s, { kind: c.kind, name: c.name, detail: c.fqn, path: c.path, line: c.line, vendor: false }]);
-      if (!q) continue;
+      if (s >= 0 && kind !== 'symbol') out.push([s, { kind: c.kind, name: c.name, detail: c.fqn, path: c.path, line: c.line, vendor: false }]);
+      if (!q || kind === 'class') continue;
       for (const m of c.members) {
         if (m.kind !== 'method' || m.visibility !== 'public' || !m.name.toLowerCase().includes(q)) continue;
         out.push([m.name.toLowerCase().startsWith(q) ? 4 : 5, { kind: 'method', name: `${c.name}::${m.name}()`, detail: m.detail, path: c.path, line: m.line, vendor: false }]);
