@@ -1,6 +1,7 @@
-// Git tool window: Log (branches, commit graph, details with changed files) and Console
+// Git tool window: Log (branches, commit graph, details with changed files), Pull Requests and Console
 // (the git commands PHPBlitz ran, with their output).
 
+import { invoke } from '@tauri-apps/api/core';
 import { FileIcon } from './FileIcon';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Workspace } from '../useWorkspace';
@@ -12,6 +13,10 @@ import { copyText } from '../editorMenu';
 import { confirmDialog } from '../platform';
 import { HideToolButton, useHideTool } from './toolHide';
 import { NoGit } from './TrustDialog';
+import { PullRequestsPanel } from './PullRequestsPanel';
+import { savePatch } from '../git/patchFiles';
+import { linkify, remoteIssueLink, type IssueLink } from '../git/issueLinks';
+import { useSettings } from '../settings';
 
 const PAGE = 300;
 const LANE_COLORS = ['#5f9ff5', '#e3a869', '#73bd79', '#c77dbb', '#2aacb8', '#e5c07b', '#f0727a', '#9d8cf5'];
@@ -99,12 +104,13 @@ function GraphCell({ row, width }: { row: GraphRow; width: number }) {
 
 export function GitToolWindow({ ws }: { ws: Workspace }) {
   const hide = useHideTool(() => ws.setBottomOpen(false));
-  const [tab, setTab] = useState<'log' | 'console'>('log');
+  const [tab, setTab] = useState<'log' | 'prs' | 'console'>('log');
   const req = ws.gitLogRequest;
   useEffect(() => {
     if (req.console) setTab('console');
+    else if (req.prs) setTab('prs');
     else if (req.nonce) setTab('log');
-  }, [req.nonce, req.console]);
+  }, [req.nonce, req.console, req.prs]);
 
   return (
     <>
@@ -112,6 +118,9 @@ export function GitToolWindow({ ws }: { ws: Workspace }) {
         <span className="tw-title">Git</span>
         <button type="button" role="tab" aria-selected={tab === 'log'} className={'tw-tab' + (tab === 'log' ? ' active' : '')} onClick={() => setTab('log')}>
           Log
+        </button>
+        <button type="button" role="tab" aria-selected={tab === 'prs'} className={'tw-tab' + (tab === 'prs' ? ' active' : '')} onClick={() => setTab('prs')}>
+          Pull Requests
         </button>
         <button type="button" role="tab" aria-selected={tab === 'console'} className={'tw-tab' + (tab === 'console' ? ' active' : '')} onClick={() => setTab('console')}>
           Console
@@ -123,6 +132,8 @@ export function GitToolWindow({ ws }: { ws: Workspace }) {
         <NoGit restricted={ws.backend.restricted} />
       ) : tab === 'log' ? (
         <GitLog ws={ws} />
+      ) : tab === 'prs' ? (
+        <PullRequestsPanel ws={ws} />
       ) : (
         <GitConsole ws={ws} />
       )}
@@ -172,6 +183,7 @@ function GitLog({ ws }: { ws: Workspace }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [files, setFiles] = useState<FileChange[] | null>(null);
   const [message, setMessage] = useState('');
+  const issueLinks = useIssueLinks(repo);
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
   const list = useRef<HTMLDivElement>(null);
   const pendingHash = useRef<string | null>(null);
@@ -277,10 +289,13 @@ function GitLog({ ws }: { ws: Workspace }) {
             if (await confirmDialog(`Checkout ${c.short}? You will be on a detached HEAD.`)) ws.runGit(`Checkout ${c.short}`, () => repo.checkout(c.hash));
           },
         },
+        { label: 'Compare with Local', icon: 'columns', run: () => ws.setGitDialog({ kind: 'compare', left: c.hash, right: null }) },
+        { kind: 'sep' },
         { label: 'New Branch…', icon: 'plus', run: () => ws.setGitDialog({ kind: 'newBranch', from: c.hash }) },
         { label: 'New Tag…', run: () => ws.setGitDialog({ kind: 'tag', hash: c.hash }) },
         { kind: 'sep' },
         { label: `Reset Current Branch to Here…`, run: () => ws.setGitDialog({ kind: 'reset', hash: c.hash, subject: c.subject }) },
+        { label: 'Interactively Rebase from Here…', disabled: !!ws.git?.operation, run: () => ws.setGitDialog({ kind: 'rebase', from: c.hash }) },
         {
           label: 'Revert Commit',
           run: async () => {
@@ -288,6 +303,15 @@ function GitLog({ ws }: { ws: Workspace }) {
           },
         },
         { label: 'Cherry-Pick', disabled: c.parents.length > 1, run: () => ws.runGit(`Cherry-pick ${c.short}`, () => repo.cherryPick(c.hash)) },
+        {
+          label: 'Create Patch…',
+          disabled: c.parents.length > 1,
+          run: () =>
+            void repo
+              .commitPatch(c.hash)
+              .then((patch) => savePatch(ws, patch, `${c.short}-${c.subject.slice(0, 40)}`))
+              .catch((e) => ws.notify({ title: "Couldn't create the patch", body: String(e instanceof Error ? e.message : e), tone: 'error' })),
+        },
       ],
     });
   };
@@ -352,6 +376,15 @@ function GitLog({ ws }: { ws: Workspace }) {
 
       <div className="gl-main">
         <div className="tw-toolbar gl-toolbar">
+          {ws.repositoryList.length > 1 && (
+            <select className="gl-repo" aria-label="Repository" title="Repository" value={repo.root} onChange={(e) => ws.setCurrentRepo(e.target.value)}>
+              {ws.repositoryList.map((r) => (
+                <option key={r.root} value={r.root}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          )}
           <div className="field gl-search">
             <Icon name="search" size={13} />
             <input
@@ -460,7 +493,9 @@ function GitLog({ ws }: { ws: Workspace }) {
               )}
             </div>
             <div className="gl-message">
-              <div className="gl-subject">{message || sel.subject}</div>
+              <div className="gl-subject">
+                <LinkedMessage text={message || sel.subject} links={issueLinks} />
+              </div>
               <div className="muted gl-meta">
                 <span className="mono">{sel.short}</span> {sel.author} &lt;{sel.email}&gt;
                 <br />
@@ -497,4 +532,42 @@ function formatDate(iso: string): string {
   if (days < 1 && d.getDate() === now.getDate()) return `Today ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   if (days < 2) return `Yesterday ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   return d.toLocaleDateString([], { year: '2-digit', month: '2-digit', day: '2-digit' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+/** Issue links: the patterns from Settings ▸ Version Control ▸ Issue Navigation, then #N for the origin. */
+function useIssueLinks(repo: Workspace['gitRepo']): IssueLink[] {
+  const own = useSettings().vcs.issueLinks;
+  const [origin, setOrigin] = useState<IssueLink | null>(null);
+  useEffect(() => {
+    let live = true;
+    void repo.remoteUrl().then(
+      (url) => live && setOrigin(url ? remoteIssueLink(url) : null),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [repo]);
+  return useMemo(() => [...own, ...(origin ? [origin] : [])], [own, origin]);
+}
+
+function LinkedMessage({ text, links }: { text: string; links: IssueLink[] }) {
+  return linkify(text, links).map((p, i) =>
+    typeof p === 'string' ? (
+      p
+    ) : (
+      <a
+        key={i}
+        className="issue-link"
+        href={p.url}
+        title={p.url}
+        onClick={(e) => {
+          e.preventDefault();
+          void invoke('open_external', { url: p.url }).catch(() => window.open(p.url, '_blank'));
+        }}
+      >
+        {p.text}
+      </a>
+    ),
+  );
 }

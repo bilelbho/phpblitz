@@ -50,12 +50,16 @@ export function BranchesPopup({ ws, anchor, onClose }: { ws: Workspace; anchor: 
         { label: `New Branch from '${b.name}'…`, icon: 'plus', run: dialog({ kind: 'newBranch', from: b.name }) },
         { label: 'Rename…', icon: 'pencil', run: dialog({ kind: 'renameBranch', branch: b.name }) },
         { label: 'Push…', shortcut: 'Ctrl+Shift+K', run: dialog({ kind: 'push' }) },
+        { label: 'Create Pull Request…', run: dialog({ kind: 'createPr' }) },
         { label: 'Show History', icon: 'history', run: () => (onClose(), ws.showHistory(ws.backend.root)) },
       ];
     }
     const items: ContextItem[] = [
       { label: 'Checkout', run: act(`Checkout ${b.name}`, () => (b.remote ? repo.checkoutRemote(b.name) : repo.checkout(b.name))) },
       { label: `New Branch from '${b.name}'…`, icon: 'plus', run: dialog({ kind: 'newBranch', from: b.name }) },
+      { kind: 'sep' },
+      { label: `Compare with '${current}'`, run: dialog({ kind: 'compare', left: current, right: b.name }) },
+      { label: 'Show Diff with Working Tree', run: dialog({ kind: 'compare', left: b.name, right: null }) },
       { kind: 'sep' },
       { label: `Rebase '${current}' onto '${b.name}'`, run: act(`Rebase onto ${b.name}`, () => repo.rebase(b.name)) },
       { label: `Merge '${b.name}' into '${current}'`, run: act(`Merge ${b.name}`, () => repo.merge(b.name)) },
@@ -94,7 +98,12 @@ export function BranchesPopup({ ws, anchor, onClose }: { ws: Workspace; anchor: 
   const track = (b: Branch) => [b.ahead ? `↑${b.ahead}` : '', b.behind ? `↓${b.behind}` : ''].filter(Boolean).join(' ');
   const local = (branches ?? []).filter((b) => !b.remote && match(b.name)).sort((a, b) => Number(b.current) - Number(a.current) || a.name.localeCompare(b.name));
   const remote = (branches ?? []).filter((b) => b.remote && match(b.name));
+  // Several repositories: which one the branches and actions are for.
+  const repos = ws.repositoryList.length > 1 ? ws.repositoryList.filter((r) => match(r.name) || match(r.branch)) : [];
   const rows: Row[] = [
+    ...(repos.length ? [{ key: 'h-repos', label: 'Repositories', head: true }] : []),
+    ...repos.map((r) => ({ key: `repo:${r.root}`, label: r.name, icon: (r.root === repo.root ? 'check' : 'git') as IconName, detail: r.branch + (r.operation ? ` (${r.operation.kind})` : ''), run: () => ws.setCurrentRepo(r.root) })),
+    ...(repos.length ? [{ key: 'h-actions', label: ws.repositoryList.find((r) => r.root === repo.root)?.name ?? repo.name, head: true }] : []),
     ...actions.filter((a) => match(a.label)),
     ...(local.length ? [{ key: 'h-local', label: 'Local', head: true }] : []),
     ...local.map((b) => ({ key: `l:${b.name}`, label: b.name, branch: b, detail: [b.upstream, track(b)].filter(Boolean).join('  ') })),

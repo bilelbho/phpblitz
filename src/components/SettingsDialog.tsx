@@ -17,6 +17,7 @@ import { MagoPage } from './SettingsMago';
 import { KeymapPage } from './SettingsKeymap';
 import { SurroundPage } from './SettingsSurround';
 import { TrustPage } from './SettingsTrust';
+import { IssueNavigationPage } from './SettingsIssues';
 
 interface Page {
   id: string;
@@ -119,6 +120,13 @@ const PAGES: Page[] = [
     keywords: 'code vision usages parameter names hints lightbulb intention context actions render documentation comments reader mode phpdoc docblock',
   },
   {
+    id: 'issue-navigation',
+    label: 'Issue Navigation',
+    group: 'Version Control',
+    section: 'vcs',
+    keywords: 'issue navigation links commit messages jira youtrack github gitlab bitbucket tracker ticket pattern regular expression url',
+  },
+  {
     id: 'terminal',
     section: 'terminal',
     label: 'Terminal',
@@ -170,6 +178,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
       composer: { path: draft.composer.path.trim() },
       keymap: draft.keymap,
       security: draft.security,
+      vcs: { issueLinks: draft.vcs.issueLinks.filter((l) => l.pattern.trim() && l.url.trim()) },
     };
     saveSettings(next);
     saveProjectPhp(root, php);
@@ -251,6 +260,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
               {active.id === 'appearance' && <AppearancePage value={draft.ui} onChange={setUi} highlight={query.trim().toLowerCase()} onEditorScheme={() => setCurrent('color-scheme')} />}
               {active.id === 'editor-tabs' && <EditorTabsPage value={draft.tabs} onChange={setTabs} highlight={query.trim().toLowerCase()} />}
               {active.id === 'surround' && <SurroundPage value={draft.editor} onChange={setEditor} />}
+              {active.id === 'issue-navigation' && <IssueNavigationPage ws={ws} value={draft.vcs.issueLinks} onChange={(issueLinks) => setDraft((d) => ({ ...d, vcs: { issueLinks } }))} />}
               {active.id === 'color-scheme' && <ColorSchemePage value={draft.editor} onChange={setEditor} />}
               {active.id === 'editor-font' && <EditorFontPage value={draft.editor} onChange={setEditor} highlight={query.trim().toLowerCase()} />}
               {active.id === 'inlay-hints' && <HintsPage value={draft.editor} onChange={setEditor} highlight={query.trim().toLowerCase()} />}
@@ -557,6 +567,9 @@ function EditorGeneralPage({ value: e, onChange, highlight }: { value: EditorSet
         <EditorCheck {...props} k="foldingOutline" label="Show code folding outline" />
         <EditorCheck {...props} k="indentGuides" label="Show indent guides" />
         <EditorCheck {...props} k="whitespaces" label="Show whitespaces" />
+        <EditorCheck {...props} k="minimap" label="Show minimap instead of the scrollbar" />
+        <EditorCheck {...props} k="scrollbarLens" label="Show code lens on scrollbar hover" />
+        <EditorCheck {...props} k="inlineBlame" label="Show who last changed the caret's line (Git blame)" />
       </div>
       <h3 className="settings-section">Vim</h3>
       <div className="settings-checks" style={{ gap: 10 }}>

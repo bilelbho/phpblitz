@@ -45,6 +45,10 @@ import { loadFocusLayout, saveFocusLayout } from './focusLayouts';
 import { loadClassicLayout, saveClassicLayout, type ClassicSizes } from './classicLayout';
 import { composerTerminalLine } from './composer';
 import { Git } from './git/git';
+import { combinedChanges, findRepositories } from './git/repositories';
+import { DiskBackend } from './backend/disk';
+import { clearPartial, contentToCommit, excludedOf, isPartial } from './git/partial';
+import { eolOf, toLines } from './git/merge';
 import type { SearchOptions, SearchResult } from './search';
 import { applyEditNow, findUsages as lspFindUsages, renameSymbol, setActiveLsp, type Usage } from './lsp/monacoBridge';
 import type { Diagnostic, WorkspaceEdit } from './lsp/protocol';
@@ -60,8 +64,8 @@ export type Tab =
   | { id: string; kind: 'table'; source: string; schema: string; table: string }
   /** A data source's query console. */
   | { id: string; kind: 'console'; source: string; name: string }
-  /** Side-by-side diff: HEAD vs the working copy, or a commit vs its parent. */
-  | { id: string; kind: 'diff'; path: string; commit?: string };
+  /** Side-by-side diff: HEAD vs the working copy, a commit vs its parent, or `left` vs `commit` (or the working copy). */
+  | { id: string; kind: 'diff'; path: string; commit?: string; left?: string; /** A shelved file: its shelf's id (the shelf's base vs the file as shelved). */ shelf?: string };
 /** Left tool windows. Structure docks in the bottom half, the others in the top half. */
 export type LeftTool = 'project' | 'commit' | 'structure' | 'database';
 export type RightTool = 'notifications' | 'ai' | 'endpoints' | 'composer' | 'npm';
@@ -75,7 +79,20 @@ export type GitDialogRequest =
   | { kind: 'rollback'; paths: string[] }
   | { kind: 'unstash' }
   | { kind: 'reset'; hash: string; subject: string }
-  | { kind: 'tag'; hash: string };
+  | { kind: 'tag'; hash: string }
+  /** The conflicted files; with `path`, that file's merge editor opens right away. */
+  | { kind: 'conflicts'; path?: string }
+  /** Interactive rebase of the commits from `from` to HEAD. */
+  | { kind: 'rebase'; from: string }
+  /** Two revisions compared (`right` null: the working tree). */
+  | { kind: 'compare'; left: string; right: string | null }
+  /** Shelve these files' changes. */
+  | { kind: 'shelve'; paths: string[] }
+  /** A new changelist, with these files (relative paths) moved into it. */
+  | { kind: 'newChangelist'; paths: string[] }
+  | { kind: 'renameChangelist'; id: string; name: string }
+  /** A GitHub pull request for the current branch. */
+  | { kind: 'createPr' };
 
 /** A usage search's results (Find Usages / Show Usages). */
 export interface UsageSearch {
@@ -1131,32 +1148,87 @@ export function useWorkspace(backend: Backend) {
   );
 
   // ── Git ───────────────────────────────────────────────────────
-  const [git, setGit] = useState<GitInfo | null>(null);
   const [gitLoaded, setGitLoaded] = useState(false);
-  /** Git commands for the Git tool window, branches popup, diffs and annotations. */
-  const gitRepo = useMemo(() => new Git(backend), [backend]);
+  /** Git dialogs (Push, New Branch, Stash, Conflicts…), opened from the branches popup, the Log and shortcuts. */
+  const [gitDialog, setGitDialog] = useState<GitDialogRequest | null>(null);
+  // Several repositories: the project's own and the ones in its folders (git/repositories.ts).
+  // Each has its status; a file's commands go to its own (Git.owner); the rest to the current one.
+  const [repoRoots, setRepoRoots] = useState<string[]>([]);
+  const repositories = useMemo(() => {
+    const own = new Git(backend);
+    const nested = backend instanceof DiskBackend ? repoRoots.map((root) => new Git(Object.assign(new DiskBackend(root), { restricted: backend.restricted }))) : [];
+    const all = [own, ...nested];
+    all.forEach((g) => g.setRepositories(all));
+    return all;
+  }, [backend, repoRoots]);
+  useEffect(() => {
+    setRepoRoots([]);
+    if (backend instanceof DiskBackend && !backend.restricted) void findRepositories(backend).then(setRepoRoots, () => {});
+  }, [backend]);
+  const [gitInfos, setGitInfos] = useState<Map<string, GitInfo | null>>(new Map());
+  const [currentRepoRoot, setCurrentRepo] = useState<string | null>(null);
+  /** The repository the branches popup, the Log, push, stash… act on: the chosen one, else the project's own (or the first). */
+  const gitRepo = useMemo(
+    () => repositories.find((g) => g.root === currentRepoRoot && gitInfos.get(g.root)) ?? repositories.find((g) => gitInfos.get(g.root)) ?? repositories[0],
+    [repositories, currentRepoRoot, gitInfos],
+  );
+  /** The status: the current repository's branch and operation, every repository's changes. */
+  const combine = (infos: Map<string, GitInfo | null>, current: Git): GitInfo | null => {
+    const own = infos.get(current.root);
+    if (!own) return null;
+    return { ...own, changes: combinedChanges(repositories.map((g) => ({ root: g.root, info: infos.get(g.root) ?? null }))) };
+  };
+  const git = useMemo(() => combine(gitInfos, gitRepo), [gitInfos, gitRepo]); // eslint-disable-line react-hooks/exhaustive-deps
+  const gitRepoNow = useRef(gitRepo);
+  gitRepoNow.current = gitRepo;
   const refreshGit = useCallback(async () => {
     gitRepo.clearHeads();
-    setGit(await backend.gitInfo().catch(() => null));
+    const list = await Promise.all(repositories.map((g) => g.backend.gitInfo().catch(() => null)));
+    const infos = new Map(repositories.map((g, i) => [g.root, list[i]]));
+    setGitInfos(infos);
     setGitLoaded(true);
-  }, [backend, gitRepo]);
+    // The current one, as it'll be once this status is in (the chosen one, if it's still a repository).
+    const current = repositories.find((g) => g.root === gitRepoNow.current.root && infos.get(g.root)) ?? repositories.find((g) => infos.get(g.root)) ?? repositories[0];
+    return combine(infos, current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repositories, gitRepo]);
+  // Repositories found after the project opened: their status too.
+  useEffect(() => {
+    if (repositories.length > 1) void refreshGit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repositories]);
+  /** The repositories with a status, for the branches popup's and the Log's choice of repository. */
+  const repositoryList = useMemo(
+    () => repositories.filter((g) => gitInfos.get(g.root)).map((g) => ({ root: g.root, name: g.root === backend.root ? backend.name : relativePath(backend, g.root), branch: gitInfos.get(g.root)!.branch, operation: gitInfos.get(g.root)!.operation })),
+    [repositories, gitInfos, backend],
+  );
 
-  /** Runs a Git action from the UI: refreshes the status after it, and reports failures. */
+  /**
+   * Runs a Git action from the UI: refreshes the status after it, and reports failures. One that
+   * stopped on conflicts (merge, rebase, pull, cherry-pick, unstash) opens them instead.
+   */
   const runGit = useCallback(
     async (label: string, action: () => Promise<unknown>): Promise<boolean> => {
       setStatus(`${label}…`);
+      let failure: unknown = null;
       try {
         await action();
         setStatus(`${label}: done`);
-        return true;
       } catch (e) {
-        notify({ title: `${label} failed`, body: String(e instanceof Error ? e.message : e), tone: 'error', action: { label: 'Show Git console', run: () => setGitLogRequest({ console: true, nonce: Date.now() }) } });
+        failure = e;
         setStatus('');
-        return false;
-      } finally {
-        await refreshGit();
-        setGitLogRequest((r) => ({ ...r, reload: Date.now() }));
       }
+      const info = await refreshGit();
+      setGitLogRequest((r) => ({ ...r, reload: Date.now() }));
+      if (failure === null) return true;
+      const conflicts = info?.changes.filter((c) => c.status === 'C').length ?? 0;
+      if (conflicts) {
+        notify({ title: `${label}: ${conflicts} ${conflicts === 1 ? 'conflict' : 'conflicts'}`, body: 'Resolve them, then continue (or abort) from the Commit panel.', tone: 'warning', action: { label: 'Resolve…', run: () => setGitDialog({ kind: 'conflicts' }) } });
+        setGitDialog({ kind: 'conflicts' });
+      } else {
+        notify({ title: `${label} failed`, body: String(failure instanceof Error ? failure.message : failure), tone: 'error', action: { label: 'Show Git console', run: () => setGitLogRequest({ console: true, nonce: Date.now() }) } });
+      }
+      return false;
     },
     [refreshGit, notify],
   );
@@ -1167,9 +1239,14 @@ export function useWorkspace(backend: Backend) {
   gitRepoRef.current = gitRepo;
 
   /** What the Git tool window should show: a file's history, a commit, the console; `reload` after actions. */
-  const [gitLogRequest, setGitLogRequest] = useState<{ path?: string; hash?: string; file?: string; console?: boolean; nonce?: number; reload?: number }>({});
+  const [gitLogRequest, setGitLogRequest] = useState<{ path?: string; hash?: string; file?: string; console?: boolean; prs?: boolean; nonce?: number; reload?: number }>({});
   const showHistory = useCallback((path: string) => {
     setGitLogRequest({ path, nonce: Date.now() });
+    showBottom('git');
+  }, [showBottom]);
+  /** The Git tool window's Pull Requests tab. */
+  const showPullRequests = useCallback(() => {
+    setGitLogRequest({ prs: true, nonce: Date.now() });
     showBottom('git');
   }, [showBottom]);
   /** A commit in the Git log; `file`: highlighted among its changed files (from an annotation). */
@@ -1177,9 +1254,6 @@ export function useWorkspace(backend: Backend) {
     setGitLogRequest({ hash, file, nonce: Date.now() });
     showBottom('git');
   }, [showBottom]);
-
-  /** Git dialogs (Push, New Branch, Stash…), opened from the branches popup, the Log and shortcuts. */
-  const [gitDialog, setGitDialog] = useState<GitDialogRequest | null>(null);
 
   /** Files showing Git blame annotations in the gutter. */
   const [annotated, setAnnotated] = useState<Set<string>>(new Set());
@@ -1192,21 +1266,12 @@ export function useWorkspace(backend: Backend) {
     });
   }, []);
 
-  const openDiff = useCallback((path: string, commit?: string) => {
-    const id = `diff:${commit ?? 'working'}:${path}`;
-    setTabs((t) => (t.some((x) => x.id === id) ? t : [...t, { id, kind: 'diff', path, commit }]));
+  /** A file's diff: HEAD vs your version; a commit vs its parent; with `left`, that revision vs `commit` (or your version); or as shelved. */
+  const openDiff = useCallback((path: string, commit?: string, left?: string, shelf?: string) => {
+    const id = shelf ? `diff:shelf-${shelf}:${path}` : `diff:${left ? `${left}..` : ''}${commit ?? 'working'}:${path}`;
+    setTabs((t) => (t.some((x) => x.id === id) ? t : [...t, { id, kind: 'diff', path, commit, ...(left ? { left } : {}), ...(shelf ? { shelf } : {}) }]));
     setActiveId(id);
   }, []);
-
-  const commit = useCallback(
-    async (paths: string[], message: string, push: boolean, options: CommitOptions = {}) => {
-      const summary = await backend.gitCommit(paths, message, push, options);
-      notify({ title: push ? 'Committed and pushed' : 'Committed', body: summary, tone: 'success' });
-      await refreshGit();
-      return summary;
-    },
-    [backend, notify, refreshGit],
-  );
 
   // ── Saving ────────────────────────────────────────────────────
   const save = useCallback(
@@ -1250,6 +1315,44 @@ export function useWorkspace(backend: Backend) {
   const saveActive = useCallback(() => {
     if (activePath) save(activePath);
   }, [activePath, save]);
+
+  const commit = useCallback(
+    async (paths: string[], message: string, push: boolean, options: CommitOptions = {}) => {
+      // Files with changes left out (the diff view's checkboxes): HEAD's text with only the
+      // included changes. One with unsaved edits is saved first, so what's chosen is what's on disk.
+      const partial: Record<string, string> = {};
+      for (const path of paths.filter(isPartial)) {
+        if (dirtyRef.current.has(path) && !(await save(path))) throw new Error(`${baseName(path)} could not be saved`);
+        const work = await backend.readFile(path);
+        const head = (await gitRepo.head(path)) ?? '';
+        partial[path] = contentToCommit(toLines(head), toLines(work), excludedOf(path), eolOf(work));
+      }
+      // Files of several repositories: a commit in each, with the same message.
+      const groups = new Map<Git, string[]>();
+      for (const p of paths) {
+        const g = gitRepo.owner(p);
+        groups.set(g, [...(groups.get(g) ?? []), p]);
+      }
+      // Nothing chosen (amend with the message only): the current repository's last commit.
+      if (!groups.size) groups.set(gitRepo, []);
+      const summaries: string[] = [];
+      try {
+        for (const [g, mine] of groups) {
+          const own = Object.fromEntries(Object.entries(partial).filter(([p]) => mine.includes(p)));
+          const line = await g.backend.gitCommit(mine, message, push, { ...options, ...(Object.keys(own).length ? { partial: own } : {}) });
+          summaries.push(groups.size > 1 ? `${g.name}: ${line}` : line);
+        }
+      } finally {
+        if (summaries.length) await refreshGit();
+      }
+      const summary = summaries.join('\n');
+      paths.forEach(clearPartial);
+      notify({ title: push ? 'Committed and pushed' : 'Committed', body: summary, tone: 'success' });
+      await refreshGit();
+      return summary;
+    },
+    [backend, notify, refreshGit, gitRepo, save],
+  );
 
   // ── Composer ──────────────────────────────────────────────────
   const [packages, setPackages] = useState<Package[]>([]);
@@ -2422,7 +2525,7 @@ export function useWorkspace(backend: Backend) {
     findInFiles, openFindInFiles, closeFindInFiles: () => setFindInFiles(null), findResults, setFindResults,
     savedTextOf: (path: string) => savedText.current[path], liveTextOf: (path: string) => liveText.current[path],
     // git
-    git, gitLoaded, refreshGit, commit, gitRepo, runGit, rollbackFiles, rollbackNow, gitLogRequest, showHistory, showCommit, annotated, toggleAnnotate, openDiff, gitDialog, setGitDialog,
+    git, gitLoaded, refreshGit, commit, gitRepo, repositoryList, setCurrentRepo, runGit, rollbackFiles, rollbackNow, gitLogRequest, showHistory, showPullRequests, showCommit, annotated, toggleAnnotate, openDiff, gitDialog, setGitDialog,
     // composer
     packages, outdated, composerBusy, checkOutdated, updatePackage, hasComposer,
     // run

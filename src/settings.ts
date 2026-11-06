@@ -1,6 +1,7 @@
 // Application settings (Settings window, Ctrl+Alt+S), saved in this machine's browser storage.
 
 import { useSyncExternalStore } from 'react';
+import type { IssueLink } from './git/issueLinks';
 
 export interface TerminalSettings {
   /** Shell executable; empty = the first shell found (Windows PowerShell on Windows). */
@@ -57,6 +58,12 @@ export interface EditorSettings {
   foldingOutline: boolean;
   indentGuides: boolean;
   whitespaces: boolean;
+  /** A minimap of the file instead of the plain scrollbar (also in the scrollbar's right-click menu). */
+  minimap: boolean;
+  /** Hovering the scrollbar shows the code at that height. */
+  scrollbarLens: boolean;
+  /** Who last changed the caret's line, and when: faint, at the line's end. */
+  inlineBlame: boolean;
   /** Editor ▸ General ▸ Gutter Icons: all of them, then one by one. Breakpoints always show. */
   gutterIcons: boolean;
   gutterBookmarks: boolean;
@@ -216,6 +223,8 @@ export interface Settings {
   keymap: KeymapSettings;
   /** Settings ▸ Trusted Projects: open projects not trusted yet in Restricted Mode (trust.ts). */
   security: { restrictedMode: boolean };
+  /** Settings ▸ Version Control ▸ Issue Navigation: patterns in commit messages that link to issues (git/issueLinks.ts). */
+  vcs: { issueLinks: IssueLink[] };
 }
 
 /** The defaults. */
@@ -277,6 +286,9 @@ export const DEFAULT_SETTINGS: Settings = {
     foldingOutline: true,
     indentGuides: true,
     whitespaces: false,
+    minimap: false,
+    scrollbarLens: true,
+    inlineBlame: true,
     gutterIcons: true,
     gutterBookmarks: true,
     gutterRun: true,
@@ -328,6 +340,7 @@ export const DEFAULT_SETTINGS: Settings = {
   composer: { path: '' },
   keymap: { preset: 'phpblitz', overrides: {} },
   security: { restrictedMode: true },
+  vcs: { issueLinks: [] },
 };
 
 const KEY = 'phpblitz.settings';
@@ -362,6 +375,7 @@ function load(): Settings {
       composer: { ...DEFAULT_SETTINGS.composer, ...(saved.composer ?? {}) },
       keymap: { ...DEFAULT_SETTINGS.keymap, ...(saved.keymap ?? {}) },
       security: { ...DEFAULT_SETTINGS.security, ...(saved.security ?? {}) },
+      vcs: { issueLinks: Array.isArray(saved.vcs?.issueLinks) ? saved.vcs.issueLinks : [] },
       mago: saved.mago ? { categories: saved.mago.categories ?? {}, rules: saved.mago.rules ?? {} } : DEFAULT_SETTINGS.mago,
     };
   } catch {

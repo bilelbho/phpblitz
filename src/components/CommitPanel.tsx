@@ -2,7 +2,7 @@
 // directory), Ignored Files on request, diff / rollback / shelve, message history and commit options.
 
 import { FileIcon } from './FileIcon';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Workspace } from '../useWorkspace';
 import { baseName, relativePath, type GitChange } from '../backend/types';
 import { Icon } from './Icon';
@@ -15,12 +15,18 @@ import { projectStorage } from '../projectStorage';
 import { copyText, hasLocalHistory } from '../editorMenu';
 import { openLocalHistory } from './LocalHistoryDialog';
 import { NoGit } from './TrustDialog';
+import { GitOperationBanner } from './GitOperationBanner';
+import { clearPartial, usePartialCommits } from '../git/partial';
+import { DEFAULT_LIST, deleteList, forgetFiles, listOf, moveToList, setActiveList, useChangelists } from '../git/changelists';
+import { savePatch } from '../git/patchFiles';
 
 const nativePath = (p: string) => (/^[A-Za-z]:\//.test(p) ? p.replace(/\//g, '\\') : p);
-const STATUS_LABEL = { M: 'modified', A: 'added', D: 'deleted', R: 'renamed', U: 'unversioned' } as const;
+const STATUS_LABEL = { M: 'modified', A: 'added', D: 'deleted', R: 'renamed', U: 'unversioned', C: 'conflict' } as const;
 
 interface ViewPrefs {
   groupByDir: boolean;
+  /** Several repositories: the files under their repository (on unless turned off). */
+  groupByRepo: boolean;
   showIgnored: boolean;
   signOff: boolean;
   analyze: boolean;
@@ -28,7 +34,7 @@ interface ViewPrefs {
   squashFixup: boolean;
 }
 const PREFS_KEY = 'phpblitz.commitView';
-const DEFAULT_PREFS: ViewPrefs = { groupByDir: false, showIgnored: false, signOff: false, analyze: true, squashFixup: false };
+const DEFAULT_PREFS: ViewPrefs = { groupByDir: false, groupByRepo: true, showIgnored: false, signOff: false, analyze: true, squashFixup: false };
 
 function loadPrefs(): ViewPrefs {
   try {
@@ -55,6 +61,8 @@ function rememberMessage(root: string, message: string) {
 }
 
 export function CommitPanel({ ws }: { ws: Workspace }) {
+  /** Files only some of whose changes go in (chosen in their diff). */
+  const partial = usePartialCommits();
   /** Files whose checkbox differs from the default (tracked changes in, unversioned files out). */
   const [toggled, setToggled] = useState<Set<string>>(new Set());
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -88,9 +96,21 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
     });
 
   const all = ws.git?.changes ?? [];
-  const changes = all.filter((c) => c.status !== 'U');
+  // Conflicted files have their own group: git commits them only once they're resolved.
+  const conflicts = all.filter((c) => c.status === 'C');
+  const changes = all.filter((c) => c.status !== 'U' && c.status !== 'C');
+  // Changelists: the changes in named groups (git/changelists.ts).
+  const root = ws.backend.root;
+  const lists = useChangelists(root);
+  const customLists = lists.lists.filter((l) => l.id !== DEFAULT_LIST.id);
+  const inList = (id: string) => changes.filter((c) => listOf(lists, relativePath(ws.backend, c.path)) === id);
+  const defaultChanges = inList(DEFAULT_LIST.id);
+  // Committed or rolled back files leave their lists.
+  useEffect(() => {
+    if (ws.git) forgetFiles(root, new Set(ws.git.changes.map((c) => relativePath(ws.backend, c.path))));
+  }, [ws.git, ws.backend, root]);
   const unversioned = all.filter((c) => c.status === 'U');
-  const isIn = (c: GitChange) => (c.status !== 'U') !== toggled.has(c.path);
+  const isIn = (c: GitChange) => c.status !== 'C' && (c.status !== 'U') !== toggled.has(c.path);
   const included = all.filter(isIn);
 
   useEffect(() => {
@@ -131,7 +151,7 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
   if (!ws.gitLoaded) return <div className="empty">Reading Git status…</div>;
   if (!ws.git) return <NoGit restricted={ws.backend.restricted} />;
 
-  const showDiff = (c: GitChange) => (c.status === 'U' ? ws.openFile(c.path) : ws.openDiff(c.path));
+  const showDiff = (c: GitChange) => (c.status === 'C' ? ws.setGitDialog({ kind: 'conflicts', path: c.path }) : c.status === 'U' ? ws.openFile(c.path) : ws.openDiff(c.path));
   const selectedChange = all.find((c) => c.path === selected);
   const rollbackTargets = () => (selectedChange ? [selectedChange] : included).filter((c) => c.status !== 'U');
 
@@ -194,8 +214,17 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
       { label: 'Add to VCS', shortcut: 'Ctrl+Alt+A', icon: 'plus', disabled: !untracked.length, run: () => ws.runGit('Add to VCS', () => ws.gitRepo.add(untracked.map((c) => c.path))) },
       { label: 'Add to .gitignore', disabled: !untracked.length, submenu: untracked.length ? ignoreItems(untracked) : [] },
       { kind: 'sep' },
+      {
+        label: 'Create Patch…',
+        disabled: !list.some((c) => c.status !== 'C'),
+        run: () =>
+          void ws.gitRepo
+            .changesPatch(list.filter((c) => c.status !== 'C'))
+            .then((patch) => savePatch(ws, patch, list.length === 1 ? baseName(list[0].path) : 'changes'))
+            .catch((e) => ws.notify({ title: "Couldn't create the patch", body: String(e instanceof Error ? e.message : e), tone: 'error' })),
+      },
       { label: 'Copy as Patch to Clipboard', icon: 'copy', disabled: !tracked.length, run: () => void copyPatch(tracked) },
-      { label: 'Shelve Changes…', icon: 'shelve', disabled: !changes.length, run: () => ws.setGitDialog({ kind: 'stash' }) },
+      { label: 'Shelve Changes…', icon: 'shelve', disabled: !list.some((c) => c.status !== 'C'), run: () => ws.setGitDialog({ kind: 'shelve', paths: list.map((c) => c.path) }) },
       ...(one
         ? [
             { kind: 'sep' as const },
@@ -209,10 +238,46 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
     ];
   };
 
+  /** Move to Changelist ▸ another list, or a new one (tracked changes only: not new or conflicted files). */
+  const moveItems = (list: GitChange[]): ContextItem[] => {
+    const movable = list.filter((c) => c.status !== 'U' && c.status !== 'C').map((c) => relativePath(ws.backend, c.path));
+    if (!movable.length) return [];
+    const here = new Set(movable.map((p) => listOf(lists, p)));
+    return [
+      {
+        label: 'Move to Changelist',
+        submenu: [
+          ...lists.lists.filter((l) => !(here.size === 1 && here.has(l.id))).map((l): ContextItem => ({ label: l.name, run: () => moveToList(root, movable, l.id) })),
+          { kind: 'sep' },
+          { label: 'New Changelist…', icon: 'plus', run: () => ws.setGitDialog({ kind: 'newChangelist', paths: movable }) },
+        ],
+      },
+    ];
+  };
+
   const fileMenu = (e: React.MouseEvent, c: GitChange) => {
     e.preventDefault();
     setSelected(c.path);
-    setMenu({ x: e.clientX, y: e.clientY, items: actions([c], c) });
+    const items = actions([c], c);
+    // After Shelve Changes: where the file is grouped.
+    const at = items.findIndex((i) => 'label' in i && i.label === 'Shelve Changes…');
+    setMenu({ x: e.clientX, y: e.clientY, items: [...items.slice(0, at + 1), ...moveItems([c]), ...items.slice(at + 1)] });
+  };
+
+  const changelistItems = (id: string): ContextItem[] => {
+    const l = lists.lists.find((x) => x.id === id);
+    if (!l) return [];
+    return [
+      { label: 'New Changelist…', icon: 'plus', run: () => ws.setGitDialog({ kind: 'newChangelist', paths: [] }) },
+      ...(lists.active !== id ? [{ label: 'Set Active Changelist', run: () => setActiveList(root, id, changes.map((c) => relativePath(ws.backend, c.path))) }] : []),
+      ...(id !== DEFAULT_LIST.id
+        ? [
+            { label: 'Rename Changelist…', icon: 'pencil' as const, run: () => ws.setGitDialog({ kind: 'renameChangelist', id, name: l.name }) },
+            { label: 'Delete Changelist', run: () => deleteList(root, id) },
+          ]
+        : []),
+      { kind: 'sep' },
+    ];
   };
 
   /** No separator first, last, or twice in a row. */
@@ -228,7 +293,10 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
       items: [
         // Only what applies to this group (a file's menu shows the rest greyed out).
         ...tidy(actions(list, null).slice(0, -2).filter((i) => !('disabled' in i && i.disabled))),
+        ...moveItems(list),
         { kind: 'sep' },
+        // A changelist's own: make it the active one (new changes land there), rename, delete.
+        ...(key === 'changes' || key.startsWith('cl:') ? changelistItems(key === 'changes' ? DEFAULT_LIST.id : key.slice(3)) : []),
         ...(list.length ? [{ label: collapsed.has(key) ? 'Expand' : 'Collapse', run: () => toggleOpen(key) }] : []),
         { label: 'Refresh', icon: 'refresh', run: ws.refreshGit },
       ],
@@ -357,6 +425,7 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
       y: r.bottom + 4,
       items: [
         { label: 'Group By', disabled: true },
+        ...(ws.repositoryList.length > 1 ? [{ label: 'Repository', checked: prefs.groupByRepo, run: () => setPrefs({ groupByRepo: !prefs.groupByRepo }) }] : []),
         { label: 'Directory', checked: prefs.groupByDir, run: () => setPrefs({ groupByDir: !prefs.groupByDir }) },
         { kind: 'sep' },
         { label: 'Show', disabled: true },
@@ -479,17 +548,68 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
         onContextMenu={(e) => fileMenu(e, c)}
         title={`${relativePath(ws.backend, c.path)} (${STATUS_LABEL[c.status]})`}
       >
-        <input type="checkbox" className="checkbox" checked={isIn(c)} aria-label={`Include ${baseName(c.path)}`} onChange={() => setIncluded([c], !isIn(c))} />
+        <input
+          type="checkbox"
+          className="checkbox"
+          checked={isIn(c)}
+          // Some of its changes left out (in the diff view): half checked.
+          ref={(el) => {
+            if (el) el.indeterminate = isIn(c) && partial.has(c.path);
+          }}
+          disabled={c.status === 'C'}
+          title={c.status === 'C' ? 'Resolve the conflict first' : isIn(c) && partial.has(c.path) ? 'Only the changes checked in its diff go in' : undefined}
+          aria-label={`Include ${baseName(c.path)}`}
+          onChange={() => {
+            // A half-checked file: the whole of it, again (in or out).
+            if (partial.has(c.path)) {
+              clearPartial(c.path);
+              if (isIn(c)) return;
+            }
+            setIncluded([c], !isIn(c));
+          }}
+        />
         <FileIcon path={c.path} />
         <span className={`name status-${c.status}`}>{baseName(c.path)}</span>
         {showDir && <span className="detail">{dir || ws.backend.name}</span>}
+        {isIn(c) && partial.has(c.path) && <span className="detail">partly</span>}
+        {c.status === 'C' && (
+          <button
+            type="button"
+            className="icon-btn small row-action"
+            title="Merge"
+            aria-label={`Merge ${baseName(c.path)}`}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => ws.setGitDialog({ kind: 'conflicts', path: c.path })}
+          >
+            <Icon name="merge" size={14} />
+          </button>
+        )}
       </div>
     );
   };
 
   const fileRows = (key: string, list: GitChange[]): ReactNode[] => {
     if (collapsed.has(key)) return [];
-    if (!prefs.groupByDir) return list.map((c) => fileRow(c, 0, true));
+    // Several repositories: a group for each (its name and branch), the files (or folders) in it.
+    if (prefs.groupByRepo && ws.repositoryList.length > 1) {
+      const byRepo = new Map<string, GitChange[]>();
+      for (const c of list) {
+        const root = ws.gitRepo.owner(c.path).root;
+        byRepo.set(root, [...(byRepo.get(root) ?? []), c]);
+      }
+      return ws.repositoryList
+        .filter((r) => byRepo.has(r.root))
+        .flatMap((r) => {
+          const rk = `${key}@${r.root}`;
+          const files = byRepo.get(r.root)!;
+          return [groupRow(rk, `${r.name} (${r.branch})`, files, files.length, 1), ...(collapsed.has(rk) ? [] : filesIn(rk, files, 1))];
+        });
+    }
+    return filesIn(key, list, 0);
+  };
+  /** Files at this depth: one by one, or by directory. */
+  const filesIn = (key: string, list: GitChange[], depth: number): ReactNode[] => {
+    if (!prefs.groupByDir) return list.map((c) => fileRow(c, depth, true));
     const byDir = new Map<string, GitChange[]>();
     for (const c of list) {
       const dir = relativePath(ws.backend, c.path).split('/').slice(0, -1).join('/') || ws.backend.name;
@@ -499,7 +619,7 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
       .sort(([a], [b]) => a.localeCompare(b))
       .flatMap(([dir, files]) => {
         const dk = `${key}/${dir}`;
-        return [groupRow(dk, dir, files, files.length, 1), ...(collapsed.has(dk) ? [] : files.map((c) => fileRow(c, 1, false)))];
+        return [groupRow(dk, dir, files, files.length, depth + 1), ...(collapsed.has(dk) ? [] : files.map((c) => fileRow(c, depth + 1, false)))];
       });
   };
 
@@ -515,7 +635,14 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
         <button type="button" className="icon-btn" aria-label="Show diff" title="Show Diff (Ctrl+D)" disabled={!selectedChange || selectedChange.status === 'U'} onClick={() => selectedChange && showDiff(selectedChange)}>
           <Icon name="columns" size={15} />
         </button>
-        <button type="button" className="icon-btn" aria-label="Shelve changes" title="Shelve Changes (git stash)…" disabled={!changes.length} onClick={() => ws.setGitDialog({ kind: 'stash' })}>
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label="Shelve changes"
+          title="Shelve Changes… (the checked files; Stash is in the Stash tab)"
+          disabled={!changes.length && !unversioned.length}
+          onClick={() => ws.setGitDialog({ kind: 'shelve', paths: (included.length ? included : changes).map((c) => c.path) })}
+        >
           <Icon name="shelve" size={15} />
         </button>
         <button type="button" className={'icon-btn' + (prefs.groupByDir || prefs.showIgnored ? ' active' : '')} aria-label="View options" title="View Options" aria-haspopup="menu" onClick={viewMenu}>
@@ -528,10 +655,11 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
         <button type="button" className="icon-btn" aria-label="Expand all" title="Expand All" onClick={() => setCollapsed(new Set())}>
           <Icon name="expandAll" size={15} />
         </button>
-        <button type="button" className="icon-btn" aria-label="Collapse all" title="Collapse All" onClick={() => setCollapsed(new Set(['changes', 'unversioned', 'ignored']))}>
+        <button type="button" className="icon-btn" aria-label="Collapse all" title="Collapse All" onClick={() => setCollapsed(new Set(['conflicts', 'changes', ...customLists.map((l) => `cl:${l.id}`), 'unversioned', 'ignored']))}>
           <Icon name="collapseAll" size={15} />
         </button>
       </div>
+      <GitOperationBanner ws={ws} />
 
       <div
         ref={tree}
@@ -561,16 +689,49 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
             ws.runGit('Add to VCS', () => ws.gitRepo.add([c.path]));
           } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             e.preventDefault();
-            const order = [...changes, ...unversioned];
+            const order = [...conflicts, ...changes, ...unversioned];
             const i = order.findIndex((x) => x.path === c.path) + (e.key === 'ArrowDown' ? 1 : -1);
             if (order[i]) setSelected(order[i].path);
           }
         }}
       >
-        {changes.length ? (
+        {changes.length || conflicts.length || customLists.length ? (
           <>
-            {groupRow('changes', 'Changes', changes, changes.length)}
-            {fileRows('changes', changes)}
+            {groupRow('changes', `${DEFAULT_LIST.name}${lists.active === DEFAULT_LIST.id && customLists.length ? ' (active)' : ''}`, defaultChanges.length ? defaultChanges : null, defaultChanges.length + conflicts.length)}
+            {/* Conflicted files: a group of their own inside Changes, with the way to resolve them. */}
+            {!collapsed.has('changes') && conflicts.length > 0 && (
+              <>
+                <div key="conflicts" className="row commit-group dir conflicts-group" style={{ paddingLeft: 22 }} onClick={() => toggleOpen('conflicts')}>
+                  <span className={'chev' + (collapsed.has('conflicts') ? '' : ' open')}>
+                    <Icon name="chevronRight" size={12} />
+                  </span>
+                  <span className="commit-group-label">Merge Conflicts</span>
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      ws.setGitDialog({ kind: 'conflicts' });
+                    }}
+                  >
+                    Resolve
+                  </button>
+                </div>
+                {!collapsed.has('conflicts') && conflicts.map((c) => fileRow(c, 1, true))}
+              </>
+            )}
+            {fileRows('changes', defaultChanges)}
+            {/* The other changelists, each a group of its own (committed separately). */}
+            {customLists.map((l) => {
+              const files = inList(l.id);
+              const key = `cl:${l.id}`;
+              return (
+                <Fragment key={key}>
+                  {groupRow(key, `${l.name}${lists.active === l.id ? ' (active)' : ''}`, files.length ? files : null, files.length)}
+                  {fileRows(key, files)}
+                </Fragment>
+              );
+            })}
           </>
         ) : (
           // Nothing changed: only the title, nothing to expand, check or count.
@@ -637,7 +798,7 @@ export function CommitPanel({ ws }: { ws: Workspace }) {
           </button>
           <span className="grow" />
           <span className="muted" style={{ fontSize: 12 }}>
-            {included.length} of {all.length} selected
+            {included.length} of {all.length - conflicts.length} selected
           </span>
         </div>
         {mode === 'amend' && (

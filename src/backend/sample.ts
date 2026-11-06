@@ -542,6 +542,11 @@ export class SampleBackend implements Backend {
     return this.lastMessage;
   }
 
+  /** No GitHub here: the Pull Requests tab says gh is needed. */
+  async gh(): Promise<RunResult> {
+    return { code: 127, stdout: '', stderr: 'The demo project has no GitHub repository.' };
+  }
+
   /** A small made-up repository, so the Git tool window, diff and annotations can be tried. */
   async git(argv: string[]): Promise<RunResult> {
     const args = [...argv];

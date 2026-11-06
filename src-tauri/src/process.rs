@@ -41,11 +41,13 @@ fn exec(cwd: &str, mut cmd: Command, label: &str) -> Result<RunResult, String> {
 
 /// Runs a program directly (no shell), e.g. `git status` or `php -l file.php`.
 #[tauri::command]
-pub async fn run_process(cwd: String, program: String, args: Vec<String>) -> Result<RunResult, String> {
+pub async fn run_process(cwd: String, program: String, args: Vec<String>, env: Option<std::collections::HashMap<String, String>>) -> Result<RunResult, String> {
     crate::trust::check(&cwd)?;
     tauri::async_runtime::spawn_blocking(move || {
         let mut cmd = Command::new(&program);
         cmd.args(&args);
+        // Extra variables for this run only (a commit built in a separate Git index file).
+        cmd.envs(env.unwrap_or_default());
         exec(&cwd, cmd, &program)
     })
     .await

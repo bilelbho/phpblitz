@@ -6,6 +6,12 @@ import type { GitDialogRequest, Workspace } from '../useWorkspace';
 import type { Commit, Stash } from '../git/git';
 import { Icon } from './Icon';
 import { RollbackDialog } from './RollbackDialog';
+import { ConflictsDialog } from './ConflictsDialog';
+import { RebaseDialog } from './RebaseDialog';
+import { CompareDialog } from './CompareDialog';
+import { ShelveDialog } from './ShelveDialog';
+import { CreatePullRequestDialog } from './CreatePullRequestDialog';
+import { addList, renameList } from '../git/changelists';
 
 export function GitDialogs({ ws }: { ws: Workspace }) {
   const d = ws.gitDialog;
@@ -20,6 +26,16 @@ export function GitDialogs({ ws }: { ws: Workspace }) {
       return <RollbackDialog ws={ws} paths={d.paths} onClose={close} />;
     case 'reset':
       return <ResetDialog ws={ws} hash={d.hash} subject={d.subject} onClose={close} />;
+    case 'conflicts':
+      return <ConflictsDialog ws={ws} initial={d.path} onClose={close} />;
+    case 'rebase':
+      return <RebaseDialog ws={ws} from={d.from} onClose={close} />;
+    case 'compare':
+      return <CompareDialog ws={ws} left={d.left} right={d.right} onClose={close} />;
+    case 'shelve':
+      return <ShelveDialog ws={ws} paths={d.paths} onClose={close} />;
+    case 'createPr':
+      return <CreatePullRequestDialog ws={ws} onClose={close} />;
     default:
       return <PromptFor ws={ws} request={d} onClose={close} />;
   }
@@ -65,6 +81,10 @@ function PromptFor({ ws, request, onClose }: { ws: Workspace; request: GitDialog
         return { title: 'Stash Changes', label: 'Message:', initial: '', check: 'Include unversioned files', checkInitial: false, ok: 'Create Stash', optional: true };
       case 'tag':
         return { title: `New Tag on ${request.hash.slice(0, 8)}`, label: 'Tag name:', initial: '', ok: 'Create Tag', branchName: true };
+      case 'newChangelist':
+        return { title: 'New Changelist', label: 'Name:', initial: '', ok: request.paths.length ? 'Create and Move' : 'Create' };
+      case 'renameChangelist':
+        return { title: `Rename Changelist '${request.name}'`, label: 'New name:', initial: request.name, ok: 'Rename' };
       default:
         return null;
     }
@@ -117,6 +137,12 @@ function PromptFor({ ws, request, onClose }: { ws: Workspace; request: GitDialog
         break;
       case 'tag':
         await ws.runGit(`Tag ${name}`, () => repo.tag(name, request.hash));
+        break;
+      case 'newChangelist':
+        addList(ws.backend.root, name, request.paths);
+        break;
+      case 'renameChangelist':
+        renameList(ws.backend.root, request.id, name);
         break;
     }
   };

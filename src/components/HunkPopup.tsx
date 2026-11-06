@@ -16,11 +16,14 @@ interface Props {
   onRollback: () => void;
   onDiff: () => void;
   onClose: () => void;
+  /** Partial commits: whether the change goes into the next commit (absent: no checkbox). */
+  included?: boolean;
+  onInclude?: (included: boolean) => void;
 }
 
 const LANG_FENCE: Record<string, string> = { php: 'php', javascript: 'js', typescript: 'ts', json: 'json', css: 'css', html: 'html', markdown: 'md', yaml: 'yaml', sql: 'sql', shell: 'bash', ini: 'ini', xml: 'xml' };
 
-export function HunkPopup({ x, y, hunk, index, total, language, onMove, onRollback, onDiff, onClose }: Props) {
+export function HunkPopup({ x, y, hunk, index, total, language, onMove, onRollback, onDiff, onClose, included, onInclude }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ left: x, top: y });
   const [html, setHtml] = useState<string | null>(null);
@@ -81,6 +84,12 @@ export function HunkPopup({ x, y, hunk, index, total, language, onMove, onRollba
           <button type="button" className="icon-btn small" title="Copy Old Text" aria-label="Copy old text" onClick={() => navigator.clipboard.writeText(hunk.oldLines.join('\n')).catch(() => {})}>
             <Icon name="copy" size={13} />
           </button>
+        )}
+        {included !== undefined && onInclude && (
+          <label className="hunk-include" title="Partial commits: whether this change goes into the next commit">
+            <input type="checkbox" className="checkbox" checked={included} onChange={(e) => onInclude(e.target.checked)} />
+            In commit
+          </label>
         )}
         <span className="grow" />
         <span className="muted hunk-what">

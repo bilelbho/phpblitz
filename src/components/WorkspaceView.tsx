@@ -20,6 +20,8 @@ import { columnShown, isBottomTool, isEditorColumn, type Anchor, type FocusDrop,
 import { HideToolButton, ToolColumnContext, ToolHideContext } from './toolHide';
 import { ProjectTree } from './ProjectTree';
 import { CommitPanel } from './CommitPanel';
+import { StashPanel } from './StashPanel';
+import { ShelfPanel } from './ShelfPanel';
 import { StructurePanel } from './StructurePanel';
 import { EditorArea } from './EditorArea';
 import { BottomPanel } from './BottomPanel';
@@ -38,7 +40,7 @@ import { EndpointsPanel } from './EndpointsPanel';
 import { ComposerPanel } from './ComposerPanel';
 import { NpmPanel } from './NpmPanel';
 import { StatusBar } from './StatusBar';
-import { onAskTrust, TrustDialog } from './TrustDialog';
+import { NoGit, onAskTrust, TrustDialog } from './TrustDialog';
 import { SearchEverywhere } from './SearchEverywhere';
 import { FindInFiles } from './FindInFiles';
 import { AboutDialog, DatabasePanel, SettingsDialog, StartupPerformance } from './lazy';
@@ -76,6 +78,30 @@ function ToolWindow({ title, hint, onHide, children, style }: { title: string; h
         <HideToolButton onHide={onHide} label={title} />
       </div>
       {children}
+    </section>
+  );
+}
+
+/** The Commit tool window: the changes to commit, and the stashes. */
+function CommitToolWindow({ ws, style, onHide }: { ws: ReturnType<typeof useWorkspace>; style?: React.CSSProperties; onHide: () => void }) {
+  const [tab, setTab] = useState<'commit' | 'stash' | 'shelf'>('commit');
+  const tabButton = (id: 'commit' | 'stash' | 'shelf', label: string) => (
+    <button type="button" role="tab" aria-selected={tab === id} className={'tw-tab' + (tab === id ? ' active' : '')} onClick={() => setTab(id)}>
+      {label}
+    </button>
+  );
+  return (
+    <section className="island side" aria-label="Commit" style={style}>
+      <div className="tw-head" role="tablist">
+        {tabButton('commit', 'Commit')}
+        {tabButton('shelf', 'Shelf')}
+        {tabButton('stash', 'Stash')}
+        <span className="grow" />
+        <HideToolButton onHide={onHide} label="Commit" />
+      </div>
+      <ErrorBoundary name={tab === 'commit' ? 'Commit' : tab === 'shelf' ? 'Shelf' : 'Stash'}>
+        {tab === 'commit' ? <CommitPanel ws={ws} /> : !ws.git ? <NoGit restricted={ws.backend.restricted} /> : tab === 'shelf' ? <ShelfPanel ws={ws} /> : <StashPanel ws={ws} />}
+      </ErrorBoundary>
     </section>
   );
 }
@@ -370,10 +396,12 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
           <ProjectTree ws={ws} onHide={() => ws.hideTool('project')} />
         </ErrorBoundary>
       </section>
+    ) : id === 'commit' ? (
+      // Commit and Stash tabs in its header.
+      <CommitToolWindow key={id} ws={ws} style={style} onHide={() => ws.hideTool('commit')} />
     ) : (
       <ToolWindow key={id} title={toolInfo[id].label} hint={toolInfo[id].hint} onHide={() => ws.hideTool(id)} style={style}>
         <ErrorBoundary name={toolInfo[id].label}>
-          {id === 'commit' && <CommitPanel ws={ws} />}
           {id === 'database' && <DatabasePanel ws={ws} />}
           {id === 'structure' && <StructurePanel ws={ws} />}
           {id === 'notifications' && <NotificationsPanel ws={ws} />}

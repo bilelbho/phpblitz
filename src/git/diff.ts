@@ -13,6 +13,18 @@ export interface Hunk {
   kind: 'added' | 'modified' | 'deleted';
 }
 
+/** Where line `line` of the new text was in the old one (1-based); null for a line a hunk changed or added. */
+export function oldLineOf(hunks: Hunk[], line: number): number | null {
+  let shift = 0;
+  for (const h of hunks) {
+    if (line < h.start) break;
+    if (h.count && line < h.start + h.count) return null;
+    // A deletion sits before its start line: that line is unchanged, and so are the lines after it.
+    if (line >= h.start + h.count) shift += h.count - h.oldLines.length;
+  }
+  return line - shift;
+}
+
 /** Shortest edit script between two line arrays, as hunks of the new text. */
 export function diffLines(a: string[], b: string[]): Hunk[] {
   // Skip the common head and tail: most edits touch a small part of a file.

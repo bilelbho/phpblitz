@@ -184,7 +184,10 @@ export function BranchWidget({ ws }: { ws: Workspace }) {
         onClick={(e) => setBranches(branches ? null : (e.currentTarget as HTMLElement).getBoundingClientRect())}
       >
         <Icon name="branch" size={15} />
-        <span className="widget-text">{ws.git.branch}</span>
+        <span className="widget-text">
+          {ws.repositoryList.length > 1 && <span className="widget-repo">{ws.repositoryList.find((r) => r.root === ws.gitRepo.root)?.name}: </span>}
+          {ws.git.branch}
+        </span>
         <span className="chevron">
           <Icon name="chevronDown" size={12} />
         </span>

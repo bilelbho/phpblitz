@@ -10,6 +10,8 @@ import { isCsv, isRasterImage, isSvg } from '../fileKinds';
 import { runCodeBlock, shellBlocks } from '../markdownBlocks';
 import { IntentionPopup } from './IntentionPopup';
 import { useSettings, getSettings, matchesFilePatterns, updateEditorSettings } from '../settings';
+import { changeKeys, includeChanges, usePartialCommits } from '../git/partial';
+import { checkedLanguages, LANGUAGE_NAMES, LEVELS, levelOf, setLevel, shownProblems, useHighlightLevels } from '../highlightLevel';
 import { bookmarks, useBookmarks } from '../bookmarks';
 import { BookmarksPopup, MnemonicDialog } from './BookmarkPopups';
 import { gutterMenu } from '../gutterMenu';
@@ -38,7 +40,7 @@ import { QueryConsole } from './QueryConsole';
 import { DiffView } from './DiffView';
 import { TabBar } from './TabBar';
 import { HunkPopup } from './HunkPopup';
-import { diffLines, type Hunk } from '../git/diff';
+import { diffLines, oldLineOf, type Hunk } from '../git/diff';
 import type { BlameLine } from '../git/git';
 import { Icon } from './Icon';
 import { invoke } from '@tauri-apps/api/core';
@@ -100,7 +102,7 @@ export function EditorArea({ ws }: { ws: Workspace }) {
       {tab?.kind === 'file' && !isRasterImage(tab.path) && ws.loaded[tab.path] === undefined && <div className="editor-empty">Loading…</div>}
       {tab?.kind === 'table' && <TableEditor key={tab.id} ws={ws} source={tab.source} schema={tab.schema} table={tab.table} />}
       {tab?.kind === 'console' && <QueryConsole key={tab.id} ws={ws} source={tab.source} name={tab.name ?? 'console'} />}
-      {tab?.kind === 'diff' && <DiffView key={tab.id} ws={ws} path={tab.path} commit={tab.commit} />}
+      {tab?.kind === 'diff' && <DiffView key={tab.id} ws={ws} path={tab.path} commit={tab.commit} left={tab.left} shelf={tab.shelf} />}
       {!tab && (
         <div className="editor-empty">
           <div className="shortcut-row">
@@ -127,9 +129,22 @@ const EMPTY_HINTS: [string, string][] = [
   ['Commit', 'phpblitz.commit'],
 ];
 
+/** "3 days ago" for inline blame. */
+function ago(iso: string): string {
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  const unit = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'} ago`;
+  if (s < 60) return 'moments ago';
+  if (s < 3600) return unit(Math.floor(s / 60), 'minute');
+  if (s < 86400) return unit(Math.floor(s / 3600), 'hour');
+  if (s < 86400 * 30) return unit(Math.floor(s / 86400), 'day');
+  if (s < 86400 * 365) return unit(Math.floor(s / (86400 * 30)), 'month');
+  return unit(Math.floor(s / (86400 * 365)), 'year');
+}
+
 /** The editor's top-right widget: problem counts with previous/next arrows. */
 function Inspections({ ws, path, editor }: { ws: Workspace; path: string; editor: monaco.editor.IStandaloneCodeEditor | null }) {
-  const list = ws.problems[path] ?? [];
+  useHighlightLevels();
+  const list = shownProblems(path, ws.problems[path] ?? []);
   const typos = useTypoCount(monaco.Uri.file(path).toString());
   const errors = list.filter((p) => p.severity === 'error').length;
   const warnings = list.filter((p) => p.severity === 'warning').length;
@@ -201,6 +216,9 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     editorRef.current?.focus();
   }, []);
   const settings = useSettings().editor;
+  const highlightLevels = useHighlightLevels();
+  /** Show code lens on scrollbar hover: the code at the hovered height of the scrollbar. */
+  const [lens, setLens] = useState<{ top: number; right: number; first: number; html: string } | null>(null);
   /** Vim mode: its mode and command line, under the editor (editor/vim.ts, loaded only when on). */
   const vimBar = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -233,6 +251,9 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
   const moreActions = useRef<(line: number, column: number) => void>(() => {});
   /** Changes against HEAD (gutter markers), and the popup for one of them. */
   const hunks = useRef<Hunk[]>([]);
+  /** HEAD's text of the file (the change markers' base), null until read. */
+  const headText = useRef<string | null>(null);
+  const partialCommits = usePartialCommits();
   const gitDecorations = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
   const [hunkPopup, setHunkPopup] = useState<{ x: number; y: number; index: number } | null>(null);
   const closeHunk = useCallback(() => setHunkPopup(null), []);
@@ -385,6 +406,47 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       },
       { capture: true, passive: false },
     );
+    // Show code lens on scrollbar hover: the scrollbar stands for the whole file, so the hovered
+    // height is a line; a few lines around it are shown, colored, next to the scrollbar.
+    {
+      const dom = editor.getDomNode()!;
+      let frame = 0;
+      let shown = false;
+      const hide = () => {
+        cancelAnimationFrame(frame);
+        if (shown) setLens(null);
+        shown = false;
+      };
+      dom.addEventListener('mousemove', (e) => {
+        const bar = e.target instanceof Element ? e.target.closest('.decorationsOverviewRuler, .scrollbar.vertical') : null;
+        const { scrollbarLens, minimap } = getSettings().editor;
+        if (!bar || !scrollbarLens || minimap) return hide();
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(async () => {
+          const model = editor.getModel();
+          if (!model) return;
+          const r = bar.getBoundingClientRect();
+          const host = dom.getBoundingClientRect();
+          const y = (Math.min(Math.max(e.clientY - r.top, 0), r.height) / r.height) * editor.getScrollHeight();
+          // The line at that height of the content (folding and wrapping included).
+          let lo = 1;
+          let hi = model.getLineCount();
+          while (lo < hi) {
+            const mid = (lo + hi + 1) >> 1;
+            if (editor.getTopForLineNumber(mid) <= y) lo = mid;
+            else hi = mid - 1;
+          }
+          const first = Math.max(1, lo - 3);
+          const last = Math.min(model.getLineCount(), lo + 3);
+          const text = model.getValueInRange(new monaco.Range(first, 1, last, model.getLineMaxColumn(last)));
+          const html = await monaco.editor.colorize(text, model.getLanguageId(), { tabSize: 4 });
+          shown = true;
+          setLens({ top: e.clientY - host.top, right: host.right - r.left + 6, first, html });
+        });
+      });
+      dom.addEventListener('mouseleave', hide);
+      dom.addEventListener('mousedown', hide);
+    }
     editor.addAction({ id: 'phpblitz.save', label: 'Save', run: () => void latest.current.ws.save(latest.current.path) });
 
     // The language-server features (their keys come from the keymap: keymap/).
@@ -672,6 +734,43 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     // Our right-click menu instead of Monaco's.
     editor.onContextMenu(async (e) => {
       e.event.preventDefault();
+      // The scrollbar (with its change and problem marks) or the minimap: which of the two to show.
+      const T = monaco.editor.MouseTargetType;
+      const onBar = e.event.browserEvent.target instanceof Element && !!e.event.browserEvent.target.closest('.minimap, .scrollbar.vertical, .decorationsOverviewRuler');
+      if (e.target.type === T.SCROLLBAR || e.target.type === T.OVERVIEW_RULER || onBar) {
+        const { minimap, scrollbarLens } = getSettings().editor;
+        const point = { x: e.event.posx, y: e.event.posy };
+        const { ws, path } = latest.current;
+        const langs = checkedLanguages(path);
+        // Highlighting Level for this file: per language, which problems the editor marks.
+        const levels = (): ContextItem[] => [
+          { label: `Highlighting Level for ${path.split('/').pop()}`, head: true },
+          ...langs.flatMap((lang, i): ContextItem[] => [
+            ...(i ? [{ kind: 'sep' as const }] : []),
+            { label: LANGUAGE_NAMES[lang], head: true },
+            ...LEVELS.map(([level, label]): ContextItem => ({ label, checked: levelOf(path, lang) === level, run: () => setLevel(path, lang, level) })),
+          ]),
+          { kind: 'sep' },
+          { label: 'Configure Inspections…', run: () => ws.openSettings('mago') },
+        ];
+        setMenu({
+          ...point,
+          items: [
+            { label: 'Scrollbar', checked: !minimap, run: () => updateEditorSettings({ minimap: false }) },
+            { label: 'Minimap', checked: minimap, run: () => updateEditorSettings({ minimap: true }) },
+            { kind: 'sep' },
+            {
+              label: 'Customize Highlighting Level',
+              disabled: !langs.length,
+              // Opens where the menu was, after it closes.
+              run: () => window.setTimeout(() => setMenu({ ...point, items: levels() })),
+            },
+            { kind: 'sep' },
+            { label: 'Show code lens on scrollbar hover', checked: scrollbarLens, disabled: minimap, run: () => updateEditorSettings({ scrollbarLens: !scrollbarLens }) },
+          ],
+        });
+        return;
+      }
       // The gutter (line numbers, icons, change markers) has its own menu.
       // By position: below the last line Monaco reports the gutter as empty content.
       const left = editor.getDomNode()!.getBoundingClientRect().left;
@@ -1000,6 +1099,54 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     };
   }, [ready, path, large]);
 
+  // Inline blame: who last changed the caret's line, and when, faint at its end (not while the
+  // gutter shows the whole file's annotations). Blame is of the saved file: with unsaved edits,
+  // the caret's line is first found in it.
+  const annotated = !!blameLines;
+  useEffect(() => {
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    const status = ws.git?.changes.find((c) => c.path === path)?.status;
+    if (!ready || !editor || !model || !settings.inlineBlame || annotated || !ws.git || ws.isLargeFile(path) || status === 'U' || status === 'A') return;
+    const deco = editor.createDecorationsCollection();
+    let lines: BlameLine[] | null = null;
+    let live = true;
+    let timer = 0;
+    const show = () => {
+      const pos = editor.getPosition();
+      if (!lines || !pos || !editor.hasTextFocus()) return deco.clear();
+      const saved = latest.current.ws.savedTextOf(path);
+      const old = latest.current.ws.dirty.has(path) && saved !== undefined ? oldLineOf(diffLines(saved.split(/\r?\n/), model.getLinesContent()), pos.lineNumber) : pos.lineNumber;
+      const b = old !== null ? lines[old - 1] : undefined;
+      const text = !b ? 'You · not saved yet' : /^0+$/.test(b.hash) ? 'You · not committed yet' : `${b.author}, ${ago(b.date)} · ${b.summary}`;
+      const line = pos.lineNumber;
+      const end = model.getLineMaxColumn(line);
+      deco.set([{ range: new monaco.Range(line, end, line, end), options: { after: { content: `    ${text.length > 90 ? text.slice(0, 89) + '…' : text}`, inlineClassName: 'inline-blame' }, showIfCollapsed: true } }]);
+    };
+    const later = () => {
+      window.clearTimeout(timer);
+      deco.clear();
+      timer = window.setTimeout(show, 350);
+    };
+    ws.gitRepo.blame(path).then(
+      (l) => {
+        if (!live) return;
+        lines = l;
+        show();
+      },
+      () => {},
+    );
+    const subs = [editor.onDidChangeCursorPosition(later), editor.onDidFocusEditorText(later), editor.onDidBlurEditorText(() => deco.clear())];
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+      subs.forEach((s) => s.dispose());
+      deco.clear();
+    };
+    // ws.git: blame again after commits, checkouts and saves (the status is refreshed then).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, path, settings.inlineBlame, annotated, ws.git]);
+
   // Git: change markers against HEAD, updated while typing.
   useEffect(() => {
     const editor = editorRef.current;
@@ -1013,6 +1160,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     }
     let live = true;
     let base: string | null = null;
+    headText.current = null;
     let timer = 0;
     const colors = { added: '#549159', modified: '#375fad', deleted: '#868a91' };
     const update = () => {
@@ -1045,6 +1193,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
       .then((text) => {
         if (!live || text === null) return;
         base = text;
+        headText.current = text;
         update();
       });
     const sub = model.onDidChangeContent(() => {
@@ -1149,8 +1298,8 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     monaco.editor.setModelMarkers(
       model,
       'phpblitz',
-      // The TypeScript service marks its own problems.
-      (ws.problems[path] ?? []).filter((p) => p.source !== SCRIPT_SOURCE).map((p) => {
+      // The TypeScript service marks its own problems. The file's highlighting level may hide some.
+      shownProblems(path, ws.problems[path] ?? []).filter((p) => p.source !== SCRIPT_SOURCE).map((p) => {
         const line = Math.min(Math.max(p.line, 1), count);
         const endLine = Math.min(Math.max(p.endLine ?? line, line), count);
         // Exact range when the checker gives one; otherwise underline the line's code.
@@ -1167,7 +1316,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         };
       }),
     );
-  }, [ready, path, ws.problems]);
+  }, [ready, path, ws.problems, highlightLevels]);
 
   // Jump to a line (from Structure, Problems, Endpoints, Search…)
   useEffect(() => {
@@ -1209,9 +1358,28 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         .join(' ')}
       style={{ flex: '1 1 auto', minHeight: 0, position: 'relative' }}
     >
+    {lens && (
+      <div className="scrollbar-lens" style={{ top: Math.max(4, lens.top - 70), right: lens.right }} aria-hidden>
+        {/* Monaco's colorizer escapes the text: its HTML is safe to show. */}
+        {lens.html.split('<br/>').map((line, i) => (
+          <div key={i} className="scrollbar-lens-line">
+            <span className="scrollbar-lens-num">{lens.first + i}</span>
+            <span dangerouslySetInnerHTML={{ __html: line }} />
+          </div>
+        ))}
+      </div>
+    )}
     {large && (
       <div className="large-file-banner">
         <Icon name="warning" size={13} /> File size exceeds the code insight limit (2.5 MB). Code insight features are not available.
+      </div>
+    )}
+    {ws.git?.changes.some((c) => c.path === path && c.status === 'C') && (
+      <div className="large-file-banner conflict-banner">
+        <Icon name="warning" size={13} /> This file has merge conflicts.
+        <button type="button" className="link-btn" onClick={() => ws.setGitDialog({ kind: 'conflicts', path })}>
+          Resolve…
+        </button>
       </div>
     )}
     {ready && path.endsWith('.php') && !large && <Inspections ws={ws} path={path} editor={editorRef.current} />}
@@ -1267,6 +1435,15 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
           ws.openDiff(path);
         }}
         onClose={closeHunk}
+        {...(() => {
+          // Partial commits: the change's checkbox, as in the diff (same change, same name).
+          const model = editorRef.current?.getModel();
+          const h = hunks.current[hunkPopup.index];
+          if (headText.current === null || !model) return {};
+          const key = changeKeys(headText.current.split(/\r?\n/), model.getLinesContent()).find(({ change: c }) => c.a0 === h.oldStart - 1 && c.b0 === h.start - 1)?.key;
+          if (!key) return {};
+          return { included: !partialCommits.get(path)?.has(key), onInclude: (on: boolean) => includeChanges(path, [key], on) };
+        })()}
       />
     )}
     {intentions && <IntentionPopup x={intentions.x} y={intentions.y} items={intentions.items} model={editorRef.current?.getModel() ?? null} onClose={closeIntentions} />}
@@ -1315,7 +1492,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         showFoldingControls: settings.foldingOutline ? 'mouseover' : 'never',
         wordWrap: softWrap ? 'on' : 'off',
         renderWhitespace: settings.whitespaces ? 'all' : 'none',
-        minimap: { enabled: false },
+        minimap: { enabled: settings.minimap && !large, renderCharacters: false, showSlider: 'mouseover', maxColumn: 100 },
         scrollBeyondLastLine: true,
         automaticLayout: true,
         renderLineHighlight: 'line',
@@ -1331,9 +1508,11 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         // PHPBlitz shows its own popup (EditorHover).
         hover: { enabled: false },
         lightbulb: { enabled: monaco.editor.ShowLightbulbIconMode.Off },
-        overviewRulerLanes: 2,
+        // Minimap or scrollbar, not both: with the minimap the scrollbar and its marks go.
+        overviewRulerLanes: settings.minimap && !large ? 0 : 2,
+        overviewRulerBorder: !(settings.minimap && !large),
         hideCursorInOverviewRuler: true,
-        scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10, useShadows: false },
+        scrollbar: { vertical: settings.minimap && !large ? 'hidden' : 'auto', verticalScrollbarSize: 10, horizontalScrollbarSize: 10, useShadows: false },
         suggest: { showWords: true },
         // Ghost text from the AI (Settings ▸ Tools ▸ AI); nothing shows while it's off.
         inlineSuggest: { enabled: true, mode: 'subwordSmart' },

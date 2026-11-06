@@ -9,7 +9,7 @@ import { FileIcon } from './FileIcon';
 import { Icon } from './Icon';
 import { useDialogFocus } from './useDialogFocus';
 
-const STATUS_LABEL = { M: 'modified', A: 'added', D: 'deleted', R: 'renamed', U: 'unversioned' } as const;
+const STATUS_LABEL = { M: 'modified', A: 'added', D: 'deleted', R: 'renamed', U: 'unversioned', C: 'conflict' } as const;
 
 export function RollbackDialog({ ws, paths, onClose }: { ws: Workspace; paths: string[]; onClose: () => void }) {
   const changes = useMemo(() => (ws.git?.changes ?? []).filter((c) => c.status !== 'U'), [ws.git]);

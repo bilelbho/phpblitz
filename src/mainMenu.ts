@@ -23,6 +23,8 @@ import { perf } from './perf';
 import { openAppDialog } from './appDialogs';
 import { checkForUpdates, RELEASES_URL } from './updater';
 import { shortcut } from './keymap/store';
+import { abortOperation, OPERATION_VERB } from './components/GitOperationBanner';
+import { applyPatchFile, applyPatchFromClipboard } from './git/patchFiles';
 
 export interface TopMenu {
   label: string;
@@ -676,6 +678,42 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
             },
           ],
         },
+        {
+          label: 'GitHub',
+          disabled: !git,
+          submenu: [
+            { label: 'Pull Requests', run: () => ws.showPullRequests() },
+            { label: 'Create Pull Request…', disabled: !ws.git?.branch || ws.git.branch === 'HEAD', run: () => ws.setGitDialog({ kind: 'createPr' }) },
+          ],
+        },
+        {
+          label: 'Patch',
+          disabled: !git,
+          submenu: [
+            { label: 'Apply Patch…', disabled: !isTauri, run: () => void applyPatchFile(ws) },
+            { label: 'Apply Patch from Clipboard', run: () => void applyPatchFromClipboard(ws) },
+          ],
+        },
+        { kind: 'sep' },
+        {
+          label: 'Resolve Conflicts…',
+          mnemonic: 'R',
+          disabled: !ws.git?.changes.some((c) => c.status === 'C'),
+          run: () => ws.setGitDialog({ kind: 'conflicts' }),
+        },
+        ...(ws.git?.operation
+          ? [
+              {
+                label: `Continue ${OPERATION_VERB[ws.git.operation.kind]}`,
+                disabled: ws.git.changes.some((c) => c.status === 'C'),
+                run: runGit(`Continue ${OPERATION_VERB[ws.git.operation.kind].toLowerCase()}`, () => ws.gitRepo.continueOperation(ws.git!.operation!.kind)),
+              },
+              {
+                label: `Abort ${OPERATION_VERB[ws.git.operation.kind]}…`,
+                run: () => void abortOperation(ws),
+              },
+            ]
+          : []),
       ],
     },
     {

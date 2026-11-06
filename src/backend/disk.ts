@@ -1,9 +1,9 @@
 import { invoke } from '@tauri-apps/api/core';
-import { parseStatusV2, toChanges } from '../git/status';
+import { mergeSource, parseStatusV2, toChanges } from '../git/status';
 import { dirMarks } from '../dirMarks';
 import { composerShellLine } from '../composer';
 import { projectLocalPhp } from '../interpreters';
-import type { Backend, CommitOptions, Entry, GitInfo, Package, Problem, RunResult } from './types';
+import type { Backend, CommitOptions, Entry, GitInfo, GitOperation, Package, Problem, RunResult } from './types';
 
 const PACKAGE_NAME = /^[\w.-]+\/[\w.-]+$/;
 
@@ -79,11 +79,82 @@ export class DiskBackend implements Backend {
     }
     if (status.code !== 0) return null;
     const parsed = parseStatusV2(status.stdout);
-    return { branch: parsed.branch, changes: toChanges(this.root, parsed) };
+    const operation = await this.gitOperation().catch(() => undefined);
+    return { branch: parsed.branch, changes: toChanges(this.root, parsed), ...(operation ? { operation } : {}) };
   }
 
-  git(args: string[]): Promise<RunResult> {
-    return this.proc('git', args);
+  /**
+   * A commit where some files go in only partly. It's built in an index file of its own (from HEAD,
+   * plus the chosen files, plus the partial files' texts), so what's staged otherwise stays out of
+   * it, as with `git commit -- <files>`. Afterwards the real index has the committed files as HEAD.
+   */
+  private async commitPartial(rel: string[], partial: Record<string, string>, args: string[]): Promise<RunResult> {
+    const dir = await this.gitDirPath();
+    if (!dir) throw new Error('Not a Git repository');
+    const env = { GIT_INDEX_FILE: `${dir}/phpblitz-commit-index` };
+    const git = async (a: string[]) => {
+      const r = await invoke<RunResult>('run_process', { cwd: this.root, program: 'git', args: a, env });
+      if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim() || `git ${a[0]} failed`);
+      return r;
+    };
+    const hasHead = (await this.proc('git', ['rev-parse', '--verify', '-q', 'HEAD'])).code === 0;
+    await git(hasHead ? ['read-tree', 'HEAD'] : ['read-tree', '--empty']);
+    const partRel = new Set(Object.keys(partial).map((p) => this.rel(p)));
+    const whole = rel.filter((r) => !partRel.has(r));
+    // -A: a deleted file is staged as deleted.
+    if (whole.length) await git(['add', '-A', '--', ...whole]);
+    const scratch = `${dir}/phpblitz-partial`;
+    for (const [path, text] of Object.entries(partial)) {
+      const r = this.rel(path);
+      // Without the project root: a scratch file, not a version for Local History.
+      await invoke<void>('write_file', { path: scratch, content: text });
+      // --path: the file's own filters (line endings) apply, as `git add` would.
+      const blob = (await git(['hash-object', '-w', '--path', r, scratch])).stdout.trim();
+      const mode = (await git(['ls-files', '-s', '--', r])).stdout.split(' ')[0] || '100644';
+      await git(['update-index', '--add', '--cacheinfo', `${mode},${blob},${r}`]);
+    }
+    const commit = await invoke<RunResult>('run_process', { cwd: this.root, program: 'git', args, env });
+    // The real index: the committed files as the new HEAD has them (the rest of a partial file stays a change).
+    if (commit.code === 0) await this.proc('git', ['reset', '-q', '--', ...rel]);
+    return commit;
+  }
+
+  private async gitDirPath(): Promise<string | null> {
+    this.gitDir ??= this.proc('git', ['rev-parse', '--absolute-git-dir']).then(
+      (r) => (r.code === 0 ? r.stdout.trim().replace(/\\/g, '/') : null),
+      () => null,
+    );
+    return this.gitDir;
+  }
+
+  /** The repository's .git folder (a worktree's is elsewhere); asked of git once. */
+  private gitDir: Promise<string | null> | null = null;
+
+  /** A merge, rebase, cherry-pick or revert in progress: the files git keeps in its folder meanwhile. */
+  private async gitOperation(): Promise<GitOperation | undefined> {
+    const dir = await this.gitDirPath();
+    if (!dir) return undefined;
+    const names = new Set((await this.listDir(dir)).map((e) => e.name));
+    const read = (name: string) => this.readFile(`${dir}/${name}`).then((t) => t.trim(), () => '');
+    const rebase = names.has('rebase-merge') ? 'rebase-merge' : names.has('rebase-apply') ? 'rebase-apply' : null;
+    if (rebase) {
+      const [head, step, total] = await Promise.all([read(`${rebase}/head-name`), read(`${rebase}/${rebase === 'rebase-merge' ? 'msgnum' : 'next'}`), read(`${rebase}/${rebase === 'rebase-merge' ? 'end' : 'last'}`)]);
+      return { kind: 'rebase', branch: head.replace(/^refs\/heads\//, '') || undefined, step: step && total ? `${step}/${total}` : undefined };
+    }
+    if (names.has('MERGE_HEAD')) return { kind: 'merge', incoming: mergeSource(await read('MERGE_MSG')) };
+    if (names.has('CHERRY_PICK_HEAD')) return { kind: 'cherry-pick', incoming: (await read('CHERRY_PICK_HEAD')).slice(0, 8) || undefined };
+    if (names.has('REVERT_HEAD')) return { kind: 'revert', incoming: (await read('REVERT_HEAD')).slice(0, 8) || undefined };
+    return undefined;
+  }
+
+  git(args: string[], env?: Record<string, string>): Promise<RunResult> {
+    return env ? invoke<RunResult>('run_process', { cwd: this.root, program: 'git', args, env }) : this.proc('git', args);
+  }
+
+  gh(args: string[]): Promise<RunResult> {
+    // Never a prompt (there's no terminal to answer it), no colors, no "new version" notes.
+    const env = { GH_PROMPT_DISABLED: '1', NO_COLOR: '1', GH_NO_UPDATE_NOTIFIER: '1', GH_SPINNER_DISABLED: '1' };
+    return invoke<RunResult>('run_process', { cwd: this.root, program: 'gh', args, env });
   }
 
   async lastCommitMessage(): Promise<string | null> {
@@ -93,17 +164,22 @@ export class DiskBackend implements Backend {
 
   async gitCommit(paths: string[], message: string, push: boolean, options: CommitOptions = {}): Promise<string> {
     const rel = paths.map((p) => this.rel(p));
-    if (rel.length) {
-      const add = await this.proc('git', ['add', '--', ...rel]);
-      if (add.code !== 0) throw new Error(add.stderr || add.stdout);
-    }
     const args = ['commit'];
     if (options.amend) args.push('--amend');
     if (options.signOff) args.push('--signoff');
     // A fixup commit's message is "fixup! <subject>"; anything typed becomes its body.
     if (options.fixup) args.push(`--fixup=${options.fixup}`);
     if (!options.fixup || message) args.push('-m', message);
-    const commit = await this.proc('git', [...args, ...(rel.length ? ['--', ...rel] : [])]);
+    let commit: RunResult;
+    if (options.partial && Object.keys(options.partial).length) {
+      commit = await this.commitPartial(rel, options.partial, args);
+    } else {
+      if (rel.length) {
+        const add = await this.proc('git', ['add', '--', ...rel]);
+        if (add.code !== 0) throw new Error(add.stderr || add.stdout);
+      }
+      commit = await this.proc('git', [...args, ...(rel.length ? ['--', ...rel] : [])]);
+    }
     if (commit.code !== 0) throw new Error(commit.stderr || commit.stdout);
     if (push) {
       const pushed = await this.proc('git', ['push']);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseStatusV2, toChanges } from './status';
+import { mergeSource, parseStatusV2, toChanges } from './status';
 
 describe('parseStatusV2', () => {
   const out = [
@@ -24,15 +24,29 @@ describe('parseStatusV2', () => {
         { path: 'Prüfung.php', status: 'A' },
         { path: 'old.php', status: 'D' },
         { path: 'new name.php', status: 'R', from: 'before.php' },
-        { path: 'conflict.php', status: 'M' },
+        { path: 'conflict.php', status: 'C', conflict: 'both-modified' },
         { path: 'untracked.txt', status: 'U' },
       ],
     });
+  });
+
+  it('tells the kinds of conflict apart', () => {
+    const line = (xy: string, path: string) => `u ${xy} N... 100644 100644 100644 100644 1111 2222 3333 ${path}`;
+    const parsed = parseStatusV2([line('UD', 'a.php'), line('DU', 'b.php'), line('AA', 'c.php')].join('\0'));
+    expect(parsed.changes.map((c) => c.conflict)).toEqual(['deleted-by-them', 'deleted-by-us', 'both-added']);
   });
 
   it('treats a detached head as HEAD and makes paths absolute', () => {
     const parsed = parseStatusV2('# branch.head (detached)\0? a.php\0');
     expect(parsed.branch).toBe('HEAD');
     expect(toChanges('C:/work/app', parsed)).toEqual([{ path: 'C:/work/app/a.php', status: 'U' }]);
+  });
+});
+
+describe('mergeSource', () => {
+  it('reads the merged branch from the merge message', () => {
+    expect(mergeSource("Merge branch 'feature/login' into main\n\n# Conflicts:")).toBe('feature/login');
+    expect(mergeSource("Merge remote-tracking branch 'origin/dev'")).toBe('origin/dev');
+    expect(mergeSource('Merge commit 1234abcd')).toBeUndefined();
   });
 });

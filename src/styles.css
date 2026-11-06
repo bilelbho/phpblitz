@@ -515,6 +515,7 @@ textarea:focus-visible {
 .status-D { color: var(--muted); }
 .status-R { color: #6c9ff8; }
 .status-U { color: #e06c75; }
+.status-C { color: #f75464; font-weight: 600; }
 
 /* ── Main toolbar (custom title bar) ───────────────────── */
 
@@ -5427,6 +5428,10 @@ body {
   font-size: 12px;
   border-bottom: 1px solid var(--line);
 }
+.large-file-banner.conflict-banner {
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+  color: var(--red);
+}
 .doc-flags {
   display: flex;
   gap: 5px;
@@ -8073,4 +8078,1017 @@ body:has(.strip.right.with-names) .balloons {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* ── Git: an operation that stopped, conflicts, the merge editor ─────────── */
+
+.git-op-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin: 6px 8px 2px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--blue) 45%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--blue) 10%, transparent);
+  font-size: 12.5px;
+}
+.git-op-banner.conflicted {
+  border-color: color-mix(in srgb, var(--red) 45%, transparent);
+  background: color-mix(in srgb, var(--red) 9%, transparent);
+}
+.git-op-banner.conflicted > svg {
+  color: var(--red);
+}
+.git-op-text {
+  flex: 1 1 140px;
+  min-width: 0;
+  color: var(--text);
+}
+.git-op-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.conflicts-dialog {
+  width: min(940px, calc(100vw - 32px));
+}
+.conflicts-subtitle {
+  margin-bottom: 8px;
+  color: var(--text);
+}
+.conflicts-row.dir {
+  color: var(--muted-2);
+}
+.conflicts-row.nested .conflicts-name {
+  padding-left: 18px;
+}
+.conflicts-body {
+  display: flex;
+  gap: 12px;
+}
+.conflicts-list {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: min(400px, 50vh);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.conflicts-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 120px;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 8px;
+  font-size: 12.5px;
+  cursor: default;
+}
+.conflicts-row.head {
+  position: sticky;
+  top: 0;
+  background: var(--popup);
+  color: var(--muted-2);
+  border-bottom: 1px solid var(--line);
+}
+.conflicts-row.head span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conflicts-row.selected {
+  background: var(--select);
+}
+.conflicts-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.conflicts-name .detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-2);
+}
+.conflicts-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: none;
+}
+.conflicts-done {
+  padding: 24px 8px;
+}
+
+.merge-backdrop {
+  padding-top: 2vh;
+}
+.merge-dialog {
+  display: flex;
+  flex-direction: column;
+  width: calc(100vw - 24px);
+  height: 96vh;
+}
+.merge-window-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.merge-toolbar {
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.merge-apply-label {
+  font-size: 12px;
+  padding: 0 2px 0 4px;
+}
+.merge-count {
+  font-size: 12.5px;
+  color: var(--muted-2);
+}
+.merge-count.done {
+  color: var(--green);
+}
+.merge-heads {
+  display: flex;
+  flex: none;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--text);
+}
+.merge-heads > span {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 4px 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.merge-heads > .merge-head-gap {
+  flex: 0 0 64px;
+  padding: 0;
+}
+.merge-panes {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.merge-pane {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.merge-divider {
+  position: relative;
+  flex: none;
+  overflow: hidden;
+  background: var(--island);
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+.merge-divider svg {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+}
+.merge-band {
+  stroke-width: 1;
+}
+.merge-band-conflict {
+  fill: color-mix(in srgb, var(--red) 22%, transparent);
+  stroke: color-mix(in srgb, var(--red) 55%, transparent);
+}
+.merge-band-modified {
+  fill: color-mix(in srgb, var(--blue) 20%, transparent);
+  stroke: color-mix(in srgb, var(--blue) 55%, transparent);
+}
+.merge-band-added {
+  fill: color-mix(in srgb, var(--green) 20%, transparent);
+  stroke: color-mix(in srgb, var(--green) 55%, transparent);
+}
+.merge-band-deleted {
+  fill: color-mix(in srgb, var(--muted-2) 18%, transparent);
+  stroke: color-mix(in srgb, var(--muted-2) 50%, transparent);
+}
+.merge-band-applied,
+.merge-band-ignored {
+  fill: color-mix(in srgb, var(--muted-2) 6%, transparent);
+  stroke: color-mix(in srgb, var(--muted-2) 22%, transparent);
+}
+.merge-btns {
+  position: absolute;
+  display: flex;
+  gap: 2px;
+  transform: translateY(1px);
+}
+.merge-btns.left {
+  left: 3px;
+}
+.merge-btns.right {
+  right: 3px;
+}
+.merge-btn {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--muted-2);
+}
+.merge-btn:hover {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+.merge-btn.take {
+  color: var(--text);
+  font-weight: 700;
+}
+.monaco-editor .merge-conflict {
+  background: color-mix(in srgb, var(--red) 16%, transparent);
+}
+.monaco-editor .merge-modified {
+  background: color-mix(in srgb, var(--blue) 14%, transparent);
+}
+.monaco-editor .merge-added {
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+}
+.monaco-editor .merge-deleted {
+  background: color-mix(in srgb, var(--muted-2) 12%, transparent);
+}
+.monaco-editor .merge-applied,
+.monaco-editor .merge-ignored {
+  background: color-mix(in srgb, var(--muted-2) 6%, transparent);
+}
+.monaco-editor .merge-conflict-gap {
+  box-shadow: inset 0 -2px 0 var(--red);
+}
+.monaco-editor .merge-modified-gap {
+  box-shadow: inset 0 -2px 0 var(--blue);
+}
+.monaco-editor .merge-added-gap {
+  box-shadow: inset 0 -2px 0 var(--green);
+}
+.monaco-editor .merge-deleted-gap,
+.monaco-editor .merge-applied-gap,
+.monaco-editor .merge-ignored-gap {
+  box-shadow: inset 0 -2px 0 var(--muted-2);
+}
+.monaco-editor .merge-conflict-mark {
+  border-left: 3px solid var(--red);
+}
+.monaco-editor .merge-modified-mark {
+  border-left: 3px solid var(--blue);
+}
+.monaco-editor .merge-added-mark {
+  border-left: 3px solid var(--green);
+}
+
+/* Commit panel: the Merge button on a conflicted file, shown on hover (and when selected). */
+.row .row-action {
+  margin-left: auto;
+  flex: none;
+  visibility: hidden;
+}
+.row:hover .row-action,
+.row.selected .row-action {
+  visibility: visible;
+}
+.conflicts-group .commit-group-label {
+  font-weight: 600;
+}
+.conflicts-group .link-btn {
+  margin-left: 6px;
+  font-weight: 600;
+}
+/* Diff and merge viewers: collapsed unchanged lines, a wavy strip that opens them on a click. */
+.monaco-editor .fold-zone {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px;
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 11.5px;
+  color: var(--muted);
+  background-repeat: repeat-x;
+  background-position: 0 50%;
+  background-size: 12px 6px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='6'%3E%3Cpath d='M0 3 Q3 0 6 3 T12 3' fill='none' stroke='%23868a91' stroke-width='1'/%3E%3C/svg%3E");
+}
+.monaco-editor .fold-zone:hover,
+.monaco-editor .fold-zone.hover {
+  color: var(--text);
+  background-color: var(--hover);
+}
+/* Over a strip: Monaco's layers above it set the cursor, so the editor says pointer everywhere. */
+.monaco-editor.fold-pointer,
+.monaco-editor.fold-pointer .view-lines,
+.monaco-editor.fold-pointer .view-zones,
+.monaco-editor.fold-pointer .margin,
+.monaco-editor.fold-pointer .lines-content {
+  cursor: pointer !important;
+}
+.monaco-editor .fold-zone span {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--island);
+  line-height: 16px;
+  white-space: nowrap;
+}
+.monaco-editor .fold-zone .fold-count {
+  margin-left: auto;
+}
+.fold-link {
+  fill: none;
+  stroke: #868a91;
+  stroke-width: 1;
+}
+
+/* Diff viewer: our side-by-side (merge-panes layout), its options and highlights. */
+.diff-select {
+  height: 24px;
+  width: auto;
+  max-width: 230px;
+  padding: 0 6px;
+  font-size: 12px;
+}
+.diff-heads > .diff-head-gap {
+  flex: 0 0 40px;
+  padding: 0;
+}
+.icon-btn.on {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+.monaco-editor .diff-line-added {
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+}
+.monaco-editor .diff-line-deleted {
+  background: color-mix(in srgb, var(--muted-2) 14%, transparent);
+}
+.monaco-editor .diff-line-modified {
+  background: color-mix(in srgb, var(--blue) 13%, transparent);
+}
+.monaco-editor .diff-mark-added {
+  border-left: 3px solid var(--green);
+}
+.monaco-editor .diff-mark-deleted {
+  border-left: 3px solid var(--muted-2);
+}
+/* Moved code: over the change's own color, on both sides. */
+.diff-no-highlight .monaco-editor .view-overlays .diff-line-moved {
+  background: none;
+}
+.monaco-editor .view-overlays .diff-line-moved {
+  background: color-mix(in srgb, var(--purple) 20%, transparent);
+}
+.monaco-editor .margin-view-overlays .diff-mark-moved {
+  border-left: 3px solid var(--purple);
+}
+.monaco-editor .diff-mark-modified {
+  border-left: 3px solid var(--blue);
+}
+.monaco-editor .diff-gap-added {
+  box-shadow: inset 0 -2px 0 var(--green);
+}
+.monaco-editor .diff-gap-deleted {
+  box-shadow: inset 0 -2px 0 var(--muted-2);
+}
+.monaco-editor .diff-gap-modified {
+  box-shadow: inset 0 -2px 0 var(--blue);
+}
+.monaco-editor .diff-gap-added.top,
+.monaco-editor .diff-gap-deleted.top,
+.monaco-editor .diff-gap-modified.top {
+  box-shadow: none;
+}
+.monaco-editor .diff-inner-del {
+  background: color-mix(in srgb, var(--red) 30%, transparent);
+  border-radius: 2px;
+}
+.monaco-editor .diff-inner-add {
+  background: color-mix(in srgb, var(--blue) 38%, transparent);
+  border-radius: 2px;
+}
+/* Do not highlight / Highlight lines, in Monaco's own (unified) diff too. */
+.diff-no-highlight .monaco-editor .line-insert,
+.diff-no-highlight .monaco-editor .line-delete,
+.diff-no-highlight .monaco-editor .char-insert,
+.diff-no-highlight .monaco-editor .char-delete,
+.diff-lines-only .monaco-editor .char-insert,
+.diff-lines-only .monaco-editor .char-delete {
+  background: transparent !important;
+}
+.diff-no-highlight .monaco-editor .diff-inner-add,
+.diff-no-highlight .monaco-editor .diff-inner-del {
+  background: transparent;
+}
+
+/* Show code lens on scrollbar hover: the code at the hovered height, next to the scrollbar. */
+.scrollbar-lens {
+  position: absolute;
+  z-index: 20;
+  max-width: min(640px, 70%);
+  min-width: 260px;
+  padding: 4px 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--island);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 18px;
+}
+.scrollbar-lens-line {
+  display: flex;
+  gap: 10px;
+  padding-right: 10px;
+  white-space: pre;
+}
+.scrollbar-lens-num {
+  flex: none;
+  width: 36px;
+  text-align: right;
+  color: var(--faint);
+}
+/* Diff view: a change's checkbox for the next commit (partial commits). */
+.merge-divider .diff-include {
+  position: absolute;
+  right: 3px;
+  margin: 2px 0 0;
+}
+
+/* Interactive rebase. */
+.rebase-dialog {
+  width: min(860px, calc(100vw - 32px));
+}
+.rebase-toolbar {
+  gap: 2px;
+  padding: 0 0 6px;
+  flex-wrap: wrap;
+}
+.rebase-order {
+  font-size: 12px;
+}
+.rebase-list {
+  height: min(360px, 45vh);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.rebase-list:focus {
+  outline: none;
+  border-color: var(--blue);
+}
+.rebase-row {
+  display: grid;
+  grid-template-columns: 120px 70px minmax(0, 1fr) 140px;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 8px;
+  font-size: 12.5px;
+}
+.rebase-row.selected {
+  background: var(--select);
+}
+.rebase-action {
+  height: 22px;
+  padding: 0 4px;
+  font-size: 12px;
+}
+.rebase-subject,
+.rebase-author {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rebase-row.action-drop .rebase-subject {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.rebase-row.action-squash .rebase-subject,
+.rebase-row.action-fixup .rebase-subject {
+  padding-left: 12px;
+}
+.rebase-pushed {
+  margin-left: 8px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--orange);
+  border: 1px solid color-mix(in srgb, var(--orange) 50%, transparent);
+}
+.rebase-message {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+.rebase-message textarea {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  resize: vertical;
+}
+.rebase-warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--orange);
+  font-size: 12.5px;
+}
+/* The change popup's commit checkbox (partial commits). */
+.hunk-include {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+}
+/* Inline blame: who last changed the caret's line. */
+.monaco-editor .inline-blame {
+  color: var(--faint);
+  font-style: italic;
+  opacity: 0.85;
+}
+
+/* Compare branches. */
+.compare-dialog {
+  width: min(900px, calc(100vw - 32px));
+}
+.compare-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.compare-body {
+  height: min(420px, 55vh);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.compare-commits + .compare-commits {
+  border-top: 1px solid var(--line);
+}
+.compare-head {
+  position: sticky;
+  top: 0;
+  padding: 4px 8px;
+  background: var(--popup);
+  font-weight: 600;
+  font-size: 12.5px;
+}
+.compare-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 8px 2px 14px;
+  font-size: 12.5px;
+  cursor: default;
+}
+.compare-commits .compare-row {
+  grid-template-columns: 70px minmax(0, 1fr) auto;
+}
+.compare-row:hover {
+  background: var(--hover);
+}
+.compare-subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.compare-none {
+  padding: 6px 14px;
+  font-size: 12.5px;
+}
+.compare-hint {
+  margin-right: auto;
+  font-size: 12px;
+}
+/* Shelve Changes: the files going on the shelf. */
+.shelve-files {
+  max-height: 200px;
+  overflow: auto;
+  margin: 8px 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+/* Issue links in commit messages, and Settings ▸ Version Control ▸ Issue Navigation */
+.issue-link {
+  color: var(--blue-text);
+  text-decoration: none;
+  cursor: pointer;
+}
+.issue-link:hover {
+  text-decoration: underline;
+}
+.issue-links {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 10px;
+}
+.issue-links-head,
+.issue-links-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 22px;
+  gap: 8px;
+  align-items: center;
+}
+.issue-links-head {
+  font-size: 12px;
+}
+.issue-links-preview {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  min-height: 1.6em;
+  white-space: pre-wrap;
+}
+
+/* Commit checkboxes in the unified diff's gutter (side by side has real ones between the panes). */
+.monaco-editor .diff-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.monaco-editor .diff-check::before {
+  content: '';
+  flex: none;
+  box-sizing: border-box;
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--muted-2);
+  border-radius: 3px;
+}
+.monaco-editor .diff-check.on::before {
+  border-color: var(--blue);
+  background: var(--blue)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2 5 8.6 9.6 3.6' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / 11px no-repeat;
+}
+
+/* Git tool window ▸ Pull Requests */
+.pr-panel {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.pr-list-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 380px;
+  min-width: 220px;
+  border-right: 1px solid var(--line);
+}
+.pr-toolbar {
+  gap: 6px;
+}
+.pr-toolbar select {
+  flex: none;
+}
+.pr-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 6px;
+}
+.pr-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+.pr-row {
+  padding: 6px 10px;
+  cursor: default;
+  border-bottom: 1px solid var(--line);
+}
+.pr-row:hover {
+  background: var(--hover);
+}
+.pr-row.selected {
+  background: var(--hover-strong);
+}
+.pr-row-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.pr-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-strong);
+}
+.pr-row-meta {
+  margin-top: 2px;
+  font-size: 11.5px;
+}
+.pr-review.approved {
+  color: var(--green);
+}
+.pr-review.changes {
+  color: var(--red);
+}
+.pr-state {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 9px;
+  font-size: 10.5px;
+  line-height: 16px;
+  font-weight: 600;
+  color: #fff;
+}
+.pr-state-open {
+  background: color-mix(in srgb, var(--green) 85%, black);
+}
+.pr-state-draft {
+  background: var(--muted-2);
+}
+.pr-state-merged {
+  background: color-mix(in srgb, var(--purple) 85%, black);
+}
+.pr-state-closed {
+  background: color-mix(in srgb, var(--red) 85%, black);
+}
+.pr-details-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.pr-details {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.pr-head {
+  padding: 10px 14px 6px;
+  border-bottom: 1px solid var(--line);
+}
+.pr-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.pr-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 12px;
+}
+.pr-ref {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--hover-strong);
+  color: var(--blue-text);
+}
+.pr-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.pr-counts {
+  font-size: 12px;
+}
+.pr-add {
+  color: var(--green);
+  font-size: 12px;
+}
+.pr-del {
+  color: var(--red);
+  font-size: 12px;
+  margin-left: 4px;
+}
+.pr-checks {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.pr-checks-passed {
+  color: var(--green);
+}
+.pr-checks-failed {
+  color: var(--red);
+}
+.pr-checks-pending {
+  color: var(--orange);
+}
+.pr-check-list {
+  margin: 4px 0 2px 16px;
+  font-size: 12px;
+}
+.pr-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 20px;
+}
+.pr-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--muted-2);
+}
+.pr-dot.passed {
+  background: var(--green);
+}
+.pr-dot.failed {
+  background: var(--red);
+}
+.pr-dot.pending {
+  background: var(--orange);
+}
+.pr-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.pr-busy {
+  margin-left: auto;
+  font-size: 12px;
+}
+.pr-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 8px 14px 14px;
+}
+.pr-post {
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.pr-post-head {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--hover-soft);
+  font-size: 12px;
+}
+.pr-post-approved {
+  border-color: color-mix(in srgb, var(--green) 50%, var(--line));
+}
+.pr-post-changes_requested {
+  border-color: color-mix(in srgb, var(--red) 50%, var(--line));
+}
+.pr-markdown {
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.pr-markdown > :first-child {
+  margin-top: 0;
+}
+.pr-markdown > :last-child {
+  margin-bottom: 0;
+}
+.pr-markdown a {
+  color: var(--blue-text);
+  cursor: pointer;
+}
+.pr-markdown pre,
+.pr-markdown code {
+  font-family: var(--mono, 'JetBrains Mono', monospace);
+  font-size: 12px;
+}
+.pr-markdown pre {
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: var(--hover);
+  overflow-x: auto;
+}
+.pr-markdown details summary {
+  cursor: pointer;
+}
+.pr-markdown img {
+  max-width: 100%;
+}
+.pr-empty-text {
+  padding: 8px 10px;
+}
+.pr-reply textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font: inherit;
+  padding: 6px 8px;
+  color: var(--text);
+  background: var(--hover-soft);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+}
+.pr-reply-buttons,
+.pr-merge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.pr-merge {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.pr-conflicts {
+  color: var(--red);
+  font-size: 12px;
+}
+.pr-file,
+.pr-commit {
+  gap: 6px;
+}
+.pr-error {
+  margin: 10px;
+}
+.pr-setup code {
+  font-size: 12px;
+}
+
+/* Create Pull Request */
+.create-pr {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.create-pr-branches {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.create-pr-body {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font: inherit;
+  padding: 6px 8px;
+  color: var(--text);
+  background: var(--hover-soft);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+}
+.create-pr-error {
+  color: var(--red);
+  white-space: pre-wrap;
+  font-size: 12px;
+}
+.pr-panel {
+  container-type: inline-size;
+}
+.pr-split {
+  display: flex;
+  width: 100%;
+  min-height: 0;
+}
+.pr-sub,
+.pr-actions {
+  flex-wrap: wrap;
+}
+.pr-check > span:nth-child(2) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* A narrow tool window (docked at the side): the list above the details. */
+@container (max-width: 720px) {
+  .pr-split {
+    flex-direction: column;
+  }
+  .pr-list-pane {
+    flex: 0 0 auto;
+    max-height: 38%;
+    min-width: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+}
+
+/* Several repositories: the top bar's branch button names the current one. */
+.widget-repo {
+  color: var(--muted);
 }

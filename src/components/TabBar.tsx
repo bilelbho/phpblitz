@@ -27,9 +27,9 @@ function tabInfo(ws: Workspace, t: Tab): { name: string; icon: ReactNode; title:
       return { name: `${t.name ?? 'console'} [${db.get(t.source)?.name ?? t.source}]`, icon: <Badge text="Q" color="#e3a869" />, title: `Query console ${t.name ?? 'console'}: ${db.get(t.source)?.name ?? ''}` };
     case 'diff':
       return {
-        name: t.commit ? `${baseName(t.path)} (${t.commit.slice(0, 7)})` : `Diff: ${baseName(t.path)}`,
+        name: t.shelf ? `Shelved: ${baseName(t.path)}` : t.commit ? `${baseName(t.path)} (${t.commit.slice(0, 7)})` : `Diff: ${baseName(t.path)}`,
         icon: <FileIcon path={t.path} />,
-        title: `${relativePath(ws.backend, t.path)}: ${t.commit ? `changes in ${t.commit.slice(0, 8)}` : 'HEAD vs your version'}`,
+        title: `${relativePath(ws.backend, t.path)}: ${t.shelf ? 'as shelved' : t.commit ? `changes in ${t.commit.slice(0, 8)}` : 'HEAD vs your version'}`,
       };
   }
 }

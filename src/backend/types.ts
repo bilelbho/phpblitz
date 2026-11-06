@@ -17,11 +17,27 @@ export interface RunResult {
 }
 
 /** M = modified, A = added, D = deleted, R = renamed, U = unversioned */
-export type ChangeStatus = 'M' | 'A' | 'D' | 'R' | 'U';
+/** Modified, Added, Deleted, Renamed, Unversioned, or C: a merge conflict to resolve. */
+export type ChangeStatus = 'M' | 'A' | 'D' | 'R' | 'U' | 'C';
+
+/** How a file conflicts: changed on both sides, or changed on one and deleted (or added) on the other. */
+export type ConflictKind = 'both-modified' | 'both-added' | 'both-deleted' | 'deleted-by-us' | 'deleted-by-them' | 'added-by-us' | 'added-by-them';
 
 export interface GitChange {
   path: string;
   status: ChangeStatus;
+  /** Status C: what kind of conflict. */
+  conflict?: ConflictKind;
+}
+
+/** A merge, rebase, cherry-pick or revert that stopped (on conflicts, or to edit) and waits to be continued or aborted. */
+export interface GitOperation {
+  kind: 'merge' | 'rebase' | 'cherry-pick' | 'revert';
+  /** What comes in: the merged branch, the commit being applied… (when git says). */
+  incoming?: string;
+  /** Rebase: the branch being rebased and the step it's at ("3/7"). */
+  branch?: string;
+  step?: string;
 }
 
 export interface CommitOptions {
@@ -29,11 +45,15 @@ export interface CommitOptions {
   signOff?: boolean;
   /** Hash of the commit this one fixes: `git commit --fixup` (the message is generated). */
   fixup?: string;
+  /** Files only some of whose changes go in: path → the text to commit (git/partial.ts). */
+  partial?: Record<string, string>;
 }
 
 export interface GitInfo {
   branch: string;
   changes: GitChange[];
+  /** An operation in progress. */
+  operation?: GitOperation;
 }
 
 export interface Package {
@@ -99,7 +119,9 @@ export interface Backend {
   /** Message of the last commit, for "Amend last commit". */
   lastCommitMessage(): Promise<string | null>;
   /** Runs git with these arguments in the project (git/git.ts builds on this). */
-  git(args: string[]): Promise<RunResult>;
+  git(args: string[], env?: Record<string, string>): Promise<RunResult>;
+  /** Runs the GitHub CLI (gh) in the project: pull requests (git/github.ts). */
+  gh(args: string[]): Promise<RunResult>;
 
   packages(): Promise<Package[]>;
   /** Package name → latest version, for direct dependencies that are outdated. */
