@@ -939,8 +939,10 @@ textarea:focus-visible {
   gap: 2px;
   flex: none;
 }
-.tabs-controls .has-hidden {
-  width: auto;
+/* The ▾ button keeps one width with or without its count: a width that changed with the count made
+   the tab row's width depend on which tabs it hides, and the two could keep changing each other. */
+.tabs-controls > .icon-btn:first-child {
+  width: 38px;
   padding: 0 4px;
   gap: 2px;
 }
@@ -2092,6 +2094,9 @@ button.item:hover {
   background: transparent;
   padding-top: 12vh;
 }
+.pb-dialog:focus {
+  outline: none; /* focused as a whole only so Esc and Tab reach it */
+}
 .pb-dialog {
   width: 360px;
   background: var(--popup);
@@ -2355,6 +2360,10 @@ button.item:hover {
 }
 .project-tree:not(:focus-within) .row.selected {
   background: var(--select-inactive);
+}
+/* Reached with Tab before any row is selected: the first row shows where the keyboard is. */
+.project-tree:focus-visible:not(:has(.row.selected)) .row:first-of-type {
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 .speed-hit {
   background: #2e6b40;
@@ -9709,6 +9718,21 @@ body:has(.strip.right.with-names) .balloons {
 }
 .cov-pct.poor {
   color: #db5c5c;
+}
+/* Narrow (a column beside others): names first; lines as a number only, no methods column. */
+.cov-panel {
+  container-type: inline-size;
+}
+@container (max-width: 280px) {
+  .cov-head,
+  .cov-row {
+    grid-template-columns: minmax(0, 1fr) 38px;
+  }
+  .cov-head > span:nth-child(3),
+  .cov-row > .cov-cell:nth-child(3),
+  .cov-row .cov-bar {
+    display: none;
+  }
 }
 
 /* ── Settings ▸ Live Templates ──────────────────────────────────── */

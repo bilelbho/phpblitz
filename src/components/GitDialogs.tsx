@@ -2,6 +2,7 @@
 // Stash / Unstash, Reset Current Branch, New Tag, Rollback Changes.
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useDialogFocus } from './useDialogFocus';
 import type { GitDialogRequest, Workspace } from '../useWorkspace';
 import type { Commit, Stash } from '../git/git';
 import { Icon } from './Icon';
@@ -42,9 +43,14 @@ export function GitDialogs({ ws }: { ws: Workspace }) {
 }
 
 function Dialog({ title, width = 440, onClose, onSubmit, children, buttons }: { title: string; width?: number; onClose: () => void; onSubmit?: () => void; children: ReactNode; buttons: ReactNode }) {
+  // A field with autoFocus keeps the focus, else the dialog takes it, so Esc and Tab work (Push has
+  // no field, and its button isn't focused: Enter would push).
+  const box = useDialogFocus();
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
+        ref={box}
+        tabIndex={-1}
         className="pb-dialog"
         role="dialog"
         aria-modal="true"

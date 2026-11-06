@@ -108,7 +108,14 @@ export function SearchEverywhere({ ws, initialTab, onClose, actions, menus }: Pr
     if (tab === 'files' || tab === 'actions') return setHits([]);
     let live = true;
     const t = window.setTimeout(() => {
-      void symbols.search(query, LIMIT).then((h) => live && setHits(h));
+      // Each kind with its own limit: a hundred classes named like the query would leave no room for methods.
+      const found =
+        tab === 'classes'
+          ? symbols.search(query, LIMIT, 'class')
+          : tab === 'symbols'
+            ? symbols.search(query, LIMIT, 'symbol')
+            : Promise.all([symbols.search(query, LIMIT, 'class'), query.trim() ? symbols.search(query, 25, 'symbol') : Promise.resolve([])]).then(([c, s]) => [...c, ...s]);
+      void found.then((h) => live && setHits(h));
     }, 40);
     return () => {
       live = false;

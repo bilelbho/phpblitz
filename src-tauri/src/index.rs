@@ -1100,19 +1100,31 @@ fn score_with(name: &str, n: &str, query: &str, q: &str) -> Option<i32> {
 }
 
 /// Search Everywhere / Go to Class: classes, then public methods and functions, best first.
+/// `kind`: "class" or "symbol" (methods and functions) for only those, so a tab's `limit` isn't
+/// used up by the other kind (100 classes named like the query left Symbols empty).
 #[tauri::command]
-pub async fn index_search(state: tauri::State<'_, IndexState>, query: String, limit: Option<usize>) -> Result<Vec<SearchHit>, String> {
+pub async fn index_search(state: tauri::State<'_, IndexState>, query: String, limit: Option<usize>, kind: Option<String>) -> Result<Vec<SearchHit>, String> {
     let index = state.index.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let idx = index.read().map_err(|e| e.to_string())?;
-        Ok(search(&idx, &query, limit.unwrap_or(100)))
+        Ok(search_kind(&idx, &query, limit.unwrap_or(100), kind.as_deref()))
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
 /// Search Everywhere's classes, methods and functions for a query, best first.
+#[cfg(test)]
 fn search(idx: &ProjectIndex, query: &str, limit: usize) -> Vec<SearchHit> {
+    search_kind(idx, query, limit, None)
+}
+
+fn search_kind(idx: &ProjectIndex, query: &str, limit: usize, kind: Option<&str>) -> Vec<SearchHit> {
+    let wanted = |k: &SearchKind| match kind {
+        Some("class") => *k == SearchKind::Class,
+        Some("symbol") => *k != SearchKind::Class,
+        _ => true,
+    };
     let query = query.trim();
     // "User::save" searches members of matching classes.
     let (class_q, member_q) = match query.split_once("::") {
@@ -1138,7 +1150,7 @@ fn search(idx: &ProjectIndex, query: &str, limit: usize) -> Vec<SearchHit> {
                 .entries
                 .par_iter()
                 .enumerate()
-                .filter(|(_, e)| e.kind == SearchKind::Method)
+                .filter(|(_, e)| e.kind == SearchKind::Method && wanted(&e.kind))
                 .filter_map(|(i, e)| {
                     let cs = class_scores.get(&(e.file, e.item))?;
                     let ms = score_with(&e.name, &e.lower, mq, &mq_lower)?;
@@ -1151,6 +1163,9 @@ fn search(idx: &ProjectIndex, query: &str, limit: usize) -> Vec<SearchHit> {
             .par_iter()
             .enumerate()
             .filter_map(|(i, e)| {
+                if !wanted(&e.kind) {
+                    return None;
+                }
                 let offset = match e.kind {
                     SearchKind::Class => 50,
                     // An empty query lists classes only.
@@ -2207,6 +2222,18 @@ function current_user() { return null; }
         // Empty query: classes only, by name.
         assert_eq!(names(&search(&idx, "", 10)), vec!["User", "UserController", "UnitConverter", "UserCache"]);
         assert_eq!(search(&idx, "UC", 1).len(), 1, "the limit is applied");
+    }
+
+    #[test]
+    fn search_one_kind_keeps_the_limit_for_it() {
+        let idx = search_index();
+        // With a limit of 1, "user" gives a class; asking for symbols gives a method instead.
+        let any = search_kind(&idx, "user", 1, None);
+        assert!(any.iter().all(|h| h.kind != "method" && h.kind != "function"), "{:?}", names(&any));
+        let sym = search_kind(&idx, "user", 1, Some("symbol"));
+        assert_eq!(sym.len(), 1);
+        assert!(sym[0].kind == "method" || sym[0].kind == "function", "{:?}", names(&sym));
+        assert!(search_kind(&idx, "save", 10, Some("class")).is_empty());
     }
 
     #[test]

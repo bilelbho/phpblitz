@@ -6,6 +6,7 @@ import type { Workspace } from '../useWorkspace';
 import type { ConflictKind, GitChange, GitOperation } from '../backend/types';
 import { baseName, relativePath } from '../backend/types';
 import { FileIcon } from './FileIcon';
+import { useDialogFocus } from './useDialogFocus';
 import { Icon } from './Icon';
 import { MergeEditor, sideLabels } from './MergeEditor';
 import { operationName } from './GitOperationBanner';
@@ -46,6 +47,7 @@ function describe(op: GitOperation | undefined, branch: string): string {
 const GROUP_KEY = 'phpblitz.conflictsByDirectory';
 
 export function ConflictsDialog({ ws, onClose, initial }: { ws: Workspace; onClose: () => void; initial?: string }) {
+  const box = useDialogFocus();
   const [byDir, setByDir] = useState(() => {
     try {
       return localStorage.getItem(GROUP_KEY) === '1';
@@ -75,6 +77,8 @@ export function ConflictsDialog({ ws, onClose, initial }: { ws: Workspace; onClo
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
+        ref={box}
+        tabIndex={-1}
         className="pb-dialog conflicts-dialog"
         role="dialog"
         aria-modal="true"
