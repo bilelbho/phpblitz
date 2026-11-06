@@ -16,6 +16,7 @@ import { AiAgentsPage } from './SettingsAi';
 import { MagoPage } from './SettingsMago';
 import { KeymapPage } from './SettingsKeymap';
 import { SurroundPage } from './SettingsSurround';
+import { LiveTemplatesPage } from './SettingsLiveTemplates';
 import { TrustPage } from './SettingsTrust';
 import { IssueNavigationPage } from './SettingsIssues';
 
@@ -96,7 +97,13 @@ const PAGES: Page[] = [
     id: 'surround',
     label: 'Surround With',
     group: 'Editor',
-    keywords: 'surround with templates live templates wrap if foreach try catch while switch snippet ctrl+alt+t',
+    keywords: 'surround with templates wrap if foreach try catch while switch snippet ctrl+alt+t',
+  },
+  {
+    id: 'live-templates',
+    label: 'Live Templates',
+    group: 'Editor',
+    keywords: 'live templates abbreviation tab snippet postfix completion emmet html expand fore pubf',
   },
   {
     id: 'color-scheme',
@@ -260,6 +267,7 @@ export function SettingsDialog({ ws, page, onClose }: { ws: Workspace; page: str
               {active.id === 'appearance' && <AppearancePage value={draft.ui} onChange={setUi} highlight={query.trim().toLowerCase()} onEditorScheme={() => setCurrent('color-scheme')} />}
               {active.id === 'editor-tabs' && <EditorTabsPage value={draft.tabs} onChange={setTabs} highlight={query.trim().toLowerCase()} />}
               {active.id === 'surround' && <SurroundPage value={draft.editor} onChange={setEditor} />}
+              {active.id === 'live-templates' && <LiveTemplatesPage value={draft.editor} onChange={setEditor} />}
               {active.id === 'issue-navigation' && <IssueNavigationPage ws={ws} value={draft.vcs.issueLinks} onChange={(issueLinks) => setDraft((d) => ({ ...d, vcs: { issueLinks } }))} />}
               {active.id === 'color-scheme' && <ColorSchemePage value={draft.editor} onChange={setEditor} />}
               {active.id === 'editor-font' && <EditorFontPage value={draft.editor} onChange={setEditor} highlight={query.trim().toLowerCase()} />}

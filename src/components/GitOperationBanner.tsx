@@ -29,16 +29,44 @@ export async function abortOperation(ws: Workspace) {
   if (await confirmDialog(`Abort ${what}? Changes made to resolve conflicts are lost.`)) await ws.runGit(`Abort ${OPERATION_VERB[op.kind].toLowerCase()}`, () => ws.gitRepo.abortOperation(op.kind));
 }
 
+/** The current repository's operation, and a line for each other repository that's in the middle of one. */
 export function GitOperationBanner({ ws }: { ws: Workspace }) {
+  const several = ws.repositoryList.length > 1;
+  const others = ws.repositoryList.filter((r) => r.root !== ws.gitRepo.root && r.operation);
+  return (
+    <>
+      <CurrentOperation ws={ws} several={several} />
+      {others.map((r) => (
+        <div key={r.root} className={'git-op-banner other' + (r.conflicts ? ' conflicted' : '')} role="status">
+          <Icon name={r.conflicts ? 'warning' : 'branch'} size={14} />
+          <span className="git-op-text">
+            <span className="git-op-repo">{r.name}:</span> {operationName(r.operation!)}
+            {r.conflicts ? ` · ${r.conflicts} ${r.conflicts === 1 ? 'conflict' : 'conflicts'}` : ''}
+          </span>
+          <span className="git-op-actions">
+            <button type="button" className="btn small" title={`Make ${r.name} the current repository, to continue or abort there`} onClick={() => ws.setCurrentRepo(r.root)}>
+              Switch to It
+            </button>
+          </span>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function CurrentOperation({ ws, several }: { ws: Workspace; several: boolean }) {
   const op = ws.git?.operation;
   if (!op) return null;
-  const conflicts = (ws.git?.changes ?? []).filter((c) => c.status === 'C').length;
+  // This repository's conflicts (the Commit panel lists every repository's changes).
+  const own = ws.repositoryList.find((r) => r.root === ws.gitRepo.root);
+  const conflicts = own ? own.conflicts : (ws.git?.changes ?? []).filter((c) => c.status === 'C').length;
   const verb = OPERATION_VERB[op.kind];
 
   return (
     <div className={'git-op-banner' + (conflicts ? ' conflicted' : '')} role="status">
       <Icon name={conflicts ? 'warning' : 'branch'} size={14} />
       <span className="git-op-text">
+        {several && own && <span className="git-op-repo">{own.name}: </span>}
         {operationName(op)}
         {conflicts ? ` · ${conflicts} ${conflicts === 1 ? 'conflict' : 'conflicts'}` : op.kind === 'rebase' ? ' · stopped' : ' · conflicts resolved'}
       </span>

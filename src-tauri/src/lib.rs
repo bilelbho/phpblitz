@@ -4,6 +4,7 @@ mod clipboard;
 mod db;
 mod fs;
 mod history;
+mod http;
 mod index;
 mod js;
 mod lsp;
@@ -79,6 +80,7 @@ pub fn run() {
         .manage(xdebug::XdebugState::default())
         .manage(mcp::McpState::default())
         .manage(ai::AiState::default())
+        .manage(http::HttpState::default())
         .invoke_handler(tauri::generate_handler![
             clipboard::clipboard_read_text,
             ai::ai_key_status,
@@ -86,6 +88,7 @@ pub fn run() {
             ai::ai_stream,
             ai::ai_cancel,
             ai::ai_models,
+            http::http_send,
             mcp::mcp_start,
             mcp::mcp_stop,
             mcp::mcp_status,
@@ -134,6 +137,8 @@ pub fn run() {
             blitz::blitz_read,
             blitz::blitz_write,
             blitz::blitz_keep_broken,
+            blitz::blitz_cache_read,
+            blitz::blitz_cache_write,
             history::history_list,
             history::history_read,
             spell::spell_check,

@@ -74,6 +74,13 @@ export interface EditorSettings {
   surroundTemplates: { label: string; body: string }[];
   /** Surround With: built-in templates not offered (by label). */
   surroundHidden: string[];
+  /** Live templates: the user's own (format: editor/templates.ts), and built-in ones turned off (by abbreviation). */
+  liveTemplates: { abbr: string; description: string; body: string }[];
+  liveHidden: string[];
+  /** $expr.if, $items.fore… with Tab and in the completion list. */
+  postfixTemplates: boolean;
+  /** Emmet abbreviations (ul>li*3) with Tab in HTML, Blade, Twig and the HTML of PHP files. */
+  emmet: boolean;
 }
 
 /** View ▸ Appearance ▸ Main Menu. */
@@ -296,6 +303,10 @@ export const DEFAULT_SETTINGS: Settings = {
     gutterChanges: true,
     surroundTemplates: [],
     surroundHidden: [],
+    liveTemplates: [],
+    liveHidden: [],
+    postfixTemplates: true,
+    emmet: true,
   },
   terminal: {
     shellPath: '',

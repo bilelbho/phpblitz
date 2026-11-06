@@ -39,6 +39,8 @@ import { useFileDrop } from '../fileDrop';
 import { EndpointsPanel } from './EndpointsPanel';
 import { ComposerPanel } from './ComposerPanel';
 import { NpmPanel } from './NpmPanel';
+import { CoveragePanel } from './CoveragePanel';
+import { percent, useCoverage } from '../tests/coverage';
 import { StatusBar } from './StatusBar';
 import { NoGit, onAskTrust, TrustDialog } from './TrustDialog';
 import { SearchEverywhere } from './SearchEverywhere';
@@ -254,7 +256,7 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
       'phpblitz.push': { run: () => w().setGitDialog({ kind: 'push' }), enabled: () => !!w().git },
       'phpblitz.updateProject': { run: () => void w().runGit('Update project', () => w().gitRepo.pull()), enabled: () => !!w().git },
       'phpblitz.newBranch': { run: () => w().setGitDialog({ kind: 'newBranch' }), enabled: () => !!w().git },
-      ...Object.fromEntries(TOOL_WINDOWS.map((t) => [`phpblitz.tool.${t.label.toLowerCase()}`, () => t.run(w())])),
+      ...Object.fromEntries(TOOL_WINDOWS.map((t) => [`phpblitz.tool.${t.label.toLowerCase().replace(/ /g, '-')}`, () => t.run(w())])),
       'phpblitz.panel.next': () => focusPanel(1),
       'phpblitz.panel.previous': () => focusPanel(-1),
       'phpblitz.panel.maximize': { run: toggleMaximized, enabled: () => getSettings().ui.layout === 'focus' },
@@ -296,6 +298,8 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
 
   const changeCount = ws.git?.changes.length ?? 0;
   const problemCount = Object.values(ws.problems).flat().length;
+  const cov = useCoverage().report;
+  const coverageHint = cov ? `${percent([...cov.files.values()].reduce((s, f) => s + f.coveredStatements, 0), [...cov.files.values()].reduce((s, f) => s + f.statements, 0))} lines · ${cov.label}` : '';
   // Tool windows: their strip icons, titles and contents, wherever the layout puts them.
   const toolInfo: Record<Tool, { label: string; icon: IconName; hint?: string; dot?: boolean; count?: number }> = {
     project: { label: 'Project', icon: 'folder' },
@@ -307,6 +311,7 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
     endpoints: { label: 'Endpoints', icon: 'route', hint: `${ws.routes.length} routes` },
     composer: { label: 'Composer', icon: 'box', hint: 'composer.json', dot: !!ws.outdated && Object.keys(ws.outdated).length > 0 },
     npm: { label: 'npm', icon: 'npm', hint: 'package.json scripts' },
+    coverage: { label: 'Coverage', icon: 'coverage', hint: coverageHint },
     tests: { label: 'Run', icon: 'run' },
     debug: { label: 'Debug', icon: 'bug', dot: debugState.sessions.some((s) => s.status === 'break') },
     terminal: { label: 'Terminal', icon: 'terminal' },
@@ -314,6 +319,8 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
     composerLog: { label: 'Composer Log', icon: 'box' },
     git: { label: 'Git', icon: 'git' },
     todo: { label: 'TODO', icon: 'todo' },
+    http: { label: 'HTTP Client', icon: 'http' },
+    services: { label: 'Services', icon: 'docker' },
   };
   const stripGroup = (anchor: Anchor) => ({
     anchor,
@@ -409,6 +416,7 @@ export function WorkspaceView({ backend, onOpenFolder, onOpenPath, onClose }: Pr
           {id === 'endpoints' && <EndpointsPanel ws={ws} />}
           {id === 'composer' && <ComposerPanel ws={ws} />}
           {id === 'npm' && <NpmPanel ws={ws} />}
+          {id === 'coverage' && <CoveragePanel ws={ws} />}
         </ErrorBoundary>
       </ToolWindow>
     );

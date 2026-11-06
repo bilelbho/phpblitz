@@ -4,9 +4,12 @@ import type { Route } from '../php';
 import { symbols } from '../symbols';
 import { baseName } from '../backend/types';
 import { Icon } from './Icon';
+import { ContextMenu, type ContextItem } from './ContextMenu';
+import { openRouteRequest } from '../http/run';
 
 export function EndpointsPanel({ ws }: { ws: Workspace }) {
   const [filter, setFilter] = useState('');
+  const [menu, setMenu] = useState<{ x: number; y: number; items: ContextItem[] } | null>(null);
   const q = filter.trim().toLowerCase();
   const routes = ws.routes.filter((r) => !q || `${r.method} ${r.uri} ${r.handler}`.toLowerCase().includes(q));
 
@@ -31,7 +34,25 @@ export function EndpointsPanel({ ws }: { ws: Workspace }) {
       </div>
       <div className="panel-body list">
         {routes.map((r) => (
-          <button key={`${r.path}:${r.line}`} type="button" className="list-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 3 }} onClick={() => open(r)}>
+          <button
+            key={`${r.path}:${r.line}`}
+            type="button"
+            className="list-item"
+            style={{ flexDirection: 'column', alignItems: 'stretch', gap: 3 }}
+            title="Click: go to the handler · Right-click: Open in HTTP Client"
+            onClick={() => open(r)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMenu({
+                x: e.clientX,
+                y: e.clientY,
+                items: [
+                  { label: 'Open in HTTP Client', icon: 'http', run: () => void openRouteRequest(ws, r) },
+                  { label: 'Go to Handler', icon: 'goTo', run: () => void open(r) },
+                ],
+              });
+            }}
+          >
             <span style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
               <span className={`method ${r.method}`}>{r.method}</span>
               <span className="mono" style={{ color: 'var(--text-strong)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -49,6 +70,7 @@ export function EndpointsPanel({ ws }: { ws: Workspace }) {
         {!ws.routes.length && <div className="empty">{ws.indexStats ? 'No Laravel routes found in routes/*.php.' : 'Indexing…'}</div>}
         {!!ws.routes.length && !routes.length && <div className="empty">No routes match “{filter}”.</div>}
       </div>
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </>
   );
 }

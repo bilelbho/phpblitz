@@ -33,6 +33,7 @@ export function TopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch }: Prop
   const runMenu: MenuEntry[] = [
     { label: 'Run Tests', run: ws.runTests },
     { label: 'Debug Tests', disabled: runner.running, run: () => ws.runTestScope({ kind: 'all' }, { debug: true }) },
+    { label: 'Run Tests with Coverage', disabled: runner.running, run: () => ws.runTestScope({ kind: 'all' }, { coverage: true }) },
     ...(ws.activePath?.endsWith('.php') ? [{ label: `Debug '${ws.activePath.split('/').pop()}'`, run: () => void debug.debugScript(ws.activePath!) }] : []),
     { label: 'Check Composer Updates', run: () => { ws.setRightTool('composer'); ws.checkOutdated(); } },
     { label: 'Open Terminal', run: () => ws.showBottom('terminal') },

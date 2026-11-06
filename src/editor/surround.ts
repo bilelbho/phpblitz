@@ -60,7 +60,7 @@ const escapeSnippet = (s: string, inField = false) => s.replace(inField ? /[\\$}
 const FIELD = /\$([A-Z][A-Z0-9_]*)(?::([^$\n]*))?\$/g;
 
 /** One template line as snippet text: fields numbered by name (shared across lines). */
-function fields(text: string, selection: string, numbers: Map<string, number>): string {
+export function fields(text: string, selection: string, numbers: Map<string, number>): string {
   let out = '';
   let last = 0;
   for (const m of text.matchAll(FIELD)) {

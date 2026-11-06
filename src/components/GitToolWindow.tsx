@@ -141,15 +141,20 @@ export function GitToolWindow({ ws }: { ws: Workspace }) {
   );
 }
 
+/** Every repository's commands, in the order they ran; each named when there are several. */
 function GitConsole({ ws }: { ws: Workspace }) {
-  const [entries, setEntries] = useState<ConsoleEntry[]>(ws.gitRepo.console);
+  const repos = ws.repositories;
+  const several = ws.repositoryList.length > 1;
+  const names = useMemo(() => new Map(ws.repositoryList.map((r) => [r.root, r.name])), [ws.repositoryList]);
+  const collect = () => repos.flatMap((g) => g.console.map((e) => ({ ...e, repo: g.root }))).sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
+  const [entries, setEntries] = useState<(ConsoleEntry & { repo: string })[]>(collect);
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const off = ws.gitRepo.onConsole(() => setEntries([...ws.gitRepo.console]));
-    return () => {
-      off();
-    };
-  }, [ws.gitRepo]);
+    setEntries(collect());
+    const offs = repos.map((g) => g.onConsole(() => setEntries(collect())));
+    return () => offs.forEach((off) => off());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repos]);
   useEffect(() => {
     end.current?.scrollIntoView({ block: 'end' });
   }, [entries]);
@@ -159,7 +164,7 @@ function GitConsole({ ws }: { ws: Workspace }) {
       {entries.map((e, i) => (
         <div key={i} className={'gc-entry' + (e.ok ? '' : ' failed')}>
           <div>
-            <span className="qc-time">{e.time}</span> <span className="gc-cmd">{e.command}</span>
+            <span className="qc-time">{e.time}</span> {several && <span className="gc-repo">{names.get(e.repo) ?? e.repo.split('/').pop()}</span>} <span className="gc-cmd">{e.command}</span>
           </div>
           {e.output && <div className="gc-out">{e.output}</div>}
         </div>

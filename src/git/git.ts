@@ -79,6 +79,8 @@ export interface BlameLine {
 
 export interface ConsoleEntry {
   time: string;
+  /** Epoch ms: entries of several repositories in order. */
+  at: number;
   command: string;
   output: string;
   ok: boolean;
@@ -151,7 +153,7 @@ export class Git {
     if (!opts.quiet || r.code !== 0) {
       this.console = [
         ...this.console.slice(-200),
-        { time: new Date().toLocaleTimeString(), command: `git ${args.join(' ')}`, output: (r.stdout + r.stderr).trim(), ok: r.code === 0 },
+        { time: new Date().toLocaleTimeString(), at: Date.now(), command: `git ${args.join(' ')}`, output: (r.stdout + r.stderr).trim(), ok: r.code === 0 },
       ];
       this.listeners.forEach((l) => l());
     }

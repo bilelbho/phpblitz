@@ -108,6 +108,7 @@ export function TestResults({ ws }: { ws: Workspace }) {
       items: [
         { label: `Run '${label}'`, icon: 'run', shortcut: 'Ctrl+Shift+F10', run: () => void runner.start(n.kind === 'root' ? (run?.scope ?? { kind: 'all' }) : { kind: 'node', node: n }) },
         { label: `Debug '${label}'`, icon: 'bug', run: () => void runner.start(n.kind === 'root' ? (run?.scope ?? { kind: 'all' }) : { kind: 'node', node: n }, { debug: true }) },
+        { label: `Run '${label}' with Coverage`, icon: 'coverage', run: () => void runner.start(n.kind === 'root' ? (run?.scope ?? { kind: 'all' }) : { kind: 'node', node: n }, { coverage: true }) },
         { kind: 'sep' },
         { label: 'Jump to Source', shortcut: 'F4', disabled: !n.path, run: () => void jumpTo(n) },
       ],
@@ -147,6 +148,7 @@ export function TestResults({ ws }: { ws: Workspace }) {
         <ToolButton icon="run" label={run ? `Rerun '${run.label}'` : 'Run Tests'} keys="Shift+F10" color="#5fb865" disabled={!!run?.running} onClick={() => (run ? runner.rerun() : void runner.start({ kind: 'all' }))} />
         <ToolButton icon="refresh" label="Rerun Failed Tests" color="#db5c5c" disabled={!!run?.running || !failedCount} onClick={() => void runner.start({ kind: 'failed' })} />
         <ToolButton icon="bug" label={run ? `Debug '${run.label}'` : 'Debug Tests'} color="#5fb865" disabled={!!run?.running} onClick={() => void runner.start(run?.scope ?? { kind: 'all' }, { debug: true })} />
+        <ToolButton icon="coverage" label={run ? `Run '${run.label}' with Coverage` : 'Run Tests with Coverage'} color="#5fb865" disabled={!!run?.running} onClick={() => void runner.start(run?.scope ?? { kind: 'all' }, { coverage: true })} />
         <ToolButton icon="stopSquare" label="Stop" keys="Ctrl+F2" color="#db5c5c" disabled={!run?.running} onClick={() => void runner.stop()} />
         <span className="strip-sep" />
         <ToolButton icon="check" label="Show Passed" pressed={showPassed} disabled={!run} onClick={() => setShowPassed(!showPassed)} />

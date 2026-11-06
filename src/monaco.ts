@@ -31,6 +31,7 @@ loader.config({ monaco });
 import './editor/themes';
 import './editor/phpGrammar';
 import './editor/dotenv';
+import './editor/http';
 import './editor/csv';
 
 // "N usages" on their own line above declarations (code vision).

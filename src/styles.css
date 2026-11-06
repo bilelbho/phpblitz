@@ -3904,6 +3904,12 @@ table.grid tr.row-deleted td {
 .gc-cmd {
   color: #8fc38f;
 }
+.gc-repo {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--hover-strong);
+  color: var(--muted-2);
+}
 .gc-entry.failed .gc-cmd {
   color: #f75464;
 }
@@ -8106,6 +8112,14 @@ body:has(.strip.right.with-names) .balloons {
   min-width: 0;
   color: var(--text);
 }
+.git-op-repo {
+  color: var(--muted-2);
+  font-weight: 600;
+}
+/* Another repository's operation: a quieter line under the current one's. */
+.git-op-banner.other {
+  opacity: 0.85;
+}
 .git-op-actions {
   display: flex;
   flex-wrap: wrap;
@@ -9091,4 +9105,776 @@ body:has(.strip.right.with-names) .balloons {
 /* Several repositories: the top bar's branch button names the current one. */
 .widget-repo {
   color: var(--muted);
+}
+
+/* .http files: the ▶ beside a request (the Markdown run glyph, filled) */
+.monaco-editor .http-run-glyph::before {
+  content: '▶';
+  font-size: 10px;
+}
+
+/* HTTP Client tool window */
+.http-running {
+  font-size: 12px;
+  margin-right: 8px;
+}
+.http-env {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 6px;
+  font-size: 12px;
+}
+.http-panel {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.http-history {
+  flex: 0 1 340px;
+  min-width: 200px;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+}
+.http-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px;
+  font-size: 12.5px;
+  cursor: default;
+}
+.http-row:hover {
+  background: var(--hover);
+}
+.http-row.selected {
+  background: var(--hover-strong);
+}
+.http-method {
+  flex: none;
+  width: 48px;
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--text-soft);
+}
+.http-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.http-time {
+  flex: none;
+  font-size: 11px;
+}
+.http-status {
+  flex: none;
+  min-width: 26px;
+  font-weight: 600;
+  font-size: 11.5px;
+}
+.http-status.ok {
+  color: var(--green);
+}
+.http-status.redirect {
+  color: var(--orange);
+}
+.http-status.error {
+  color: var(--red);
+}
+.http-status.big {
+  font-size: 13px;
+}
+.http-details {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.http-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.http-error {
+  margin: 8px 12px 0;
+}
+.http-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.http-tab-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.http-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.http-body-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.http-code {
+  flex: 1 1 auto;
+  min-height: 120px;
+}
+.http-preview {
+  flex: 1 1 auto;
+  border: 0;
+  background: #fff;
+}
+.http-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  margin: 10px;
+  align-self: flex-start;
+}
+.http-headers {
+  border-collapse: collapse;
+  margin: 6px 12px;
+  font-size: 12px;
+}
+.http-headers td {
+  padding: 2px 12px 2px 0;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.http-header-name {
+  color: var(--blue-text);
+  white-space: nowrap;
+}
+.http-request-line {
+  padding: 8px 12px 2px;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+.http-empty code {
+  font-size: 12px;
+}
+.http-wrap {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  container-type: inline-size;
+}
+.http-panel {
+  width: 100%;
+}
+/* Docked at the side (narrow): the history above the response. */
+@container (max-width: 640px) {
+  .http-panel {
+    flex-direction: column;
+  }
+  .http-history {
+    flex: 0 0 auto;
+    max-height: 32%;
+    min-width: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+}
+
+/* ── .http files: the request form (HttpRequestView.tsx) ──────── */
+.hf {
+  container-type: inline-size;
+}
+.hf-wrap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+.hf-list {
+  flex: 0 0 230px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+}
+.hf-list-head,
+.hf-list-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 6px 0 12px;
+  font-size: 12px;
+  flex: none;
+}
+.hf-list-foot {
+  margin-top: auto;
+  border-top: 1px solid var(--line);
+}
+.hf-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  font-size: 12.5px;
+  cursor: default;
+}
+.hf-item:hover {
+  background: var(--hover);
+}
+.hf-item.selected {
+  background: var(--select);
+}
+.hf-method {
+  flex: none;
+  width: 44px;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.hf-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.m-get {
+  color: var(--green);
+}
+.m-post {
+  color: var(--orange);
+}
+.m-put {
+  color: var(--blue-text);
+}
+.m-patch {
+  color: var(--purple);
+}
+.m-delete {
+  color: var(--red);
+}
+.m-head,
+.m-options {
+  color: var(--teal);
+}
+.hf-none {
+  padding: 10px 12px;
+  font-size: 12px;
+}
+.hf-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.hf-main.empty,
+.hf-response.empty {
+  align-items: center;
+  justify-content: center;
+}
+.hf-title-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 40px;
+  padding: 0 110px 0 10px; /* clear of the view switcher */
+}
+.hf-name {
+  flex: 0 1 420px;
+  font-weight: 600;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+.hf-name:hover,
+.hf-name:focus {
+  border-color: var(--line-strong) !important;
+}
+.hf-url-row {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 10px;
+}
+.hf-method-select {
+  flex: none;
+  width: 96px;
+  font-weight: 700;
+  font-size: 12px;
+}
+.hf-url {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+}
+.hf-send {
+  flex: none;
+  min-width: 76px;
+}
+.hf-input {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--input);
+  color: var(--text);
+  font-size: 12.5px;
+}
+.hf-input:focus {
+  outline: none;
+  border-color: var(--blue);
+}
+.hf-input:disabled {
+  opacity: 0.5;
+}
+.hf-request {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  max-height: 48%;
+  min-height: 120px;
+  border-bottom: 1px solid var(--line-strong);
+}
+.hf-request-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.hf-count {
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--hover-strong);
+  font-size: 10.5px;
+}
+.hf-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  vertical-align: middle;
+}
+.hf-rows {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.hf-rows th {
+  padding: 6px 4px 4px;
+  text-align: left;
+  font-weight: 500;
+  color: var(--muted);
+}
+.hf-rows th:first-child,
+.hf-rows td:first-child {
+  padding-left: 12px;
+}
+.hf-rows td {
+  padding: 2px 4px;
+}
+.hf-rows tr.off .hf-input {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.hf-rows .hf-toggle {
+  width: 22px;
+}
+.hf-rows .hf-del {
+  width: 30px;
+  padding-right: 12px;
+}
+.hf-body {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 180px;
+}
+.hf-body-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+.hf-radio,
+.hf-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.hf-body-editor {
+  flex: 1 1 auto;
+  min-height: 140px;
+  border-top: 1px solid var(--line);
+}
+.hf-rows .hf-kind {
+  width: 84px;
+}
+.hf-rows .hf-kind select {
+  width: 100%;
+}
+.hf-value {
+  display: flex;
+  gap: 6px;
+}
+.hf-file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 12px;
+}
+.hf-file .hf-input {
+  flex: 1 1 300px;
+  width: auto;
+}
+.hf-file-note {
+  flex: 1 1 100%;
+  font-size: 11.5px;
+}
+.hf-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  font-size: 12.5px;
+}
+.hf-setting {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 260px) auto;
+  align-items: center;
+  gap: 10px;
+}
+.hf-setting .muted {
+  font-size: 11.5px;
+}
+.hf-short {
+  max-width: 100px;
+}
+.hf-response {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.hf-response:not(.empty) {
+  color: var(--text);
+}
+.hf-sent-body {
+  margin: 6px 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+/* A narrow editor: the request list above the form. */
+@container (max-width: 640px) {
+  .hf-wrap {
+    flex-direction: column;
+  }
+  .hf-list {
+    flex: 0 0 auto;
+    max-height: 30%;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .hf-list-foot {
+    margin-top: 0;
+  }
+}
+
+/* ── Coverage ─────────────────────────────────────────────────── */
+.monaco-editor .cov-mark {
+  /* Between the bookmark slot and the Git change bars. */
+  margin-left: 14px;
+  width: 3px !important;
+}
+.monaco-editor .cov-mark.cov-hit {
+  background: rgba(95, 184, 101, 0.75);
+}
+.monaco-editor .cov-mark.cov-miss {
+  background: rgba(219, 92, 92, 0.8);
+}
+.cov-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.cov-running {
+  margin-left: 8px;
+  font-size: 12px;
+}
+.cov-problem {
+  margin: 0 10px 8px;
+  font-size: 12px;
+}
+.cov-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 2px 12px 8px;
+  font-size: 12.5px;
+}
+.cov-summary .cov-bar {
+  width: 100%;
+  height: 5px;
+}
+.cov-head,
+.cov-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px 52px;
+  align-items: center;
+  gap: 6px;
+  padding-right: 10px;
+}
+.cov-head {
+  padding-left: 10px;
+  font-size: 11px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 3px;
+}
+.cov-list {
+  overflow: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.cov-row {
+  height: 24px;
+  font-size: 12.5px;
+  cursor: default;
+}
+.cov-row:hover {
+  background: var(--hover);
+}
+.cov-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.cov-twisty {
+  width: 12px;
+  flex: none;
+}
+.cov-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cov-cell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.cov-bar {
+  display: inline-block;
+  width: 44px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(219, 92, 92, 0.35);
+  overflow: hidden;
+  flex: none;
+}
+.cov-bar > span {
+  display: block;
+  height: 100%;
+  background: #5fb865;
+}
+.cov-pct {
+  width: 34px;
+  text-align: right;
+}
+.cov-pct.good {
+  color: #5fb865;
+}
+.cov-pct.fair {
+  color: #d9a343;
+}
+.cov-pct.poor {
+  color: #db5c5c;
+}
+
+/* ── Settings ▸ Live Templates ──────────────────────────────────── */
+.surround-custom-head .field.live-abbr {
+  flex: 0 0 140px;
+}
+.live-postfix {
+  margin: 4px 0 0 26px;
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  word-spacing: 4px;
+}
+
+/* ── Services (Docker) ──────────────────────────────────────────── */
+.svc-wrap {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  container-type: inline-size;
+}
+.svc-panel {
+  display: flex;
+  width: 100%;
+  min-height: 0;
+}
+.svc-tree {
+  flex: 0 1 360px;
+  min-width: 220px;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+  padding: 2px 0;
+}
+.svc-details {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+.svc-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px 0 6px;
+  font-size: 12.5px;
+  cursor: default;
+  white-space: nowrap;
+}
+.svc-row:hover {
+  background: var(--hover);
+}
+.svc-row.selected {
+  background: var(--hover-strong);
+}
+.svc-leaf {
+  padding-left: 30px;
+}
+.svc-twisty {
+  display: inline-flex;
+  width: 14px;
+}
+.svc-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.svc-group .svc-name {
+  font-weight: 600;
+}
+.svc-sub {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+}
+.svc-count {
+  font-size: 11.5px;
+}
+.svc-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--muted);
+}
+.svc-dot.running {
+  background: #5fb865;
+  border-color: #5fb865;
+}
+.svc-dot.paused {
+  background: #d9a343;
+  border-color: #d9a343;
+}
+.svc-dot.stopped {
+  background: transparent;
+  border-color: #db5c5c;
+}
+.svc-dot.image {
+  border-radius: 2px;
+  border-color: var(--muted-2);
+}
+.svc-note {
+  padding: 3px 10px 3px 30px;
+  font-size: 12px;
+}
+.svc-error {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 8px;
+  font-size: 12px;
+  color: #e8b33a;
+}
+.svc-busy {
+  font-size: 12px;
+  margin-right: 6px;
+}
+.svc-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.svc-tab-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.svc-tab-body .http-code {
+  min-height: 80px;
+}
+.svc-log {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 6px 12px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}
+.svc-output {
+  max-height: 100%;
+  text-align: left;
+}
+/* Docked at the side (narrow): the list above the details. */
+@container (max-width: 640px) {
+  .svc-panel {
+    flex-direction: column;
+  }
+  .svc-tree {
+    flex: 0 0 auto;
+    max-height: 40%;
+    min-width: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
 }

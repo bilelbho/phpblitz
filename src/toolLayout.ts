@@ -4,9 +4,9 @@
 // restores it).
 
 /** Tool windows that open in a side column by default. */
-export type SideTool = 'project' | 'commit' | 'database' | 'structure' | 'notifications' | 'ai' | 'endpoints' | 'composer' | 'npm';
+export type SideTool = 'project' | 'commit' | 'database' | 'structure' | 'notifications' | 'ai' | 'endpoints' | 'composer' | 'npm' | 'coverage';
 /** Tool windows that open in the bottom panel by default ('composerLog' is the bottom "Composer" tab). */
-export type BottomTool = 'tests' | 'debug' | 'terminal' | 'problems' | 'composerLog' | 'git' | 'todo';
+export type BottomTool = 'tests' | 'debug' | 'terminal' | 'problems' | 'composerLog' | 'git' | 'todo' | 'http' | 'services';
 export type Tool = SideTool | BottomTool;
 
 export type SideAnchor = 'leftTop' | 'leftBottom' | 'rightTop' | 'rightBottom';
@@ -27,9 +27,9 @@ export const ANCHOR_LABELS: Record<Anchor, string> = {
 export const DEFAULT_LAYOUT: ToolLayout = {
   leftTop: ['project', 'commit', 'database'],
   leftBottom: ['structure'],
-  rightTop: ['notifications', 'ai', 'endpoints', 'composer', 'npm'],
+  rightTop: ['notifications', 'ai', 'endpoints', 'composer', 'npm', 'coverage'],
   rightBottom: [],
-  bottom: ['tests', 'debug', 'terminal', 'problems', 'composerLog', 'git', 'todo'],
+  bottom: ['tests', 'debug', 'terminal', 'problems', 'composerLog', 'git', 'todo', 'http', 'services'],
 };
 
 export const BOTTOM_TOOLS = DEFAULT_LAYOUT.bottom as BottomTool[];

@@ -299,6 +299,7 @@ const LANGUAGE_BY_EXT: Record<string, string> = {
   yml: 'yaml', yaml: 'yaml', neon: 'yaml',
   sql: 'sql', mysql: 'mysql', pgsql: 'pgsql', graphql: 'graphql', gql: 'graphql',
   sh: 'shell', bash: 'shell', zsh: 'shell', ksh: 'shell', bat: 'bat', cmd: 'bat', ps1: 'powershell', psm1: 'powershell', psd1: 'powershell',
+  http: 'http', rest: 'http',
   env: 'dotenv', ini: 'ini', cfg: 'ini', conf: 'ini', toml: 'ini', properties: 'ini', editorconfig: 'ini',
   dockerfile: 'dockerfile', csv: 'csv', tsv: 'csv',
   py: 'python', rb: 'ruby', go: 'go', rs: 'rust', java: 'java', kt: 'kotlin', cs: 'csharp', c: 'cpp', h: 'cpp', cpp: 'cpp', hpp: 'cpp',

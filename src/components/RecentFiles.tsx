@@ -33,13 +33,16 @@ export const TOOL_WINDOWS: ToolEntry[] = (
     { label: 'Endpoints', icon: 'route', run: (ws) => ws.setRightTool('endpoints') },
     { label: 'Composer', icon: 'box', run: (ws) => ws.setRightTool('composer') },
     { label: 'npm', icon: 'npm', run: (ws) => ws.setRightTool('npm') },
+    { label: 'Coverage', icon: 'coverage', run: (ws) => ws.setRightTool('coverage') },
+    { label: 'Services', icon: 'docker', run: (ws) => ws.showBottom('services') },
+    { label: 'HTTP Client', icon: 'http', run: (ws) => ws.showBottom('http') },
     { label: 'Notifications', icon: 'bell', run: (ws) => ws.setRightTool('notifications') },
   ] as Omit<ToolEntry, 'shortcut'>[]
 ).map((t) => ({
   ...t,
   // The keymap's keys for it (Settings ▸ Keymap).
   get shortcut() {
-    return shortcut(`phpblitz.tool.${t.label.toLowerCase()}`);
+    return shortcut(`phpblitz.tool.${t.label.toLowerCase().replace(/ /g, '-')}`);
   },
 }));
 

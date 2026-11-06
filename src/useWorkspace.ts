@@ -4,7 +4,9 @@ import { isScriptModel, scriptFileChanged, scriptFilesChanged, scriptProblem, sc
 import { anchorOf, DEFAULT_LAYOUT, FOCUS_START, focusStateFrom, hidePanel, isBottomTool, loadToolLayout, movePanel, panelShown, resizeColumn, resizeGroups, setColumnWidth, setIconsSide, showPanel, toggleFirstColumn, moveTool as moveToolIn, saveToolLayout, type Anchor, type BottomTool, type FocusDrop, type FocusPanel, type FocusState, type IconsSide, type SideAnchor, type SideTool, type Tool, type ToolLayout } from './toolLayout';
 import * as monaco from 'monaco-editor';
 import type { Backend, CommitOptions, Entry, GitInfo, Package, Problem, RunResult } from './backend/types';
-import { testRunner, type Scope } from './tests/runner';
+import { testRunner, type RunOptions, type Scope } from './tests/runner';
+import { openCoverage } from './tests/coverage';
+import { openHttpClient } from './http/client';
 import { baseName, relativePath } from './backend/types';
 import { languageOf, phpIndex, routesOf, structureOf, type PhpSymbol, type Route } from './php';
 import { isRasterImage } from './fileKinds';
@@ -68,7 +70,7 @@ export type Tab =
   | { id: string; kind: 'diff'; path: string; commit?: string; left?: string; /** A shelved file: its shelf's id (the shelf's base vs the file as shelved). */ shelf?: string };
 /** Left tool windows. Structure docks in the bottom half, the others in the top half. */
 export type LeftTool = 'project' | 'commit' | 'structure' | 'database';
-export type RightTool = 'notifications' | 'ai' | 'endpoints' | 'composer' | 'npm';
+export type RightTool = 'notifications' | 'ai' | 'endpoints' | 'composer' | 'npm' | 'coverage';
 export type GitDialogRequest =
   | { kind: 'push' }
   | { kind: 'newBranch'; from?: string }
@@ -114,7 +116,7 @@ export interface UsagesPopupState extends Omit<UsageSearch, 'target'> {
   target?: unknown;
 }
 
-export type BottomTab = 'problems' | 'terminal' | 'tests' | 'composer' | 'usages' | 'find' | 'git' | 'debug' | 'todo';
+export type BottomTab = 'problems' | 'terminal' | 'tests' | 'composer' | 'usages' | 'find' | 'git' | 'debug' | 'todo' | 'http' | 'services';
 
 /** The tool window a bottom tab belongs to (Find and Usages results always open in the bottom panel). */
 export function toolOfTab(tab: BottomTab): BottomTool | null {
@@ -1199,7 +1201,13 @@ export function useWorkspace(backend: Backend) {
   }, [repositories]);
   /** The repositories with a status, for the branches popup's and the Log's choice of repository. */
   const repositoryList = useMemo(
-    () => repositories.filter((g) => gitInfos.get(g.root)).map((g) => ({ root: g.root, name: g.root === backend.root ? backend.name : relativePath(backend, g.root), branch: gitInfos.get(g.root)!.branch, operation: gitInfos.get(g.root)!.operation })),
+    () =>
+      repositories
+        .filter((g) => gitInfos.get(g.root))
+        .map((g) => {
+          const info = gitInfos.get(g.root)!;
+          return { root: g.root, name: g.root === backend.root ? backend.name : relativePath(backend, g.root), branch: info.branch, operation: info.operation, conflicts: info.changes.filter((c) => c.status === 'C').length };
+        }),
     [repositories, gitInfos, backend],
   );
 
@@ -1410,9 +1418,23 @@ export function useWorkspace(backend: Backend) {
     testRunner.setProject(backend);
     return () => testRunner.setProject(null);
   }, [backend]);
+  // The HTTP Client's history and the last coverage report, as this project left them.
+  useEffect(() => {
+    void openHttpClient(backend);
+    void openCoverage(backend);
+    return () => {
+      void openHttpClient(null);
+      void openCoverage(null);
+    };
+  }, [backend]);
+  // A coverage run's report: in the Coverage tool window.
+  useEffect(() => {
+    testRunner.onCoverage = () => showTool('coverage');
+    return () => void (testRunner.onCoverage = null);
+  }, [showTool]);
   /** Runs (or debugs) tests: a file, a test, the failed ones… The Run window opens. */
   const runTestScope = useCallback(
-    (scope: Scope, opts?: { debug?: boolean }) => {
+    (scope: Scope, opts?: RunOptions) => {
       showBottom('tests');
       void testRunner.start(scope, opts);
     },
@@ -2525,7 +2547,7 @@ export function useWorkspace(backend: Backend) {
     findInFiles, openFindInFiles, closeFindInFiles: () => setFindInFiles(null), findResults, setFindResults,
     savedTextOf: (path: string) => savedText.current[path], liveTextOf: (path: string) => liveText.current[path],
     // git
-    git, gitLoaded, refreshGit, commit, gitRepo, repositoryList, setCurrentRepo, runGit, rollbackFiles, rollbackNow, gitLogRequest, showHistory, showPullRequests, showCommit, annotated, toggleAnnotate, openDiff, gitDialog, setGitDialog,
+    git, gitLoaded, refreshGit, commit, gitRepo, repositories, repositoryList, setCurrentRepo, runGit, rollbackFiles, rollbackNow, gitLogRequest, showHistory, showPullRequests, showCommit, annotated, toggleAnnotate, openDiff, gitDialog, setGitDialog,
     // composer
     packages, outdated, composerBusy, checkOutdated, updatePackage, hasComposer,
     // run

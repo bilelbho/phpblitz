@@ -67,7 +67,8 @@ export function FocusTopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch, t
     main.querySelectorAll('.focus-col').forEach((c) => observer.observe(c));
     return () => observer.disconnect();
   }, [layoutKey]);
-  // Room for the project and branch first: the editor far left, they come before the tabs.
+  // Room for the project and branch first: at least as wide as the side panel (the tabs start over the
+  // editor), wider when their names need it; cut only when the window is short of room.
   const startWidth = editorLeft > 180 ? editorLeft - 6 : undefined;
   // The list: tool windows without a toggle, the sidebar's excepted (they have its icons).
   const others = FOCUS_TOOLS.filter((t) => !(FOCUS_TOGGLES as readonly Tool[]).includes(t) && !sidebar?.groups.some((g) => g.panels.includes(t)));
@@ -121,7 +122,7 @@ export function FocusTopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch, t
         </div>
       )}
       <header className="topbar focus-topbar" data-tauri-drag-region ref={bar}>
-        <div className="focus-top-start" data-tauri-drag-region style={startWidth ? { flexBasis: startWidth } : undefined}>
+        <div className="focus-top-start" data-tauri-drag-region style={startWidth ? { minWidth: `min(${startWidth}px, 35%)` } : undefined}>
           {/* The main menu first, at the left, as in the Classic layout. */}
           {ui.mainMenu !== 'separate' && (
             <button
@@ -163,7 +164,7 @@ export function FocusTopBar({ ws, onOpenFolder, onOpenPath, onClose, onSearch, t
               className={'top-icon' + (ws.isToolOpen(t) ? ' on' : '') + (t === 'problems' && problemCount ? ' with-count' : '')}
               aria-label={tools[t].label}
               aria-pressed={ws.isToolOpen(t)}
-              title={withKeys(tools[t].label, `phpblitz.tool.${tools[t].label.toLowerCase()}`)}
+              title={withKeys(tools[t].label, `phpblitz.tool.${tools[t].label.toLowerCase().replace(/ /g, '-')}`)}
               onClick={() => ws.toggleTool(t)}
             >
               <Icon name={tools[t].icon} />

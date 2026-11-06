@@ -7,7 +7,7 @@ import { projectStorage } from './projectStorage';
 import { isBottomTool, SIDE_ANCHORS, type SideAnchor, type SideTool, type Tool, type ToolLayout } from './toolLayout';
 
 /** The bottom panel's tabs that are kept (Find and Usages results are gone after a restart). */
-const BOTTOM_TABS = ['problems', 'terminal', 'tests', 'composer', 'git', 'debug', 'todo'] as const;
+const BOTTOM_TABS = ['problems', 'terminal', 'tests', 'composer', 'git', 'debug', 'todo', 'http', 'services'] as const;
 export type SavedBottomTab = (typeof BOTTOM_TABS)[number];
 
 export interface ClassicSizes {

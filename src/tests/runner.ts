@@ -12,8 +12,33 @@ import { commandFor, debugMappings, interpretersFor, mapPath, projectPhp, type I
 import { debug } from '../debug/manager';
 import { TestTree, type TestNode, type TestStatus } from './teamcity';
 import { findTests, phpunitFilter, pestFilter, type FoundTest } from './discover';
+import { coverage, parseClover } from './coverage';
 
 export type Framework = 'phpunit' | 'pest';
+
+export interface RunOptions {
+  debug?: boolean;
+  coverage?: boolean;
+}
+
+const COVERAGE_DIR = '.blitz/cache/coverage';
+const COVERAGE_FILE = `${COVERAGE_DIR}/clover.xml`;
+
+/**
+ * Without a <source> (PHPUnit 10+) or <coverage><include> (9) in phpunit.xml, PHPUnit measures
+ * nothing: then the project's usual source folder, given on the command line.
+ */
+async function coverageFilter(b: Backend): Promise<string[]> {
+  for (const name of ['phpunit.xml', 'phpunit.xml.dist', 'phpunit.dist.xml']) {
+    const xml = await b.readFile(`${b.root}/${name}`).catch(() => null);
+    if (xml === null) continue;
+    if (/<source\b|<include\b|<whitelist\b/.test(xml.replace(/<!--[\s\S]*?-->/g, ''))) return [];
+    break;
+  }
+  const dirs = new Set((await b.listDir(b.root).catch(() => [])).filter((e) => e.isDir).map((e) => e.name));
+  const dir = ['src', 'app', 'lib'].find((d) => dirs.has(d));
+  return dir ? ['--coverage-filter', dir] : [];
+}
 
 export type Scope =
   | { kind: 'all' }
@@ -28,6 +53,8 @@ export interface RunState {
   label: string;
   scope: Scope;
   debug: boolean;
+  /** Run with code coverage (the Coverage tool window shows it when the run ends). */
+  coverage: boolean;
   running: boolean;
   started: number;
   finished: number | null;
@@ -51,6 +78,8 @@ class TestRunner {
   private listeners = new Set<() => void>();
   private version = 0;
   private flushTimer = 0;
+  /** A coverage run ended (the workspace opens the Coverage tool window). */
+  onCoverage: (() => void) | null = null;
 
   subscribe = (l: () => void) => {
     this.listeners.add(l);
@@ -77,6 +106,7 @@ class TestRunner {
     this.backend = backend;
     this.run = null;
     this.results.clear();
+    coverage.set(null);
     this.changed();
   }
 
@@ -111,13 +141,14 @@ class TestRunner {
     }
   }
 
-  async start(scope: Scope, opts: { debug?: boolean } = {}) {
+  async start(scope: Scope, opts: RunOptions = {}) {
     const b = this.backend;
     if (!b) return;
     await this.stop();
     const framework = await this.framework();
     const tree = new TestTree((f) => f);
-    const base = { tree, framework: framework ?? 'phpunit', scope, debug: !!opts.debug, running: true, started: Date.now(), finished: null, exitCode: null, command: '' } as const;
+    const withCoverage = !!opts.coverage && !opts.debug;
+    const base = { tree, framework: framework ?? 'phpunit', scope, debug: !!opts.debug, coverage: withCoverage, running: true, started: Date.now(), finished: null, exitCode: null, command: '' } as const;
     if (!framework) {
       this.run = { ...base, label: 'PHPUnit', running: false, finished: Date.now(), error: 'Neither PHPUnit nor Pest is installed in vendor/bin. Add one with Composer: composer require --dev phpunit/phpunit' };
       this.changed();
@@ -129,7 +160,10 @@ class TestRunner {
     this.stopped = false;
     this.changed();
 
-    if (b.kind === 'sample' || !isTauri) return this.simulate(scope);
+    if (b.kind === 'sample' || !isTauri) {
+      if (withCoverage) coverage.fail(label, 'Coverage is measured by the desktop app.');
+      return this.simulate(scope);
+    }
 
     // The interpreter the project uses; plain `php` from PATH when none is set.
     const php = projectPhp(b.root);
@@ -138,7 +172,26 @@ class TestRunner {
     const where = (rel: string) => (interpreter.kind === 'ssh' ? mapPath(`${b.root}/${rel}`, mappings, true) : rel);
     const rel = (path: string) => (path.startsWith(`${b.root}/`) ? path.slice(b.root.length + 1) : path);
 
-    const args = [where(`vendor/bin/${framework}`), '--teamcity', '--colors=never', ...this.scopeArgs(scope, framework, failedBefore).map((a) => (a.startsWith(`${b.root}/`) ? where(rel(a)) : a))];
+    // Coverage: Xdebug in coverage mode (or PCOV), a Clover report in .blitz/cache/coverage. It's emptied
+    // first, so an empty one afterwards means none was written.
+    let coverageArgs: string[] = [];
+    if (withCoverage) {
+      if (interpreter.kind === 'ssh') {
+        coverage.fail(label, 'Coverage needs a local or Docker interpreter: over SSH the report stays on the server.');
+        this.finish(null, 'Coverage needs a local or Docker interpreter.');
+        return;
+      }
+      await b.createDir(`${b.root}/${COVERAGE_DIR}`).catch(() => {});
+      await b.writeFile(`${b.root}/${COVERAGE_FILE}`, '');
+      coverageArgs = ['--coverage-clover', COVERAGE_FILE, ...(await coverageFilter(b))];
+    }
+    const args = [
+      ...(withCoverage ? ['-dxdebug.mode=coverage', '-dpcov.enabled=1'] : []),
+      where(`vendor/bin/${framework}`),
+      '--teamcity',
+      '--colors=never',
+      ...coverageArgs,
+      ...this.scopeArgs(scope, framework, failedBefore).map((a) => (a.startsWith(`${b.root}/`) ? where(rel(a)) : a))];
     let debugPort: number | null = null;
     if (opts.debug) {
       debugPort = await debug.prepareLaunch(label);
@@ -165,12 +218,32 @@ class TestRunner {
         run.tree.line(line.replace(ANSI, ''));
         this.changed(false);
       });
+      if (withCoverage && !this.stopped) await this.readCoverage(b, label, toLocal, run);
       this.finish(this.stopped ? null : code);
     } catch (e) {
       this.finish(null, String(e instanceof Error ? e.message : e));
     } finally {
       this.job = 0;
     }
+  }
+
+  /** The run's Clover report into the Coverage tool window (or why there's none). */
+  private async readCoverage(b: Backend, label: string, toLocal: (f: string) => string, run: RunState) {
+    const xml = await b.readFile(`${b.root}/${COVERAGE_FILE}`).catch(() => '');
+    const files = xml.trim() ? parseClover(xml, toLocal) : null;
+    if (files) coverage.set({ label, at: Date.now(), files });
+    else {
+      const out = run.tree.root.output;
+      coverage.fail(
+        label,
+        /no code coverage driver/i.test(out)
+          ? 'PHP has no coverage driver: enable Xdebug (or install PCOV) for the project’s interpreter.'
+          : /no filter is configured|no list of files to be included/i.test(out)
+            ? 'PHPUnit has no source folders to measure: add a <source> section to phpunit.xml.'
+            : 'The runner wrote no coverage report. See the output in the Run window.',
+      );
+    }
+    this.onCoverage?.();
   }
 
   /** Arguments that pick the tests of a scope. */
@@ -242,7 +315,7 @@ class TestRunner {
   }
 
   rerun() {
-    if (this.run) void this.start(this.run.scope, { debug: this.run.debug });
+    if (this.run) void this.start(this.run.scope, { debug: this.run.debug, coverage: this.run.coverage });
   }
 
   /** The browser preview's sample project: a believable run of its test files. */

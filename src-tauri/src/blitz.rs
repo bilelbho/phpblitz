@@ -69,6 +69,40 @@ pub async fn blitz_write(root: String, name: String, text: String) -> Result<(),
     .map_err(|e| e.to_string())?
 }
 
+/// Only these cache files can be read and written by the UI: state kept between sessions.
+fn cache_file(name: &str) -> Result<&str, String> {
+    match name {
+        "http-client.json" | "coverage.json" => Ok(name),
+        _ => Err(format!("not a .blitz cache file: {name}")),
+    }
+}
+
+/// A `.blitz/cache` file the UI keeps (the HTTP Client's history, the last coverage report);
+/// `None` when it doesn't exist yet.
+#[tauri::command]
+pub async fn blitz_cache_read(root: String, name: String) -> Result<Option<String>, String> {
+    let path = Path::new(&root).join(DIR).join("cache").join(cache_file(&name)?);
+    tauri::async_runtime::spawn_blocking(move || match std::fs::read_to_string(&path) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.to_string()),
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Writes it (only this user may read it: it can hold tokens and cookies). Not Local History.
+#[tauri::command]
+pub async fn blitz_cache_write(root: String, name: String, text: String) -> Result<(), String> {
+    let name = cache_file(&name)?.to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = cache_dir(&root).map_err(|e| e.to_string())?.join(name);
+        crate::fs::write_private(&path, text.as_bytes()).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Keeps a settings file that can't be read (not JSON: a bad edit, a merge) before it is written
 /// fresh: copied into the cache folder, which git ignores, as `<name>.<seconds>.broken`. Returns
 /// the copy's path.

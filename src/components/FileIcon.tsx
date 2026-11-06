@@ -3,6 +3,7 @@
 
 import type { ComponentType } from 'react';
 import {
+  IconApi,
   IconBrandDocker,
   IconBrandGit,
   IconBrandNpm,
@@ -74,6 +75,9 @@ function iconFor(path: string): [Tabler, string] {
   if (name.endsWith('.blade.php')) return [IconTemplate, RED];
 
   switch (ext) {
+    case 'http':
+    case 'rest':
+      return [IconApi, GREEN];
     case 'php':
       return [IconFileTypePhp, PHP];
     case 'md':

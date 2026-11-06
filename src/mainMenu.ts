@@ -486,6 +486,12 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
             run: () => ws.runTestScope({ kind: 'all' }, { debug: true }),
           },
           {
+            label: 'Run All Tests with Coverage',
+            icon: 'coverage',
+            disabled: testRunner.running,
+            run: () => ws.runTestScope({ kind: 'all' }, { coverage: true }),
+          },
+          {
             label: testRunner.run ? `Rerun '${testRunner.run.label}'` : 'Rerun',
             icon: 'run',
             disabled: !testRunner.run || testRunner.running,
@@ -594,6 +600,11 @@ export function mainMenu({ ws, onOpenFolder, onOpenPath, onClose, onSearch, onBr
           label: 'HTTP Endpoints',
           icon: 'route',
           run: () => ws.setRightTool('endpoints'),
+        },
+        {
+          label: 'HTTP Client',
+          icon: 'http',
+          run: () => ws.showBottom('http'),
         },
         {
           label: 'Database',

@@ -116,6 +116,7 @@ function testItemsAt(ws: Workspace, path: string, text: string, line: number, na
   return [
     { label: `Run '${name}'`, shortcut: SHORTCUTS.runTests, icon: 'run', run: () => ws.runTestScope({ kind: 'file', path }) },
     { label: `Debug '${name}'`, icon: 'bug', run: () => ws.runTestScope({ kind: 'file', path }, { debug: true }) },
+    { label: `Run '${name}' with Coverage`, icon: 'coverage', run: () => ws.runTestScope({ kind: 'file', path }, { coverage: true }) },
   ];
 }
 

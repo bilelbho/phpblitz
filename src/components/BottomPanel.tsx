@@ -5,7 +5,7 @@ import { toolOfTab, type BottomTab, type Workspace } from '../useWorkspace';
 import { baseName, relativePath, type Problem } from '../backend/types';
 import { Icon } from './Icon';
 import { FindResults } from './FindInFiles';
-import { DebugPanel, GitToolWindow, TerminalView, TodoToolWindow } from './lazy';
+import { DebugPanel, GitToolWindow, HttpClientPanel, ServicesPanel, TerminalView, TodoToolWindow } from './lazy';
 import { isTauri } from '../platform';
 import { HideToolButton, useHideTool } from './toolHide';
 import { TestResults } from './TestResults';
@@ -41,6 +41,22 @@ export function BottomPanel({ ws, height, tab: only }: { ws: Workspace; height?:
     return (
       <section className={place} style={{ height }} aria-label="Debug">
         <DebugPanel ws={ws} />
+      </section>
+    );
+  }
+
+  if (tab === 'services') {
+    return (
+      <section className={place} style={{ height }} aria-label="Services">
+        <ServicesPanel ws={ws} />
+      </section>
+    );
+  }
+
+  if (tab === 'http') {
+    return (
+      <section className={place} style={{ height }} aria-label="HTTP Client">
+        <HttpClientPanel ws={ws} />
       </section>
     );
   }

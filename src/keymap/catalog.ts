@@ -155,6 +155,9 @@ export const COMMANDS: Command[] = [
   p('tool.endpoints', 'Endpoints', 'Tool Windows'),
   p('tool.composer', 'Composer', 'Tool Windows'),
   p('tool.npm', 'npm', 'Tool Windows'),
+  p('tool.coverage', 'Coverage', 'Tool Windows'),
+  p('tool.services', 'Services', 'Tool Windows'),
+  p('tool.http-client', 'HTTP Client', 'Tool Windows'),
   p('tool.notifications', 'Notifications', 'Tool Windows'),
   // Also from the terminal: F6 is the way out of it.
   p('panel.next', 'Focus Next Panel', 'Tool Windows', { always: true }),

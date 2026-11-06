@@ -4,7 +4,7 @@
 import * as monaco from 'monaco-editor';
 import type { ContextItem } from '../components/ContextMenu';
 import { findTests, testAt, type FoundTest } from './discover';
-import { resultKey, testRunner, type Scope } from './runner';
+import { resultKey, testRunner, type RunOptions, type Scope } from './runner';
 import type { TestStatus } from './teamcity';
 
 /** Files that hold tests: under a tests/ folder, or named *Test.php. */
@@ -21,11 +21,12 @@ export function statusOf(path: string, t: FoundTest): TestStatus | undefined {
 export const scopeOf = (path: string, t: FoundTest): Scope => ({ kind: 'test', path, test: t });
 
 /** The gutter icon's menu (and the editor's Run / Debug items for the test at the caret). */
-export function testMenuItems(run: (scope: Scope, opts?: { debug?: boolean }) => void, path: string, t: FoundTest): ContextItem[] {
+export function testMenuItems(run: (scope: Scope, opts?: RunOptions) => void, path: string, t: FoundTest): ContextItem[] {
   const name = testRunner.label(scopeOf(path, t), 'phpunit');
   return [
     { label: `Run '${name}'`, icon: 'run', shortcut: 'Ctrl+Shift+F10', run: () => run(scopeOf(path, t)) },
     { label: `Debug '${name}'`, icon: 'bug', run: () => run(scopeOf(path, t), { debug: true }) },
+    { label: `Run '${name}' with Coverage`, icon: 'coverage', run: () => run(scopeOf(path, t), { coverage: true }) },
   ];
 }
 

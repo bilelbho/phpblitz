@@ -9,7 +9,7 @@ import { DataGrid } from './DataGrid';
 
 type OnEditor = (e: monaco.editor.IStandaloneCodeEditor) => void;
 
-function savedMode<T extends string>(key: string, modes: readonly T[], fallback: T): T {
+export function savedMode<T extends string>(key: string, modes: readonly T[], fallback: T): T {
   try {
     const m = localStorage.getItem(key) as T | null;
     return m && modes.includes(m) ? m : fallback;
@@ -18,7 +18,7 @@ function savedMode<T extends string>(key: string, modes: readonly T[], fallback:
   }
 }
 
-function saveMode(key: string, mode: string) {
+export function saveMode(key: string, mode: string) {
   try {
     localStorage.setItem(key, mode);
   } catch {
@@ -52,7 +52,7 @@ interface Mode<T extends string> {
   icon: ReactNode;
 }
 
-function ModeBar<T extends string>({ label, modes, mode, onPick }: { label: string; modes: Mode<T>[]; mode: T; onPick: (m: T) => void }) {
+export function ModeBar<T extends string>({ label, modes, mode, onPick }: { label: string; modes: Mode<T>[]; mode: T; onPick: (m: T) => void }) {
   return (
     <div className="md-toolbar" role="radiogroup" aria-label={label}>
       {modes.map((m) => (
@@ -66,7 +66,7 @@ function ModeBar<T extends string>({ label, modes, mode, onPick }: { label: stri
   );
 }
 
-const ICON_TEXT = <path d="M3 4h10M3 7h10M3 10h10M3 13h6" />;
+export const ICON_TEXT = <path d="M3 4h10M3 7h10M3 10h10M3 13h6" />;
 const ICON_SPLIT = <path d="M2.5 3.5h11v9h-11zM8 3.5v9M4 6h2.5M4 8.5h2.5" />;
 const ICON_IMAGE = <path d="M2.5 3.5h11v9h-11zM4.5 10.5l2.5-3 2 2 1.5-1.5 1.5 2.5M10.5 6.2h.01" />;
 const ICON_TABLE = <path d="M2.5 3.5h11v9h-11zM2.5 6.5h11M2.5 9.5h11M6.5 3.5v9M10 3.5v9" />;

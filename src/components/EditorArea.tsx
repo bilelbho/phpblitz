@@ -5,9 +5,10 @@ import { setEditorCommands, setMainEditor } from '../editorCommands';
 import { stringContext } from '../completion/laravel';
 import { buildEditorMenu, codeActionsForSelection, contextActionsMenu, copyText, generateMenu, hasMagoActionsAtCaret, markersAt, quickFixesFor, referenceAt } from '../editorMenu';
 import { EditorHover, type HoverRequest } from './EditorHover';
-import { CsvView, ImageView, MarkdownView, SvgView } from './lazy';
+import { CsvView, HttpView, ImageView, MarkdownView, SvgView } from './lazy';
 import { isCsv, isRasterImage, isSvg } from '../fileKinds';
 import { runCodeBlock, shellBlocks } from '../markdownBlocks';
+import { httpGlyphClick, isHttpFile, setupHttpEditor } from '../http/run';
 import { IntentionPopup } from './IntentionPopup';
 import { useSettings, getSettings, matchesFilePatterns, updateEditorSettings } from '../settings';
 import { changeKeys, includeChanges, usePartialCommits } from '../git/partial';
@@ -21,6 +22,8 @@ import { attachSpelling, correctedName, saveToDictionary, suggestionsFor, typoAt
 import { isScriptModel, scriptRenamePlan, SCRIPT_SOURCE } from '../jsProjects';
 import { setCursor } from '../cursorStore';
 import { isTestFile, scopeOf, setupTestGutter, testMenuItems, type TestGutter } from '../tests/gutter';
+import { setupCoverageGutter } from '../tests/coverageGutter';
+import { setupTemplates } from '../editor/templateEditor';
 import { SymbolRenameDialog } from './SymbolRenameDialog';
 import { isLspActive } from '../lsp/monacoBridge';
 import { perf } from '../perf';
@@ -94,6 +97,10 @@ export function EditorArea({ ws }: { ws: Workspace }) {
             <SvgView key={tab.path} ws={ws} path={tab.path}>
               {(onEditor) => <CodeEditor ws={ws} path={tab.path} onEditor={onEditor} />}
             </SvgView>
+          ) : isHttpFile(tab.path) ? (
+            <HttpView key={tab.path} ws={ws} path={tab.path}>
+              {(onEditor) => <CodeEditor ws={ws} path={tab.path} onEditor={onEditor} />}
+            </HttpView>
           ) : (
             <CodeEditor ws={ws} path={tab.path} />
           )}
@@ -389,10 +396,13 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     perf.mark('First editor ready', baseName(path));
     onEditor?.(editor);
     setupMarkdown(editor);
+    setupHttpEditor(editor, () => latest.current.ws, () => latest.current.path);
+    setupTemplates(editor);
     docComments.current = setupDocComments(editor, () => getSettings().editor.renderDocs && !latest.current.ws.isLargeFile(latest.current.path));
     editor.onDidDispose(() => docComments.current?.dispose());
     testGutter.current = setupTestGutter(editor, () => latest.current.path);
     editor.onDidDispose(() => testGutter.current?.dispose());
+    setupCoverageGutter(editor, () => latest.current.path);
     decorations.current = editor.createDecorationsCollection();
     // Ctrl+wheel: the editor font size (Settings ▸ Editor ▸ Font follows), not a scroll.
     editor.getDomNode()?.addEventListener(
@@ -916,6 +926,8 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
         // Markdown: ▷ beside a shell code block runs it.
         const block = shellBlocks(editor.getModel()?.getValue() ?? '').find((b) => b.line === e.target.position!.lineNumber);
         if (block) runCodeBlock(latest.current.ws, block.code);
+      } else if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN && e.target.position && icons.gutterIcons && icons.gutterRun && httpGlyphClick(latest.current.ws, latest.current.path, editor.getModel()!, e.target.position.lineNumber)) {
+        // .http: ▶ beside a request sent it (httpGlyphClick).
       } else if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN && e.target.position && icons.gutterIcons && icons.gutterRun && testGutter.current?.iconAt(e.target.position.lineNumber)) {
         // ▶ beside a test: Run / Debug it (breakpoints go on the line number there).
         const { ws, path } = latest.current;
