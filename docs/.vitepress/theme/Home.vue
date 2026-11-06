@@ -68,8 +68,8 @@ const features = [
   { icon: 'check', method: 'findErrorsAsYouType', title: 'Errors as you type', text: "Mago's linter and analyzer are built in, with rules for Laravel, Symfony, PHPUnit and Doctrine read from composer.json.", link: '/guide/analysis' },
   { icon: 'compass', method: 'navigateAndRefactor', title: 'Navigation and refactoring', text: 'Go to Definition, Find Usages, Rename, Search Everywhere and Recent Locations, with no language server to set up.', link: '/guide/navigation' },
   { icon: 'layout', method: 'arrangeYourLayout', title: 'Layouts your way', text: 'Classic tool windows, or the Focus layout: panels side by side, stacked or grouped, dragged anywhere.', link: '/guide/layouts' },
-  { icon: 'flask', method: 'testDebugAndRun', title: 'Tests, debugger, terminal', text: 'PHPUnit and Pest from the gutter, Xdebug step debugging, real shells in tabs and splits.', link: '/guide/tests' },
-  { icon: 'branch', method: 'commitAndQuery', title: 'Git and databases', text: 'Commit, branches, a log with graph, blame. PostgreSQL, MySQL and SQLite with query consoles.', link: '/guide/git' },
+  { icon: 'flask', method: 'testDebugAndRun', title: 'Tests, debugger, HTTP, Docker', text: 'PHPUnit and Pest with coverage, Xdebug step debugging, .http request files, Docker services, real shells in tabs and splits.', link: '/guide/tests' },
+  { icon: 'branch', method: 'commitAndQuery', title: 'Git and databases', text: 'Commit, branches, a log with graph, a merge editor, GitHub pull requests. PostgreSQL, MySQL and SQLite with query consoles.', link: '/guide/git' },
   { icon: 'sparkles', method: 'askAiWhenYouWant', title: 'AI, on your terms', text: 'Off until you choose. Your own API key, or local models through Ollama, and agents in a terminal tab.', link: '/guide/ai' },
   { icon: 'shield', method: 'keepYourCodePrivate', title: 'Private by default', text: 'No telemetry, no account. Opening a project never runs its code. Keys stay in your credential store.', link: '/reference/privacy' },
 ];

@@ -7,7 +7,8 @@ it, so only what's meant to be shared can be committed.
 | --- | --- | --- |
 | `project.json` | PHP settings, Excluded folders, the spelling dictionary | Yes, to share them with your team |
 | `workspace.json` | Bookmarks, recent files, data sources, debugger watches, commit message history, the window's layout | No (git-ignored): this machine only |
-| `cache/` | The symbol index, Local History | No (git-ignored) |
+| `cache/` | The symbol index, Local History, the [HTTP Client](../guide/http-client)'s history and cookies (`http-client.json`), the last [coverage](../guide/tests#coverage) report | No (git-ignored) |
+| `http/` | The HTTP Client's scratch requests (`requests.http`) and their `http-client.env.json` | Your choice; don't put secrets in it (use `http-client.private.env.json`, and keep it out of Git) |
 
 ## If a file is broken
 

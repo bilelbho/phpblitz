@@ -57,6 +57,8 @@ export default defineConfig({
             { text: 'Terminal', link: '/guide/terminal' },
             { text: 'Git', link: '/guide/git' },
             { text: 'Databases', link: '/guide/databases' },
+            { text: 'HTTP Client', link: '/guide/http-client' },
+            { text: 'Docker', link: '/guide/docker' },
             { text: 'Composer and npm', link: '/guide/composer' },
             { text: 'AI', link: '/guide/ai' },
           ],

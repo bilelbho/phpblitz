@@ -20,6 +20,31 @@ for PHPBlitz.
 - **Bookmarks** (<kbd>F11</kbd>, and numbered ones with <kbd>Ctrl+Shift+1</kbd>…), soft wrap, a
   Markdown preview, and TODO comments with a TODO tool window.
 
+## Templates and Emmet
+
+Type a short abbreviation and press <kbd>Tab</kbd>: it becomes the code, and <kbd>Tab</kbd> then
+moves through the places to fill in.
+
+- **Live templates** in PHP: `fore` (`foreach`), `forek`, `fori`, `ifn`, `pubf` (`public function`),
+  `prif`, `pubsf`, `con` (constructor), `pubp` / `prip` (properties), `const`, `test`, `thr`
+  (`throw new`), `sw`, `match`, `vd` (`var_dump`), `strict` (`declare(strict_types=1);`) and more.
+  They're also in the completion list as you type them.
+- **Postfix templates**: type a dot after an expression, then the template. `$user.nn` becomes
+  `if ($user !== null) { }`; also `.if`, `.else`, `.null`, `.isset`, `.empty`, `.fore`, `.forek`,
+  `.return`, `.var`, `.echo`, `.throw`, `.not`, `.par`, `.count`, `.new`.
+- **Emmet in HTML** (HTML, Blade, Twig and the HTML of PHP files):
+  `ul>li.item*3>a{Item $}` becomes the list, `!` an HTML5 page. `>` child, `+` sibling, `^` up a
+  level, `( )` groups, `*3` repeats, `$` numbers the copies, `.class`, `#id`, `[attr=value]`,
+  `{text}`.
+- **Emmet in CSS** (CSS, SCSS and Less, inside a rule): `m10-auto` becomes
+  `margin: 10px auto;`, `d:f` `display: flex;`, `jc:sb` `justify-content: space-between;`,
+  `c#f` `color: #fff;`, `w50p` `width: 50%;`, `fz1.5r` `font-size: 1.5rem;`, and a `!` at the
+  end adds `!important`.
+
+*Settings ▸ Editor ▸ Live Templates* turns built-in templates off, adds your own (with `$NAME$`
+places to fill and `$END$` for where the caret ends), and turns postfix templates and Emmet on or
+off. Where nothing expands, <kbd>Tab</kbd> indents as usual.
+
 ## Spelling
 
 Typos in names, comments and strings get a green wavy underline. camelCase and snake_case names are
