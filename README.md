@@ -231,7 +231,7 @@ npm run tauri build   # installers, in src-tauri/target/release/bundle
 npm run dev           # the UI alone in a browser, with a sample project
 ```
 
-Checks: `npx tsc --noEmit`, `npm run lint` and `npm test` for the UI; `cargo test` and `cargo clippy` in `src-tauri`.
+Checks: `npx tsc --noEmit`, `npm run lint` and `npm test` for the UI; `cargo test`, `cargo clippy` and `cargo fmt --check` in `src-tauri`. UI smoke tests (the app's main flows, driven through WebDriver): `npm run smoke:build`, then `npm run smoke`; see [CONTRIBUTING.md](CONTRIBUTING.md) for what they need.
 
 ### Where things are
 
@@ -241,6 +241,7 @@ Checks: `npx tsc --noEmit`, `npm run lint` and `npm test` for the UI; `cargo tes
 | `src/useWorkspace.ts` | The state of an open project: tabs, index, analysis, Git, Composer, terminal |
 | `src/components/` | The UI: editor, tool windows, dialogs |
 | `src/backend/` | `DiskBackend` (a real folder, through Rust) and `SampleBackend` (the in-browser demo) |
+| `smoke/` | UI smoke tests: a WebDriver run through the app's main flows on `smoke/fixture` |
 | `scripts/third-party-notices.mjs` | Regenerates `THIRD_PARTY_NOTICES.md` after dependency changes |
 
 ## Contributing

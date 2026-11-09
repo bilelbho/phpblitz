@@ -18,8 +18,10 @@ npm run tauri build   # installers, in src-tauri/target/release/bundle
 npm run dev           # the UI alone in a browser, with a sample project
 ```
 
-Checks: `npx tsc --noEmit`, `npm run lint` and `npm test` for the UI; `cargo test` and
-`cargo clippy` in `src-tauri`.
+Checks: `npx tsc --noEmit`, `npm run lint` and `npm test` for the UI; `cargo test`,
+`cargo clippy` and `cargo fmt --check` in `src-tauri`. UI smoke tests, which start the app and go
+through its main flows: `npm run smoke:build`, then `npm run smoke` (see CONTRIBUTING.md for
+what they need).
 
 ## Where things are
 

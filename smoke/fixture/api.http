@@ -1,0 +1,9 @@
+### Health check
+GET https://example.com/health
+Accept: application/json
+
+### Create a user
+POST https://example.com/users
+Content-Type: application/json
+
+{"name": "Ada"}

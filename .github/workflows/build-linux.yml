@@ -112,6 +112,22 @@ jobs:
       - name: Build packages
         run: npx tauri build --bundles deb,rpm,appimage
 
+      # The app just built, driven through WebDriver (smoke/run.mjs) on a virtual display.
+      - name: UI smoke tests
+        env:
+          PHPBLITZ_APP: ${{ github.workspace }}/src-tauri/target/release/phpblitz
+        run: |
+          sudo apt-get install -y --no-install-recommends webkit2gtk-driver xvfb
+          cargo install tauri-driver --locked
+          xvfb-run -a -s '-screen 0 1600x1000x24' npm run smoke
+
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: smoke-screenshots
+          path: smoke/out/
+          if-no-files-found: ignore
+
       - name: Sign the update files
         if: startsWith(github.ref, 'refs/tags/v')
         env:

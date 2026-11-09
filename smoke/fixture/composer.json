@@ -1,0 +1,13 @@
+{
+    "name": "phpblitz/smoke-fixture",
+    "description": "The small project the smoke tests open (copied to a temporary folder first).",
+    "type": "project",
+    "require": {
+        "php": ">=8.2"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    }
+}

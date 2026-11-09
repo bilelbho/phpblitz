@@ -16,7 +16,9 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run",
-    "lint": "eslint src scripts",
+    "lint": "eslint src scripts smoke",
+    "smoke:build": "tauri build --debug --no-bundle",
+    "smoke": "node smoke/run.mjs",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs"

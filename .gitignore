@@ -6,3 +6,5 @@ src-tauri/gen/
 .claude/
 docs/.vitepress/dist/
 docs/.vitepress/cache/
+.smoke-tools/
+smoke/out/
