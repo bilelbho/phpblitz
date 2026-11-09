@@ -122,8 +122,10 @@ pub async fn write_file(path: String, content: String, root: Option<String>) -> 
     .await
 }
 
-/// Writes a file only this user may read (tokens, agent settings): on Unix it is created with mode
-/// 0600 (a new temp file renamed into place), so it is never readable by others, not even briefly.
+/// Writes a file only this user may read (tokens, cookies, agent settings), as a new temp file
+/// renamed into place, made private before anything is written to it: mode 0600 on Unix; on
+/// Windows its own access list (this user and SYSTEM, nothing inherited from the folder, which
+/// outside the user's profile, like C:\projects, usually lets every local user read it).
 pub fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     #[cfg(unix)]
     {
@@ -139,10 +141,108 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
             let _ = fs::remove_file(&tmp);
         })
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     {
-        // Windows: files in the user's profile folders are the user's own.
+        use std::io::Write;
+        let n = TEMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tmp = path.with_file_name(format!(".{}.{}-{n}.blitz-tmp", path.file_name().map(|f| f.to_string_lossy()).unwrap_or_default(), std::process::id()));
+        let written = (|| {
+            let mut f = fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+            private_acl::apply(&tmp)?;
+            f.write_all(bytes)?;
+            f.sync_all()
+        })();
+        // The renamed file keeps the temp file's access list.
+        written.and_then(|()| fs::rename(&tmp, path)).inspect_err(|_| {
+            let _ = fs::remove_file(&tmp);
+        })
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
         write_atomic(path, bytes)
+    }
+}
+
+/// Windows: a file's access list replaced by "this user and SYSTEM, full control", protected from
+/// the folder's inherited entries.
+#[cfg(windows)]
+mod private_acl {
+    use std::path::Path;
+    use std::sync::OnceLock;
+    use windows::core::{HSTRING, PWSTR};
+    use windows::Win32::Foundation::{CloseHandle, LocalFree, HANDLE, HLOCAL};
+    use windows::Win32::Security::Authorization::{ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1};
+    use windows::Win32::Security::{
+        GetTokenInformation, SetFileSecurityW, TokenUser, DACL_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, TOKEN_QUERY,
+        TOKEN_USER,
+    };
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    /// The current user's SID, as text (S-1-5-21-…).
+    fn user_sid() -> std::io::Result<&'static str> {
+        static SID: OnceLock<String> = OnceLock::new();
+        if let Some(sid) = SID.get() {
+            return Ok(sid);
+        }
+        // SAFETY: the token handle is closed below; the buffer is sized by the first call and
+        // holds the TOKEN_USER the second one writes; the SID string is freed with LocalFree.
+        let sid = unsafe {
+            let mut token = HANDLE::default();
+            OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).map_err(std::io::Error::other)?;
+            let mut size = 0u32;
+            let _ = GetTokenInformation(token, TokenUser, None, 0, &mut size);
+            let mut buffer = vec![0u64; (size as usize).div_ceil(8)];
+            let info = GetTokenInformation(token, TokenUser, Some(buffer.as_mut_ptr().cast()), size, &mut size);
+            let _ = CloseHandle(token);
+            info.map_err(std::io::Error::other)?;
+            let user = &*(buffer.as_ptr() as *const TOKEN_USER);
+            let mut text = PWSTR::null();
+            ConvertSidToStringSidW(user.User.Sid, &mut text).map_err(std::io::Error::other)?;
+            let sid = text.to_string().map_err(std::io::Error::other);
+            LocalFree(Some(HLOCAL(text.0.cast())));
+            sid?
+        };
+        Ok(SID.get_or_init(|| sid))
+    }
+
+    pub fn apply(path: &Path) -> std::io::Result<()> {
+        // D:P = a protected access list (nothing inherited); FA = full access.
+        let sddl = HSTRING::from(format!("D:P(A;;FA;;;{})(A;;FA;;;SY)", user_sid()?));
+        let mut descriptor = PSECURITY_DESCRIPTOR::default();
+        // SAFETY: the descriptor is allocated by the conversion and freed with LocalFree after use.
+        unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(&sddl, SDDL_REVISION_1, &mut descriptor, None).map_err(std::io::Error::other)?;
+            let ok = SetFileSecurityW(&HSTRING::from(path.as_os_str()), DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, descriptor);
+            let error = std::io::Error::last_os_error();
+            LocalFree(Some(HLOCAL(descriptor.0)));
+            if ok.as_bool() {
+                Ok(())
+            } else {
+                Err(error)
+            }
+        }
+    }
+
+    /// A file's access list as SDDL, and what [`apply`] sets (for tests).
+    #[cfg(test)]
+    pub fn dacl_of(path: &Path) -> (String, String) {
+        use windows::Win32::Security::Authorization::ConvertSecurityDescriptorToStringSecurityDescriptorW;
+        use windows::Win32::Security::GetFileSecurityW;
+        let name = HSTRING::from(path.as_os_str());
+        let mut size = 0u32;
+        // SAFETY: the buffer is sized by the first call; the SDDL string is freed with LocalFree.
+        let sddl = unsafe {
+            let _ = GetFileSecurityW(&name, DACL_SECURITY_INFORMATION.0, None, 0, &mut size);
+            let mut buffer = vec![0u64; (size as usize).div_ceil(8)];
+            let descriptor = PSECURITY_DESCRIPTOR(buffer.as_mut_ptr().cast());
+            assert!(GetFileSecurityW(&name, DACL_SECURITY_INFORMATION.0, Some(descriptor), size, &mut size).as_bool());
+            let mut text = PWSTR::null();
+            ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor, SDDL_REVISION_1, DACL_SECURITY_INFORMATION, &mut text, None).unwrap();
+            let s = text.to_string().unwrap();
+            LocalFree(Some(HLOCAL(text.0.cast())));
+            s
+        };
+        (sddl, format!("D:P(A;;FA;;;{})(A;;FA;;;SY)", user_sid().unwrap()))
     }
 }
 
@@ -444,6 +544,12 @@ mod atomic_tests {
         {
             use std::os::unix::fs::PermissionsExt;
             assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+        #[cfg(windows)]
+        {
+            // The temp folder's inherited entries are gone: only this user and SYSTEM.
+            let (actual, expected) = super::private_acl::dacl_of(&path);
+            assert_eq!(actual, expected);
         }
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1, "no temp file left");
         let _ = fs::remove_dir_all(&dir);
