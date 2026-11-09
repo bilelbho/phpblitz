@@ -110,8 +110,10 @@ pub async fn http_send(state: tauri::State<'_, HttpState>, request: HttpRequest)
     let time_ms = start.elapsed().as_millis() as u64;
     let truncated = size > bytes.len();
     // Text when the type says so, or when it's valid UTF-8 without a type that says otherwise.
-    let texty = content_type.starts_with("text/") || ["json", "xml", "javascript", "html", "x-www-form-urlencoded", "yaml", "csv", "graphql"].iter().any(|t| content_type.contains(t));
-    let binary_type = ["image/", "audio/", "video/", "font/", "application/pdf", "application/zip", "application/octet-stream"].iter().any(|t| content_type.starts_with(t));
+    let texty = content_type.starts_with("text/")
+        || ["json", "xml", "javascript", "html", "x-www-form-urlencoded", "yaml", "csv", "graphql"].iter().any(|t| content_type.contains(t));
+    let binary_type =
+        ["image/", "audio/", "video/", "font/", "application/pdf", "application/zip", "application/octet-stream"].iter().any(|t| content_type.starts_with(t));
     let (body, binary) = match String::from_utf8(bytes) {
         Ok(text) if texty || !binary_type => (text, false),
         Ok(text) => (base64::engine::general_purpose::STANDARD.encode(text.as_bytes()), true),

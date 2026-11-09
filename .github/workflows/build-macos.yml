@@ -39,6 +39,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
+          components: clippy
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -56,9 +57,12 @@ jobs:
       - name: Front-end tests
         run: npm test
 
-      - name: Rust tests
+      # Clippy here too: the macOS-only code isn't compiled on Linux.
+      - name: Rust tests and clippy
         working-directory: src-tauri
-        run: cargo test --locked
+        run: |
+          cargo test --locked
+          cargo clippy --all-targets --locked -- -D warnings
 
       # beforeBuildCommand (npm run build) builds the front end first.
       - name: Build the universal app

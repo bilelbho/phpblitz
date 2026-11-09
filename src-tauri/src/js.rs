@@ -76,11 +76,8 @@ fn is_minified(text: &str) -> bool {
 /// Dependency names from a `package.json` (all kinds when `all`, else what a package needs at
 /// run time: its dependencies and peer dependencies).
 fn dependencies(manifest: &serde_json::Value, all: bool) -> Vec<String> {
-    let kinds: &[&str] = if all {
-        &["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
-    } else {
-        &["dependencies", "peerDependencies"]
-    };
+    let kinds: &[&str] =
+        if all { &["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"] } else { &["dependencies", "peerDependencies"] };
     let mut out = Vec::new();
     for kind in kinds {
         if let Some(map) = manifest.get(kind).and_then(|v| v.as_object()) {
@@ -220,12 +217,9 @@ mod tests {
 
         let found = type_files(&tmp);
         let rel: HashSet<String> = found.files.iter().map(|f| f.path.trim_start_matches(&norm(&tmp)).to_string()).collect();
-        for want in [
-            "/node_modules/react/package.json",
-            "/node_modules/@types/react/index.d.ts",
-            "/node_modules/csstype/index.d.ts",
-            "/node_modules/vite/client.d.ts",
-        ] {
+        for want in
+            ["/node_modules/react/package.json", "/node_modules/@types/react/index.d.ts", "/node_modules/csstype/index.d.ts", "/node_modules/vite/client.d.ts"]
+        {
             assert!(rel.contains(want), "{want} in {rel:?}");
         }
         assert!(!rel.iter().any(|p| p.contains("esbuild") || p.contains("typescript")), "{rel:?}");

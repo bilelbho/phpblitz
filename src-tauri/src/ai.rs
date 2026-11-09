@@ -178,10 +178,18 @@ pub struct AiRequest {
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum AiEvent {
     /// The next piece of the answer.
-    Text { text: String },
+    Text {
+        text: String,
+    },
     #[serde(rename_all = "camelCase")]
-    Done { stop_reason: Option<String>, input_tokens: u64, output_tokens: u64 },
-    Error { message: String },
+    Done {
+        stop_reason: Option<String>,
+        input_tokens: u64,
+        output_tokens: u64,
+    },
+    Error {
+        message: String,
+    },
 }
 
 /// Streams an answer: `Text` pieces, then `Done` or `Error` (always last).
@@ -261,7 +269,10 @@ fn model_ids(provider: Provider, v: &Value) -> Vec<String> {
             .flatten()
             .filter_map(|m| m["id"].as_str())
             // Chat models only: no embeddings, images, speech or moderation.
-            .filter(|id| (id.starts_with("gpt-") || id.starts_with('o') || id.starts_with("chatgpt")) && !["audio", "realtime", "image", "tts", "transcribe", "search", "embedding"].iter().any(|x| id.contains(x)))
+            .filter(|id| {
+                (id.starts_with("gpt-") || id.starts_with('o') || id.starts_with("chatgpt"))
+                    && !["audio", "realtime", "image", "tts", "transcribe", "search", "embedding"].iter().any(|x| id.contains(x))
+            })
             .map(str::to_string)
             .collect(),
         Provider::Gemini => v["models"]
@@ -315,7 +326,11 @@ fn build(r: &AiRequest, key: &str, url_override: Option<&str>) -> Call {
             if let Some(stop) = r.stop_sequences.as_ref().filter(|s| !s.is_empty()) {
                 body["stop_sequences"] = json!(stop);
             }
-            Call { url: pick("https://api.anthropic.com/v1/messages".into()), headers: vec![("x-api-key", key.to_string()), ("anthropic-version", ANTHROPIC_VERSION.into())], body }
+            Call {
+                url: pick("https://api.anthropic.com/v1/messages".into()),
+                headers: vec![("x-api-key", key.to_string()), ("anthropic-version", ANTHROPIC_VERSION.into())],
+                body,
+            }
         }
         Provider::Openai | Provider::Ollama => {
             let mut messages = Vec::new();
@@ -344,7 +359,8 @@ fn build(r: &AiRequest, key: &str, url_override: Option<&str>) -> Call {
             Call { url: pick(url), headers, body }
         }
         Provider::Gemini => {
-            let contents: Vec<Value> = r.messages.iter().map(|m| json!({ "role": if m.role == "assistant" { "model" } else { "user" }, "parts": [{ "text": m.content }] })).collect();
+            let contents: Vec<Value> =
+                r.messages.iter().map(|m| json!({ "role": if m.role == "assistant" { "model" } else { "user" }, "parts": [{ "text": m.content }] })).collect();
             let mut config = json!({ "maxOutputTokens": thinking_room(r.max_tokens) });
             if let Some(t) = r.temperature {
                 config["temperature"] = json!(t);
@@ -381,7 +397,10 @@ fn read_event(provider: Provider, data: &str, totals: &mut Totals) -> Result<Opt
     }
     match provider {
         Provider::Anthropic => match v["type"].as_str().unwrap_or("") {
-            "message_start" => totals.input = v["message"]["usage"]["input_tokens"].as_u64().unwrap_or(0) + v["message"]["usage"]["cache_read_input_tokens"].as_u64().unwrap_or(0),
+            "message_start" => {
+                totals.input =
+                    v["message"]["usage"]["input_tokens"].as_u64().unwrap_or(0) + v["message"]["usage"]["cache_read_input_tokens"].as_u64().unwrap_or(0)
+            }
             "content_block_delta" => return Ok(v["delta"]["text"].as_str().map(str::to_string)),
             "message_delta" => {
                 totals.stop = v["delta"]["stop_reason"].as_str().map(str::to_string);
@@ -410,7 +429,8 @@ fn read_event(provider: Provider, data: &str, totals: &mut Totals) -> Result<Opt
                 totals.stop = Some(reason.to_lowercase());
             }
             // Thought summaries (when a model sends them) aren't part of the answer.
-            let text: String = candidate["content"]["parts"].as_array().into_iter().flatten().filter(|p| p["thought"] != true).filter_map(|p| p["text"].as_str()).collect();
+            let text: String =
+                candidate["content"]["parts"].as_array().into_iter().flatten().filter(|p| p["thought"] != true).filter_map(|p| p["text"].as_str()).collect();
             return Ok((!text.is_empty()).then_some(text));
         }
     }
@@ -517,7 +537,10 @@ mod tests {
     #[test]
     fn readable_errors() {
         assert!(api_error(Provider::Anthropic, 401, "{}").contains("Anthropic rejected the API key"));
-        assert_eq!(api_error(Provider::Openai, 404, r#"{"error":{"message":"The model `gpt-x` does not exist"}}"#), "Unknown model or endpoint at OpenAI: The model `gpt-x` does not exist");
+        assert_eq!(
+            api_error(Provider::Openai, 404, r#"{"error":{"message":"The model `gpt-x` does not exist"}}"#),
+            "Unknown model or endpoint at OpenAI: The model `gpt-x` does not exist"
+        );
         assert!(api_error(Provider::Gemini, 0, r#"{"error":{"code":400,"message":"API key not valid"}}"#).ends_with("API key not valid"));
         assert!(api_error(Provider::Ollama, 404, r#"{"error":"model 'llama9' not found"}"#).ends_with("model 'llama9' not found"));
     }
@@ -529,7 +552,11 @@ mod tests {
             model: "m".into(),
             max_tokens: 100,
             system: Some("be brief".into()),
-            messages: vec![Message { role: "user".into(), content: "hi".into() }, Message { role: "assistant".into(), content: "hello".into() }, Message { role: "user".into(), content: "and?".into() }],
+            messages: vec![
+                Message { role: "user".into(), content: "hi".into() },
+                Message { role: "assistant".into(), content: "hello".into() },
+                Message { role: "user".into(), content: "and?".into() },
+            ],
             temperature: Some(0.0),
             stop_sequences: None,
         }
@@ -565,7 +592,8 @@ mod tests {
 
     #[test]
     fn lists_chat_models_only() {
-        let openai = json!({ "data": [{ "id": "gpt-5" }, { "id": "text-embedding-3-small" }, { "id": "gpt-4o-audio-preview" }, { "id": "o3" }, { "id": "dall-e-3" }] });
+        let openai =
+            json!({ "data": [{ "id": "gpt-5" }, { "id": "text-embedding-3-small" }, { "id": "gpt-4o-audio-preview" }, { "id": "o3" }, { "id": "dall-e-3" }] });
         assert_eq!(model_ids(Provider::Openai, &openai), ["gpt-5", "o3"]);
         let gemini = json!({ "models": [{ "name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent"] }, { "name": "models/embedding-001", "supportedGenerationMethods": ["embedContent"] }] });
         assert_eq!(model_ids(Provider::Gemini, &gemini), ["gemini-2.5-flash"]);
@@ -588,7 +616,8 @@ mod tests {
                 request.extend_from_slice(&buf[..n]);
                 let text = String::from_utf8_lossy(&request).to_string();
                 if let Some(end) = text.find("\r\n\r\n") {
-                    let length: usize = text.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse().unwrap())).unwrap_or(0);
+                    let length: usize =
+                        text.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse().unwrap())).unwrap_or(0);
                     if request.len() >= end + 4 + length {
                         break;
                     }

@@ -38,12 +38,8 @@ fn list_dir_blocking(path: &str) -> Result<Vec<Entry>, String> {
             continue;
         }
         let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-        let modified = entry
-            .metadata()
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map_or(0, |d| d.as_millis() as u64);
+        let modified =
+            entry.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis() as u64);
         out.push(Entry { name, path: norm(&entry.path()), is_dir, modified });
     }
     // Folders first, then by name ignoring case (each name lowered once, not per comparison).

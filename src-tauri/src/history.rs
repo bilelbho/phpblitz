@@ -53,12 +53,7 @@ fn now_millis() -> u64 {
 
 /// The versions' times, newest first.
 fn versions(dir: &Path) -> Vec<u64> {
-    let mut times: Vec<u64> = std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| e.file_name().to_str()?.parse().ok())
-        .collect();
+    let mut times: Vec<u64> = std::fs::read_dir(dir).into_iter().flatten().flatten().filter_map(|e| e.file_name().to_str()?.parse().ok()).collect();
     times.sort_unstable_by(|a, b| b.cmp(a));
     times
 }
@@ -128,10 +123,7 @@ pub async fn history_list(root: String, path: String) -> Result<Vec<Version>, St
     tauri::async_runtime::spawn_blocking(move || {
         let Some(rel) = relative(&root, &path) else { return Ok(Vec::new()) };
         let dir = file_dir(&root, &rel).map_err(|e| e.to_string())?;
-        Ok(versions(&dir)
-            .into_iter()
-            .map(|time| Version { time, size: std::fs::metadata(dir.join(time.to_string())).map_or(0, |m| m.len()) })
-            .collect())
+        Ok(versions(&dir).into_iter().map(|time| Version { time, size: std::fs::metadata(dir.join(time.to_string())).map_or(0, |m| m.len()) }).collect())
     })
     .await
     .map_err(|e| e.to_string())?

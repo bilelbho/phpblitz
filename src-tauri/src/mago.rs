@@ -29,12 +29,12 @@ use mago_codex::reference::SymbolReferences;
 use mago_database::file::{File, FileId, FileType};
 use mago_database::{Database, DatabaseReader};
 use mago_linter::integration::{Integration, IntegrationSet};
+use mago_names::resolver::NameResolver;
 use mago_orchestrator::service::format::FileFormatStatus;
 use mago_orchestrator::service::incremental_analysis::IncrementalAnalysisService;
 use mago_orchestrator::service::lint::LintMode;
 use mago_orchestrator::{Orchestrator, OrchestratorConfiguration};
 use mago_php_version::PHPVersion;
-use mago_names::resolver::NameResolver;
 use mago_reporting::{AnnotationKind, Issue, IssueCollection, Level};
 use mago_semantics::SemanticsChecker;
 use mago_syntax::parser::parse_file_with_settings;
@@ -49,11 +49,7 @@ const PRELUDE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/prelude.bin"));
 pub(crate) fn builtin_names() -> Vec<String> {
     let Ok(prelude) = prelude() else { return Vec::new() };
     let meta = &prelude.metadata;
-    meta.class_likes
-        .values()
-        .map(|c| c.original_name.to_string())
-        .chain(meta.function_likes.values().map(|f| f.original_name.to_string()))
-        .collect()
+    meta.class_likes.values().map(|c| c.original_name.to_string()).chain(meta.function_likes.values().map(|f| f.original_name.to_string())).collect()
 }
 
 fn prelude() -> Result<mago_prelude::Prelude, String> {
@@ -282,11 +278,8 @@ fn project_info(root: &Path) -> ProjectInfo {
     // install) doesn't count as installed.
     let mut info = ProjectInfo { vendor: root.join("vendor/autoload.php").is_file(), ..ProjectInfo::defaults() };
     if let Some(json) = std::fs::read_to_string(root.join("composer.json")).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()) {
-        let packages: Vec<String> = ["require", "require-dev"]
-            .iter()
-            .filter_map(|k| json.get(*k).and_then(|v| v.as_object()))
-            .flat_map(|o| o.keys().cloned())
-            .collect();
+        let packages: Vec<String> =
+            ["require", "require-dev"].iter().filter_map(|k| json.get(*k).and_then(|v| v.as_object())).flat_map(|o| o.keys().cloned()).collect();
         // Packages are "vendor/name"; `php` and `ext-*` are not installed by Composer.
         info.needs_install = !info.vendor && packages.iter().any(|p| p.contains('/'));
         for (package, integration, name) in INTEGRATIONS {
@@ -340,10 +333,8 @@ fn apply_mago_toml(root: &Path, info: &mut ProjectInfo) {
     }
     // `ignore = ["code", { code = "other", in = [...] }]`: path-scoped entries are treated as global.
     if let Some(list) = value.get("analyzer").and_then(|a| a.get("ignore")).and_then(|v| v.as_array()) {
-        info.analyzer_ignore = list
-            .iter()
-            .filter_map(|e| e.as_str().map(String::from).or_else(|| e.get("code").and_then(|c| c.as_str()).map(String::from)))
-            .collect();
+        info.analyzer_ignore =
+            list.iter().filter_map(|e| e.as_str().map(String::from).or_else(|| e.get("code").and_then(|c| c.as_str()).map(String::from))).collect();
     }
 }
 
@@ -359,7 +350,8 @@ fn configuration(root: &str, info: &ProjectInfo, excluded: &[String]) -> Orchest
     // The configuration lives as long as the leaked orchestrator that borrows it.
     // Generated code and caches (Laravel, Symfony), excluded.
     // Packages' data folders (locale tables) hold no declarations: not read at all.
-    let mut excludes: Vec<&'static str> = vec!["node_modules", "storage", "bootstrap/cache", "var/cache", "var/log", ".blitz", crate::project::VENDOR_DATA_GLOB];
+    let mut excludes: Vec<&'static str> =
+        vec!["node_modules", "storage", "bootstrap/cache", "var/cache", "var/log", ".blitz", crate::project::VENDOR_DATA_GLOB];
     excludes.extend(excluded.iter().filter(|e| !e.is_empty() && !e.contains("..")).map(|e| &*Box::leak(e.clone().into_boxed_str())));
     let mut linter_settings = mago_linter::settings::Settings { php_version: info.php, integrations: info.integrations, ..Default::default() };
     if let Some(rules) = &info.rules {
@@ -393,9 +385,7 @@ fn analyzer_settings(info: &ProjectInfo) -> mago_analyzer::settings::Settings {
 /// A process-wide orchestrator for files outside an opened project (sample project, formatting).
 fn standalone() -> &'static Orchestrator<'static> {
     static ORCHESTRATOR: std::sync::OnceLock<&'static Orchestrator<'static>> = std::sync::OnceLock::new();
-    ORCHESTRATOR.get_or_init(|| {
-        Box::leak(Box::new(Orchestrator::new(configuration(".", &ProjectInfo::defaults(), &[]))))
-    })
+    ORCHESTRATOR.get_or_init(|| Box::leak(Box::new(Orchestrator::new(configuration(".", &ProjectInfo::defaults(), &[])))))
 }
 
 // ── Positions ─────────────────────────────────────────────────
@@ -468,18 +458,7 @@ fn to_diagnostic(file: &File, issue: &Issue, source: &'static str) -> Option<Dia
             }]
         })
         .unwrap_or_default();
-    Some(Diagnostic {
-        line,
-        column,
-        end_line,
-        end_column,
-        severity,
-        code,
-        message,
-        help,
-        source: if is_syntax { "syntax" } else { source },
-        fixes,
-    })
+    Some(Diagnostic { line, column, end_line, end_column, severity, code, message, help, source: if is_syntax { "syntax" } else { source }, fixes })
 }
 
 fn relative<'a>(root: &str, path: &'a str) -> Option<&'a str> {
@@ -893,13 +872,18 @@ pub async fn mago_sync(state: tauri::State<'_, MagoState>, changed: Vec<String>,
 #[tauri::command]
 pub async fn mago_project_issues(state: tauri::State<'_, MagoState>, limit: Option<usize>) -> Result<ProjectIssues, String> {
     let limit = limit.unwrap_or(5000);
-    state.with(move |slot| Ok(slot.as_ref().map(|e| e.project_issues(limit)).unwrap_or(ProjectIssues { total: 0, hidden: 0, analyzed: false, files: Vec::new() }))).await
+    state
+        .with(move |slot| {
+            Ok(slot.as_ref().map(|e| e.project_issues(limit)).unwrap_or(ProjectIssues { total: 0, hidden: 0, analyzed: false, files: Vec::new() }))
+        })
+        .await
 }
 
 /// Turns a rule off in the project's mago.toml, then reloads the project with it.
 #[tauri::command]
 pub async fn mago_disable_rule(state: tauri::State<'_, MagoState>, category: String, code: String) -> Result<ProjectSummary, String> {
-    let (root, excludes) = state.with(|slot| slot.as_ref().map(|e| (e.root.clone(), e.excludes.clone())).ok_or_else(|| "No project is open in Mago".to_string())).await?;
+    let (root, excludes) =
+        state.with(|slot| slot.as_ref().map(|e| (e.root.clone(), e.excludes.clone())).ok_or_else(|| "No project is open in Mago".to_string())).await?;
     disable_rule(Path::new(&root), &category, &code)?;
     let (engine, summary) = tauri::async_runtime::spawn_blocking(move || open_engine(&root, &excludes)).await.map_err(|e| e.to_string())??;
     state
@@ -943,7 +927,8 @@ fn disable_rule(root: &Path, category: &str, code: &str) -> Result<(), String> {
         }
         "analysis" => {
             let analyzer = doc.entry("analyzer").or_insert(toml_edit::table()).as_table_mut().ok_or("[analyzer] is not a table")?;
-            let ignore = analyzer.entry("ignore").or_insert(toml_edit::value(toml_edit::Array::new())).as_array_mut().ok_or("[analyzer] ignore is not a list")?;
+            let ignore =
+                analyzer.entry("ignore").or_insert(toml_edit::value(toml_edit::Array::new())).as_array_mut().ok_or("[analyzer] ignore is not a list")?;
             if !ignore.iter().any(|v| v.as_str() == Some(code)) {
                 ignore.push(code);
             }
@@ -1032,13 +1017,21 @@ mod tests {
         assert_eq!(run(|_| Ok(7)).unwrap(), 7, "the next command works");
     }
 
-
     #[test]
     fn settings_change_lint_levels() {
         assert_eq!(CATEGORIES.get("too-many-methods"), Some(&"maintainability"));
         assert_eq!(CATEGORIES.get("sensitive-parameter"), Some(&"security"));
         let d = |code: &str, severity: &'static str, source: &'static str| Diagnostic {
-            line: 1, column: 1, end_line: 1, end_column: 2, severity, code: code.into(), message: String::new(), help: None, source, fixes: Vec::new(),
+            line: 1,
+            column: 1,
+            end_line: 1,
+            end_column: 2,
+            severity,
+            code: code.into(),
+            message: String::new(),
+            help: None,
+            source,
+            fixes: Vec::new(),
         };
         *LEVELS.write().unwrap() = Levels {
             categories: [("maintainability".to_string(), "weak".to_string())].into(),
@@ -1088,8 +1081,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("app")).unwrap();
         std::fs::create_dir_all(dir.join("vendor")).unwrap();
-        std::fs::write(dir.join("vendor/autoload.php"), "<?php
-").unwrap();
+        std::fs::write(
+            dir.join("vendor/autoload.php"),
+            "<?php
+",
+        )
+        .unwrap();
         std::fs::write(dir.join("composer.json"), r#"{"require":{"php":"^8.2","laravel/framework":"^11.0"},"require-dev":{"phpunit/phpunit":"^11"}}"#).unwrap();
         std::fs::write(
             dir.join("app/Greeter.php"),
@@ -1179,7 +1176,9 @@ final class Caller
             "mago-phases",
             &[
                 ("composer.json", r#"{"require":{"php":"^8.2","ext-json":"*","symfony/framework-bundle":"^7.0"}}"#),
-                ("app/Greeter.php", "<?php
+                (
+                    "app/Greeter.php",
+                    "<?php
 
 namespace App;
 
@@ -1190,7 +1189,8 @@ final class Greeter
         return 'hi';
     }
 }
-"),
+",
+                ),
                 ("app/Caller.php", caller),
             ],
         );
@@ -1214,8 +1214,12 @@ final class Greeter
         assert!(Engine::open(&root, &[]).unwrap().1.needs_install, "vendor/ without autoload.php");
 
         // Installed (vendor/autoload.php): phase 1 analyzes the open file against the scanned declarations.
-        std::fs::write(dir.join("vendor/autoload.php"), "<?php
-").unwrap();
+        std::fs::write(
+            dir.join("vendor/autoload.php"),
+            "<?php
+",
+        )
+        .unwrap();
         let (mut engine, summary) = Engine::open(&root, &[]).unwrap();
         assert!(!summary.analyzed && !summary.needs_install);
         assert!(!engine.project_issues(100).analyzed);
@@ -1242,7 +1246,10 @@ final class Greeter
         let Ok(root) = std::env::var("PHPBLITZ_MAGO_BENCH") else { return };
         // Working set of this process, in MB (Windows; for the benchmark only).
         let mem = || {
-            let out = std::process::Command::new("powershell").args(["-NoProfile", "-Command", &format!("(Get-Process -Id {}).WorkingSet64", std::process::id())]).output().ok()?;
+            let out = std::process::Command::new("powershell")
+                .args(["-NoProfile", "-Command", &format!("(Get-Process -Id {}).WorkingSet64", std::process::id())])
+                .output()
+                .ok()?;
             String::from_utf8_lossy(&out.stdout).trim().parse::<u64>().ok().map(|b| b / 1_048_576)
         };
         eprintln!("memory before: {:?} MB", mem());
@@ -1293,7 +1300,11 @@ final class Greeter
     fn skips_excluded_folders() {
         let dir = temp_project(
             "mago-excludes",
-            &[("app/Mine.php", "<?php\n\nnamespace App;\n\nfinal class Mine {}\n"), ("plugins/big/Theirs.php", "<?php\n\nfinal class Theirs {}\n"), ("plugins/big/More.php", "<?php\n\nfinal class More {}\n")],
+            &[
+                ("app/Mine.php", "<?php\n\nnamespace App;\n\nfinal class Mine {}\n"),
+                ("plugins/big/Theirs.php", "<?php\n\nfinal class Theirs {}\n"),
+                ("plugins/big/More.php", "<?php\n\nfinal class More {}\n"),
+            ],
         );
         let root = crate::fs::norm(&dir);
         let (_, all) = Engine::open_analyzed(&root, &[]).unwrap();
@@ -1309,7 +1320,14 @@ final class Greeter
         let src = "<?php\n\nnamespace App;\n\nclass A\n{\n    public function f($x)\n    {\n        if ($x == true) { return array(1, 2); }\n        $a = $b = 0;\n        return null;\n    }\n}\n";
         let out = lint_standalone("C:/p/A.php", src.into());
         for d in &out {
-            eprintln!("{}:{} [{}] {} fixes={}", d.line, d.column, d.code, d.message, d.fixes.iter().map(|f| format!("{} ({}, {} edits)", f.title, f.safety, f.edits.len())).collect::<Vec<_>>().join("; "));
+            eprintln!(
+                "{}:{} [{}] {} fixes={}",
+                d.line,
+                d.column,
+                d.code,
+                d.message,
+                d.fixes.iter().map(|f| format!("{} ({}, {} edits)", f.title, f.safety, f.edits.len())).collect::<Vec<_>>().join("; ")
+            );
         }
         assert!(out.iter().any(|d| !d.fixes.is_empty()), "expected at least one fixable issue");
     }
@@ -1337,7 +1355,11 @@ final class Greeter
         assert!(before.iter().any(|d| d.code == "no-multi-assignments"), "{:?}", before.iter().map(|d| &d.code).collect::<Vec<_>>());
         let suppressed = caller.replace("        $a = $b = 1;", "        // @mago-expect lint:no-multi-assignments\n        $a = $b = 1;");
         let after = engine.check(&caller_path, suppressed).unwrap();
-        assert!(after.iter().all(|d| d.code != "no-multi-assignments"), "comment suppresses the rule: {:?}", after.iter().map(|d| (&d.code, &d.message)).collect::<Vec<_>>());
+        assert!(
+            after.iter().all(|d| d.code != "no-multi-assignments"),
+            "comment suppresses the rule: {:?}",
+            after.iter().map(|d| (&d.code, &d.message)).collect::<Vec<_>>()
+        );
 
         // 2. The analyzer error shows, and a comment hides it too.
         let missing = engine.check(&missing_path, std::fs::read_to_string(dir.join("app/Missing.php")).unwrap()).unwrap();
@@ -1346,7 +1368,11 @@ final class Greeter
             .unwrap()
             .replace("        $c->nope();", &format!("        // @mago-expect analysis:{analysis_code}\n        $c->nope();"));
         let hidden = engine.check(&missing_path, commented).unwrap();
-        assert!(hidden.iter().all(|d| d.code != analysis_code), "analysis comment suppresses: {:?}", hidden.iter().map(|d| (&d.code, &d.message)).collect::<Vec<_>>());
+        assert!(
+            hidden.iter().all(|d| d.code != analysis_code),
+            "analysis comment suppresses: {:?}",
+            hidden.iter().map(|d| (&d.code, &d.message)).collect::<Vec<_>>()
+        );
 
         // 3. Disabling both in mago.toml (created like `mago init`) and reloading.
         disable_rule(&dir, "lint", "no-multi-assignments").unwrap();

@@ -486,7 +486,14 @@ fn call(app: &AppHandle, name: &str, args: &Value) -> Result<String, String> {
             let vendor = args.get("includeVendor").and_then(Value::as_bool);
             let result = serde_json::to_value(block(index::index_find_usages(app.state(), target, None, vendor))?).map_err(|e| e.to_string())?;
             let items = result["items"].as_array().cloned().unwrap_or_default();
-            let mut out = format!("{} {}, declared in {}: {} usages in {} files searched.", result["kind"].as_str().unwrap_or(""), result["title"].as_str().unwrap_or(""), result["declaredIn"].as_str().unwrap_or(""), items.len(), result["files"]);
+            let mut out = format!(
+                "{} {}, declared in {}: {} usages in {} files searched.",
+                result["kind"].as_str().unwrap_or(""),
+                result["title"].as_str().unwrap_or(""),
+                result["declaredIn"].as_str().unwrap_or(""),
+                items.len(),
+                result["files"]
+            );
             for u in items.iter().take(MAX_LINES) {
                 let mut flags = Vec::new();
                 if u["dynamic"].as_bool() == Some(true) {
@@ -510,7 +517,13 @@ fn call(app: &AppHandle, name: &str, args: &Value) -> Result<String, String> {
             let classes: Vec<ClassEntry> = serde_json::from_value(v["classes"].clone()).map_err(|e| e.to_string())?;
             let mut parts: Vec<String> = classes.iter().map(|c| describe_class(c, &path)).collect();
             for f in v["functions"].as_array().into_iter().flatten() {
-                parts.push(format!("function {}({}){}  line {}", f["fqn"].as_str().unwrap_or(""), f["params"].as_str().unwrap_or(""), ret(f["detail"].as_str().unwrap_or("")), f["line"]));
+                parts.push(format!(
+                    "function {}({}){}  line {}",
+                    f["fqn"].as_str().unwrap_or(""),
+                    f["params"].as_str().unwrap_or(""),
+                    ret(f["detail"].as_str().unwrap_or("")),
+                    f["line"]
+                ));
             }
             Ok(if parts.is_empty() { format!("{path} declares no classes or functions.") } else { parts.join("\n\n") })
         }
@@ -518,7 +531,9 @@ fn call(app: &AppHandle, name: &str, args: &Value) -> Result<String, String> {
             root(app)?;
             let only = arg(args, "path").map(|p| absolute(app, p)).transpose()?;
             let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(100).clamp(1, 1000) as usize;
-            let issues = serde_json::to_value(block(mago::mago_project_issues(app.state::<MagoState>(), Some(if only.is_some() { usize::MAX } else { limit })))?).map_err(|e| e.to_string())?;
+            let issues =
+                serde_json::to_value(block(mago::mago_project_issues(app.state::<MagoState>(), Some(if only.is_some() { usize::MAX } else { limit })))?)
+                    .map_err(|e| e.to_string())?;
             let mut lines = Vec::new();
             for f in issues["files"].as_array().into_iter().flatten() {
                 let path = f["path"].as_str().unwrap_or("");
@@ -526,7 +541,13 @@ fn call(app: &AppHandle, name: &str, args: &Value) -> Result<String, String> {
                     continue;
                 }
                 for d in f["diagnostics"].as_array().into_iter().flatten() {
-                    lines.push(format!("{path}:{}: {} [{}] {}", d["line"], d["severity"].as_str().unwrap_or(""), d["code"].as_str().unwrap_or(""), d["message"].as_str().unwrap_or("")));
+                    lines.push(format!(
+                        "{path}:{}: {} [{}] {}",
+                        d["line"],
+                        d["severity"].as_str().unwrap_or(""),
+                        d["code"].as_str().unwrap_or(""),
+                        d["message"].as_str().unwrap_or("")
+                    ));
                 }
             }
             let total = lines.len();
@@ -566,7 +587,9 @@ fn signature(m: &Member) -> String {
     let stat = if m.is_static { "static " } else { "" };
     match m.kind.as_str() {
         "method" => format!("  {} {stat}function {}({}){}  line {}", m.visibility, m.name, m.params.as_deref().unwrap_or(""), ret(&m.detail), m.line),
-        "property" => format!("  {} {stat}{}${}  line {}", m.visibility, if m.detail.is_empty() { String::new() } else { format!("{} ", m.detail) }, m.name, m.line),
+        "property" => {
+            format!("  {} {stat}{}${}  line {}", m.visibility, if m.detail.is_empty() { String::new() } else { format!("{} ", m.detail) }, m.name, m.line)
+        }
         _ => format!("  {} const {}{}  line {}", m.visibility, m.name, if m.detail.is_empty() { String::new() } else { format!(" {}", m.detail) }, m.line),
     }
 }
@@ -599,7 +622,12 @@ mod tests {
     use super::*;
 
     fn req(headers: &[(&str, &str)]) -> Request {
-        Request { method: "POST".into(), path: "/mcp".into(), headers: headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(), body: b"{}".to_vec() }
+        Request {
+            method: "POST".into(),
+            path: "/mcp".into(),
+            headers: headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            body: b"{}".to_vec(),
+        }
     }
 
     #[test]
@@ -649,7 +677,14 @@ mod tests {
     }
 
     fn post(token: &str, body: &str) -> String {
-        let head = ["POST /mcp HTTP/1.1", "Host: 127.0.0.1:{port}", &format!("Authorization: Bearer {token}"), "Content-Type: application/json", "Accept: application/json, text/event-stream", &format!("Content-Length: {}", body.len())];
+        let head = [
+            "POST /mcp HTTP/1.1",
+            "Host: 127.0.0.1:{port}",
+            &format!("Authorization: Bearer {token}"),
+            "Content-Type: application/json",
+            "Accept: application/json, text/event-stream",
+            &format!("Content-Length: {}", body.len()),
+        ];
         exchange(&format!("{}\r\n\r\n{body}", head.join("\r\n")))
     }
 
@@ -659,7 +694,10 @@ mod tests {
 
     #[test]
     fn speaks_mcp_over_http() {
-        let init = post("secret", r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}"#);
+        let init = post(
+            "secret",
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}"#,
+        );
         assert!(init.starts_with("HTTP/1.1 200 OK\r\n"), "{init}");
         assert!(init.contains("Content-Type: application/json\r\n"));
         let v = json_body(&init);
@@ -694,7 +732,9 @@ mod tests {
         let bad = post("secret", "{not json");
         assert!(bad.starts_with("HTTP/1.1 400 "));
         assert_eq!(json_body(&bad)["error"]["code"], -32700);
-        let page = exchange("POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: https://example.com\r\nAuthorization: Bearer secret\r\nContent-Length: 2\r\n\r\n{}");
+        let page = exchange(
+            "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: https://example.com\r\nAuthorization: Bearer secret\r\nContent-Length: 2\r\n\r\n{}",
+        );
         assert!(page.starts_with("HTTP/1.1 403 "));
     }
 
@@ -708,7 +748,17 @@ mod tests {
 
     #[test]
     fn signatures() {
-        let m = Member { kind: "method".into(), name: "find".into(), detail: "?User".into(), params: Some("int $id".into()), line: 12, visibility: "public".into(), is_static: true, ty: None, elem: None };
+        let m = Member {
+            kind: "method".into(),
+            name: "find".into(),
+            detail: "?User".into(),
+            params: Some("int $id".into()),
+            line: 12,
+            visibility: "public".into(),
+            is_static: true,
+            ty: None,
+            elem: None,
+        };
         assert_eq!(signature(&m), "  public static function find(int $id): ?User  line 12");
     }
 }

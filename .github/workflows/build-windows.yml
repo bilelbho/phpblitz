@@ -38,6 +38,8 @@ jobs:
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -55,9 +57,12 @@ jobs:
       - name: Front-end tests
         run: npm test
 
-      - name: Rust tests
+      # Clippy here too: the Windows-only code isn't compiled on Linux.
+      - name: Rust tests and clippy
         working-directory: src-tauri
-        run: cargo test --locked
+        run: |
+          cargo test --locked
+          cargo clippy --all-targets --locked -- -D warnings
 
       # beforeBuildCommand (npm run build) builds the front end first.
       - name: Build installers

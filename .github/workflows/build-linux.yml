@@ -71,7 +71,11 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, rustfmt
+
+      - name: Rust formatting
+        working-directory: src-tauri
+        run: cargo fmt --check
 
       - uses: Swatinem/rust-cache@v2
         with:

@@ -97,16 +97,8 @@ static BUILTIN_WORDS: LazyLock<HashSet<String>> = LazyLock::new(|| {
 /// The American spelling of a British one, to check that instead: behaviour → behavior,
 /// initialise → initialize, centre → center, cancelled → canceled.
 fn american(lower: &str) -> Option<String> {
-    let swaps: [(&str, &str); 8] = [
-        ("our", "or"),
-        ("ours", "ors"),
-        ("ise", "ize"),
-        ("ised", "ized"),
-        ("ising", "izing"),
-        ("isation", "ization"),
-        ("tre", "ter"),
-        ("lled", "led"),
-    ];
+    let swaps: [(&str, &str); 8] =
+        [("our", "or"), ("ours", "ors"), ("ise", "ize"), ("ised", "ized"), ("ising", "izing"), ("isation", "ization"), ("tre", "ter"), ("lled", "led")];
     swaps.iter().find_map(|(gb, us)| lower.strip_suffix(gb).filter(|stem| stem.len() >= 3).map(|stem| format!("{stem}{us}")))
 }
 

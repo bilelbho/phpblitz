@@ -1,11 +1,11 @@
 //! Running external tools: git, php, composer, and terminal command lines.
 
 use serde::Serialize;
-use tauri::ipc::Channel;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tauri::ipc::Channel;
 
 #[derive(Serialize)]
 pub struct RunResult {
@@ -29,9 +29,7 @@ pub fn hide_console(cmd: &mut Command) {
 fn exec(cwd: &str, mut cmd: Command, label: &str) -> Result<RunResult, String> {
     cmd.current_dir(cwd);
     hide_console(&mut cmd);
-    let out = cmd
-        .output()
-        .map_err(|e| format!("Could not start {label}: {e}"))?;
+    let out = cmd.output().map_err(|e| format!("Could not start {label}: {e}"))?;
     Ok(RunResult {
         code: out.status.code().unwrap_or(-1),
         stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -145,9 +143,7 @@ pub async fn find_executable(names: Vec<String>) -> Option<String> {
 
 /// [`find_executable`] for Rust callers.
 pub fn find_executable_blocking(names: Vec<String>) -> Option<String> {
-    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
-        .map(|p| std::env::split_paths(&p).collect())
-        .unwrap_or_default();
+    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
     // Folders installers added to PATH since PHPBlitz started: found without a restart.
     dirs.extend(saved_path());
     let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"));
@@ -286,7 +282,14 @@ pub async fn job_run(state: tauri::State<'_, JobState>, id: u32, cwd: String, li
 /// Runs a program (no shell) and streams its output like `job_run`: test runs, whose output is
 /// read as it comes.
 #[tauri::command]
-pub async fn job_exec(state: tauri::State<'_, JobState>, id: u32, cwd: String, program: String, args: Vec<String>, on_output: Channel<JobEvent>) -> Result<i32, String> {
+pub async fn job_exec(
+    state: tauri::State<'_, JobState>,
+    id: u32,
+    cwd: String,
+    program: String,
+    args: Vec<String>,
+    on_output: Channel<JobEvent>,
+) -> Result<i32, String> {
     crate::trust::check(&cwd)?;
     let mut cmd = Command::new(&program);
     cmd.args(&args);
@@ -308,13 +311,11 @@ async fn stream_job(state: &JobState, id: u32, cwd: &str, mut cmd: Command, on_o
     let mut child = cmd.spawn().map_err(|e| format!("Could not start the command: {e}"))?;
     state.jobs.lock().map_err(|e| e.to_string())?.insert(id, child.id());
 
-    let pipes: Vec<Box<dyn std::io::Read + Send>> = [
-        child.stdout.take().map(|s| Box::new(s) as Box<dyn std::io::Read + Send>),
-        child.stderr.take().map(|s| Box::new(s) as Box<dyn std::io::Read + Send>),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
+    let pipes: Vec<Box<dyn std::io::Read + Send>> =
+        [child.stdout.take().map(|s| Box::new(s) as Box<dyn std::io::Read + Send>), child.stderr.take().map(|s| Box::new(s) as Box<dyn std::io::Read + Send>)]
+            .into_iter()
+            .flatten()
+            .collect();
     // Whole lines from both pipes, then to the UI in frames (a test run prints thousands of lines).
     let (lines, received) = std::sync::mpsc::channel::<Vec<u8>>();
     let readers: Vec<_> = pipes

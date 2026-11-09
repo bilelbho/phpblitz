@@ -14,15 +14,15 @@ use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{Instant, UNIX_EPOCH};
 
 use mago_allocator::LocalArena;
-use mago_codex::metadata::CodebaseMetadata;
 use mago_codex::metadata::function_like::FunctionLikeKind;
+use mago_codex::metadata::CodebaseMetadata;
 use mago_codex::symbol::SymbolKind;
-use mago_codex::ttype::TType;
-use mago_codex::ttype::atomic::TAtomic;
 use mago_codex::ttype::atomic::array::TArray;
 use mago_codex::ttype::atomic::object::TObject;
 use mago_codex::ttype::atomic::reference::TReference;
+use mago_codex::ttype::atomic::TAtomic;
 use mago_codex::ttype::union::TUnion;
+use mago_codex::ttype::TType;
 use mago_codex::visibility::Visibility;
 use mago_database::file::{File, FileType};
 use mago_names::resolver::NameResolver;
@@ -310,7 +310,17 @@ fn classes_of(src: &[u8], codebase: &CodebaseMetadata, line: &dyn Fn(u32) -> u32
             });
         }
         for c in class.enum_cases.values() {
-            members.push(Member { kind: "const".into(), name: c.name.to_string(), detail: String::new(), params: None, line: line(c.name_span.start.offset), visibility: "public".into(), is_static: true, ty: Some(fqn.clone()), elem: None });
+            members.push(Member {
+                kind: "const".into(),
+                name: c.name.to_string(),
+                detail: String::new(),
+                params: None,
+                line: line(c.name_span.start.offset),
+                visibility: "public".into(),
+                is_static: true,
+                ty: Some(fqn.clone()),
+                elem: None,
+            });
         }
         members.sort_by_key(|m| m.line);
         let original = |w: &mago_word::Word| {
@@ -325,20 +335,24 @@ fn classes_of(src: &[u8], codebase: &CodebaseMetadata, line: &dyn Fn(u32) -> u32
         implements.sort();
         let mut traits: Vec<String> = class.used_traits.iter().map(original).collect();
         traits.sort();
-        let mixins: Vec<String> = class.mixins.iter().filter_map(|m| first_class(&m.type_union, &|w| original_name(codebase, casing, w))).filter(|m| m != "static").collect();
+        let mixins: Vec<String> =
+            class.mixins.iter().filter_map(|m| first_class(&m.type_union, &|w| original_name(codebase, casing, w))).filter(|m| m != "static").collect();
         let offset = class.name_span.unwrap_or(class.span).start.offset;
-        out.push((offset, ClassEntry {
-            name: fqn.rsplit('\\').next().unwrap_or(&fqn).to_string(),
-            kind: kind.into(),
-            line: line(class.name_span.unwrap_or(class.span).start.offset),
-            end_line: line(class.span.end.offset),
-            extends: class.direct_parent_class.as_ref().map(original),
-            implements,
-            traits,
-            mixins,
-            members,
-            fqn,
-        }));
+        out.push((
+            offset,
+            ClassEntry {
+                name: fqn.rsplit('\\').next().unwrap_or(&fqn).to_string(),
+                kind: kind.into(),
+                line: line(class.name_span.unwrap_or(class.span).start.offset),
+                end_line: line(class.span.end.offset),
+                extends: class.direct_parent_class.as_ref().map(original),
+                implements,
+                traits,
+                mixins,
+                members,
+                fqn,
+            },
+        ));
     }
     // In source order (several classes can share a line).
     out.sort_by_key(|(offset, _)| *offset);
@@ -588,7 +602,10 @@ impl ProjectIndex {
                 continue;
             }
             // Methods are case-insensitive in PHP; properties and constants are not.
-            let hit = entry.members.iter().find(|m| (kind.is_empty() || m.kind == kind) && if m.kind == "method" { m.name.eq_ignore_ascii_case(name) } else { m.name == name });
+            let hit = entry
+                .members
+                .iter()
+                .find(|m| (kind.is_empty() || m.kind == kind) && if m.kind == "method" { m.name.eq_ignore_ascii_case(name) } else { m.name == name });
             if let Some(m) = hit {
                 return Some((path.clone(), entry, m));
             }
@@ -786,7 +803,8 @@ pub async fn index_open(app: AppHandle, state: tauri::State<'_, IndexState>, roo
         let mut cached = cache.as_deref().map(|p| load_cache(p, &root)).unwrap_or_default();
         let files = php_files(&root, &excludes.unwrap_or_default());
         let total = files.len();
-        let (fresh, stale): (Vec<_>, Vec<_>) = files.into_iter().partition(|(p, mtime, size)| cached.get(p).is_some_and(|c| c.mtime == *mtime && c.size == *size));
+        let (fresh, stale): (Vec<_>, Vec<_>) =
+            files.into_iter().partition(|(p, mtime, size)| cached.get(p).is_some_and(|c| c.mtime == *mtime && c.size == *size));
 
         let done = std::sync::atomic::AtomicUsize::new(fresh.len());
         let _ = app.emit("index-progress", Progress { done: fresh.len(), total });
@@ -1221,10 +1239,19 @@ pub fn index_usages(state: tauri::State<'_, IndexState>, names: Vec<String>) -> 
 #[derive(Deserialize, Clone)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Target {
-    Class { name: String },
+    Class {
+        name: String,
+    },
     #[serde(rename_all = "camelCase")]
-    Member { class: String, name: String, member_kind: Option<String> },
-    Function { name: String, namespace: Option<String> },
+    Member {
+        class: String,
+        name: String,
+        member_kind: Option<String>,
+    },
+    Function {
+        name: String,
+        namespace: Option<String>,
+    },
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -1242,9 +1269,16 @@ fn locate(idx: &ProjectIndex, target: &Target) -> Option<Location> {
         Target::Member { class, name, member_kind } => idx.find_member(class, name, member_kind.as_deref().unwrap_or("")).map(|(path, c, m)| Location {
             path,
             line: m.line,
-            name: format!("{}::{}{}", c.name, if m.kind == "property" { "$" } else { "" }, if m.kind == "method" { format!("{}()", m.name) } else { m.name.clone() }),
+            name: format!(
+                "{}::{}{}",
+                c.name,
+                if m.kind == "property" { "$" } else { "" },
+                if m.kind == "method" { format!("{}()", m.name) } else { m.name.clone() }
+            ),
         }),
-        Target::Function { name, namespace } => idx.find_function(name, namespace.as_deref()).map(|(path, f)| Location { path: path.clone(), line: f.line, name: format!("{}()", f.fqn) }),
+        Target::Function { name, namespace } => {
+            idx.find_function(name, namespace.as_deref()).map(|(path, f)| Location { path: path.clone(), line: f.line, name: format!("{}()", f.fqn) })
+        }
     }
 }
 
@@ -1276,18 +1310,14 @@ fn declarations(idx: &ProjectIndex, target: &Target) -> Vec<Location> {
 #[tauri::command]
 pub async fn index_declarations(state: tauri::State<'_, IndexState>, target: Target) -> Result<Vec<Location>, String> {
     let index = state.index.clone();
-    tauri::async_runtime::spawn_blocking(move || Ok(declarations(&*index.read().map_err(|e| e.to_string())?, &target)))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || Ok(declarations(&*index.read().map_err(|e| e.to_string())?, &target))).await.map_err(|e| e.to_string())?
 }
 
 /// Go to Definition: where a class, member or function is declared.
 #[tauri::command]
 pub async fn index_locate(state: tauri::State<'_, IndexState>, target: Target) -> Result<Option<Location>, String> {
     let index = state.index.clone();
-    tauri::async_runtime::spawn_blocking(move || Ok(locate(&*index.read().map_err(|e| e.to_string())?, &target)))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || Ok(locate(&*index.read().map_err(|e| e.to_string())?, &target))).await.map_err(|e| e.to_string())?
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -1327,7 +1357,12 @@ fn is_write(after: &str, before: &str) -> bool {
     let a = after.trim_start();
     let assigned = (a.starts_with('=') && !a.starts_with("==") && !a.starts_with("=>"))
         || ["+=", "-=", "*=", "/=", ".=", "%=", "??=", "**=", "|=", "&=", "^=", "<<=", ">>=", "++", "--"].iter().any(|op| a.starts_with(op));
-    assigned || before.trim_end().rsplit(|c: char| c.is_whitespace() || c == '(' || c == ';').find(|s| !s.is_empty()).is_some_and(|t| t.starts_with("++") || t.starts_with("--"))
+    assigned
+        || before
+            .trim_end()
+            .rsplit(|c: char| c.is_whitespace() || c == '(' || c == ';')
+            .find(|s| !s.is_empty())
+            .is_some_and(|t| t.starts_with("++") || t.starts_with("--"))
 }
 
 const MAX_USAGES: usize = 5000;
@@ -1397,7 +1432,9 @@ fn usages_with(idx: &ProjectIndex, matcher: &UsageMatcher, path: &str, text: &st
     let parsed = std::cell::OnceCell::new();
     let names = || -> &Vec<(u32, u32, Vec<u8>)> {
         parsed.get_or_init(|| {
-            let file = file.get_or_init(|| File::new(Cow::Owned(path.as_bytes().to_vec()), FileType::Host, Some(PathBuf::from(path)), Cow::Owned(text.as_bytes().to_vec())));
+            let file = file.get_or_init(|| {
+                File::new(Cow::Owned(path.as_bytes().to_vec()), FileType::Host, Some(PathBuf::from(path)), Cow::Owned(text.as_bytes().to_vec()))
+            });
             let program = parse_file_borrowed_with_settings(&arena, file, ParserSettings::default());
             let resolved = NameResolver::new(&arena).resolve(program);
             let mut list: Vec<(u32, u32, Vec<u8>)> = resolved.iter().map(|(s, e, n, _)| (s, e, n.to_vec())).collect();
@@ -1436,7 +1473,10 @@ fn usages_with(idx: &ProjectIndex, matcher: &UsageMatcher, path: &str, text: &st
                 let resolved = resolved.trim_start_matches('\\');
                 let written = &text[start as usize..end as usize];
                 // `foo()` in a namespace falls back to the global foo() unless Ns\foo exists.
-                let fallback = global && !written.contains('\\') && resolved.rsplit('\\').next().is_some_and(|n| n.eq_ignore_ascii_case(fqn)) && idx.find_function(resolved, None).is_none();
+                let fallback = global
+                    && !written.contains('\\')
+                    && resolved.rsplit('\\').next().is_some_and(|n| n.eq_ignore_ascii_case(fqn))
+                    && idx.find_function(resolved, None).is_none();
                 let declaration = text[..start as usize].trim_end().ends_with("function");
                 if (resolved.eq_ignore_ascii_case(fqn) || fallback) && !declaration && text[end as usize..].trim_start().starts_with('(') {
                     hit(&mut out, start as usize, end as usize, false);
@@ -1506,24 +1546,40 @@ fn usages_with(idx: &ProjectIndex, matcher: &UsageMatcher, path: &str, text: &st
 /// `static`, `parent` and `Class::` (exact, checked against the class hierarchy) and on untyped
 /// receivers (dynamic). Project files only (not vendor). `overrides`: unsaved editor texts.
 #[tauri::command]
-pub async fn index_find_usages(state: tauri::State<'_, IndexState>, target: Target, overrides: Option<HashMap<String, String>>, include_vendor: Option<bool>) -> Result<UsagesResult, String> {
+pub async fn index_find_usages(
+    state: tauri::State<'_, IndexState>,
+    target: Target,
+    overrides: Option<HashMap<String, String>>,
+    include_vendor: Option<bool>,
+) -> Result<UsagesResult, String> {
     let index = state.index.clone();
     tauri::async_runtime::spawn_blocking(move || find_usages(&index, target, overrides, include_vendor)).await.map_err(|e| e.to_string())?
 }
 
-fn find_usages(index: &RwLock<ProjectIndex>, target: Target, overrides: Option<HashMap<String, String>>, include_vendor: Option<bool>) -> Result<UsagesResult, String> {
+fn find_usages(
+    index: &RwLock<ProjectIndex>,
+    target: Target,
+    overrides: Option<HashMap<String, String>>,
+    include_vendor: Option<bool>,
+) -> Result<UsagesResult, String> {
     let idx = index.read().map_err(|e| e.to_string())?;
     let overrides = overrides.unwrap_or_default();
     // The declaration, to search for its real FQN.
     let (display, class_fqn, needle, kind, title, container, declared_in) = match &target {
         Target::Class { name } => {
             let (path, c) = idx.find(name).ok_or_else(|| format!("{name} is not in the index"))?;
-            let kind = match c.kind.as_str() { "interface" => "Interface", "trait" => "Trait", "enum" => "Enum", _ => "Class" };
+            let kind = match c.kind.as_str() {
+                "interface" => "Interface",
+                "trait" => "Trait",
+                "enum" => "Enum",
+                _ => "Class",
+            };
             let ns = c.fqn.rsplit_once('\\').map(|(ns, _)| ns.to_string()).unwrap_or_default();
             (c.fqn.clone(), c.fqn.clone(), c.name.clone(), kind, format!("\\{}", c.fqn), ns, path.clone())
         }
         Target::Member { class, name, member_kind } => {
-            let (path, c, m) = idx.find_member(class, name, member_kind.as_deref().unwrap_or("")).ok_or_else(|| format!("{class}::{name} is not in the index"))?;
+            let (path, c, m) =
+                idx.find_member(class, name, member_kind.as_deref().unwrap_or("")).ok_or_else(|| format!("{class}::{name} is not in the index"))?;
             let (kind, title) = match m.kind.as_str() {
                 "method" => ("Method", format!("\\{}::{}()", c.fqn, m.name)),
                 "property" => ("Field", format!("\\{}.${}", c.fqn, m.name)),
@@ -1559,7 +1615,11 @@ fn find_usages(index: &RwLock<ProjectIndex>, target: Target, overrides: Option<H
     // follow `->` / `::` in each file, so most files are never read.
     let candidates: Vec<String> = paths
         .into_iter()
-        .filter(|path| overrides.contains_key(*path) || !is_member || idx.files.get(*path).is_some_and(|f| f.symbols.refs.iter().any(|(n, _)| n.eq_ignore_ascii_case(&needle))))
+        .filter(|path| {
+            overrides.contains_key(*path)
+                || !is_member
+                || idx.files.get(*path).is_some_and(|f| f.symbols.refs.iter().any(|(n, _)| n.eq_ignore_ascii_case(&needle)))
+        })
         .cloned()
         .collect();
     // Reading files (the slow part, vendor included) holds no lock: typing, which updates the
@@ -1717,11 +1777,14 @@ function helper(int $a, $b = 1): ?string { return null; }
         let files: HashMap<String, String> = [
             ("/p/Shop.php", "<?php class Shop { function getClietn() {} function save() {} }"),
             ("/p/Cart.php", "<?php class Cart { function save() {} }"),
-            ("/p/Uses.php", "<?php function f(Shop $shop, $any) {
+            (
+                "/p/Uses.php",
+                "<?php function f(Shop $shop, $any) {
     $shop->getClietn();
     $any->GETCLIETN();
     $shop->save();
-}"),
+}",
+            ),
         ]
         .map(|(p, t)| (p.to_string(), t.to_string()))
         .into();
@@ -1902,7 +1965,10 @@ function current_user() { return null; }
     #[test]
     fn index_finds_and_inherits() {
         let mut idx = ProjectIndex { root: "/p".into(), ..Default::default() };
-        let parent = scan("/p/vendor/x/Model.php", b"<?php namespace Illuminate\\Database\\Eloquent; abstract class Model { public function save(): bool { return true; } public function name() {} }");
+        let parent = scan(
+            "/p/vendor/x/Model.php",
+            b"<?php namespace Illuminate\\Database\\Eloquent; abstract class Model { public function save(): bool { return true; } public function name() {} }",
+        );
         let user = scan("/p/app/Models/User.php", USER.as_bytes());
         idx.set("/p/vendor/x/Model.php".into(), CachedFile { mtime: 1, size: 1, symbols: parent });
         idx.set("/p/app/Models/User.php".into(), CachedFile { mtime: 1, size: 1, symbols: user.clone() });
@@ -1924,7 +1990,10 @@ function current_user() { return null; }
         let Ok(root) = std::env::var("PHPBLITZ_INDEX_BENCH") else { return };
         // Working set of this process, in MB (Windows; for the benchmark only).
         let mem = || {
-            let out = std::process::Command::new("powershell").args(["-NoProfile", "-Command", &format!("(Get-Process -Id {}).WorkingSet64", std::process::id())]).output().ok()?;
+            let out = std::process::Command::new("powershell")
+                .args(["-NoProfile", "-Command", &format!("(Get-Process -Id {}).WorkingSet64", std::process::id())])
+                .output()
+                .ok()?;
             String::from_utf8_lossy(&out.stdout).trim().parse::<u64>().ok().map(|b| b / 1_048_576)
         };
         eprintln!("BENCH memory before: {:?} MB", mem());
@@ -1956,26 +2025,52 @@ function current_user() { return null; }
         let loaded = load_cache(&bin, &root);
         let bin_load = t6.elapsed();
         let bin_size = std::fs::metadata(&bin).map(|m| m.len()).unwrap_or(0);
-        eprintln!(
-            "BENCH {} files, {} classes | list {:?} | parse+scan {:?} | aggregate {:?}",
-            idx.files.len(), classes, listed, scanned, aggregated
-        );
+        eprintln!("BENCH {} files, {} classes | list {:?} | parse+scan {:?} | aggregate {:?}", idx.files.len(), classes, listed, scanned, aggregated);
         eprintln!("BENCH cache JSON {} KB, load {:?} ({} files)", json.len() / 1024, json_load, back.len());
         eprintln!("BENCH cache binary {} KB, save {:?}, load {:?} ({} files)", bin_size / 1024, bin_save, bin_load, loaded.len());
         assert_eq!(loaded.len(), idx.files.len());
         let _ = std::fs::remove_file(bin);
         // Rough heap bytes: what declarations take vs per-file references.
         let str_bytes = |t: &str| t.len() + 24;
-        let member_bytes = |m: &Member| str_bytes(&m.kind) + str_bytes(&m.name) + str_bytes(&m.detail) + m.params.as_deref().map_or(0, str_bytes) + str_bytes(&m.visibility) + 16;
-        let decl: usize = idx.files.values().map(|f| {
-            f.symbols.classes.iter().map(|c| str_bytes(&c.name) + str_bytes(&c.fqn) + str_bytes(&c.kind) + c.extends.as_deref().map_or(0, str_bytes) + c.implements.iter().chain(&c.traits).map(|t| str_bytes(t)).sum::<usize>() + c.members.iter().map(member_bytes).sum::<usize>() + 64).sum::<usize>()
-                + f.symbols.functions.iter().map(|x| str_bytes(&x.name) + str_bytes(&x.fqn) + str_bytes(&x.params) + str_bytes(&x.detail) + 8).sum::<usize>()
-        }).sum();
+        let member_bytes = |m: &Member| {
+            str_bytes(&m.kind) + str_bytes(&m.name) + str_bytes(&m.detail) + m.params.as_deref().map_or(0, str_bytes) + str_bytes(&m.visibility) + 16
+        };
+        let decl: usize = idx
+            .files
+            .values()
+            .map(|f| {
+                f.symbols
+                    .classes
+                    .iter()
+                    .map(|c| {
+                        str_bytes(&c.name)
+                            + str_bytes(&c.fqn)
+                            + str_bytes(&c.kind)
+                            + c.extends.as_deref().map_or(0, str_bytes)
+                            + c.implements.iter().chain(&c.traits).map(|t| str_bytes(t)).sum::<usize>()
+                            + c.members.iter().map(member_bytes).sum::<usize>()
+                            + 64
+                    })
+                    .sum::<usize>()
+                    + f.symbols
+                        .functions
+                        .iter()
+                        .map(|x| str_bytes(&x.name) + str_bytes(&x.fqn) + str_bytes(&x.params) + str_bytes(&x.detail) + 8)
+                        .sum::<usize>()
+            })
+            .sum();
         let refs: usize = idx.files.values().map(|f| f.symbols.refs.iter().map(|(n, _)| str_bytes(n) + 8).sum::<usize>()).sum();
         let ref_count: usize = idx.files.values().map(|f| f.symbols.refs.len()).sum();
         let paths: usize = idx.files.keys().map(|k| str_bytes(k) * 2).sum();
         let totals: usize = idx.refs.keys().map(|k| str_bytes(k) + 8).sum();
-        eprintln!("BENCH memory ~ declarations {} KB | per-file refs {} KB ({ref_count} entries) | ref totals {} KB ({} names) | paths {} KB", decl / 1024, refs / 1024, totals / 1024, idx.refs.len(), paths / 1024);
+        eprintln!(
+            "BENCH memory ~ declarations {} KB | per-file refs {} KB ({ref_count} entries) | ref totals {} KB ({} names) | paths {} KB",
+            decl / 1024,
+            refs / 1024,
+            totals / 1024,
+            idx.refs.len(),
+            paths / 1024
+        );
         let q = Instant::now();
         let hits = idx.files.values().flat_map(|f| f.symbols.classes.iter()).filter(|c| score(&c.name, "UpHa").is_some()).count();
         eprintln!("BENCH search 'UpHa': {hits} matches in {:?}", q.elapsed());
@@ -2044,14 +2139,14 @@ function current_user() { return null; }
         for key in ["kind", "name", "detail", "line", "visibility", "isStatic"] {
             assert!(m.get(key).is_some(), "{key} in {m}");
         }
-        let hit = serde_json::to_value(SearchHit { kind: "class".into(), name: "U".into(), detail: "".into(), path: "/p".into(), line: 1, vendor: false }).unwrap();
+        let hit =
+            serde_json::to_value(SearchHit { kind: "class".into(), name: "U".into(), detail: "".into(), path: "/p".into(), line: 1, vendor: false }).unwrap();
         let mut keys: Vec<String> = hit.as_object().unwrap().keys().cloned().collect();
         keys.sort();
         assert_eq!(keys, vec!["detail", "kind", "line", "name", "path", "vendor"]);
         let stats = serde_json::to_value(IndexStats { files: 1, classes: 1, functions: 0, parsed: 1, ms: 2 }).unwrap();
         assert!(stats.get("parsed").is_some() && stats.get("functions").is_some());
     }
-
 
     fn project(files: &[(&str, &str)]) -> ProjectIndex {
         let mut idx = ProjectIndex { root: "/p".into(), ..Default::default() };
@@ -2075,8 +2170,15 @@ function current_user() { return null; }
         let at = |t: Target| locate(&idx, &t).map(|l| (l.path.rsplit('/').next().unwrap().to_string(), l.line, l.name));
         assert_eq!(at(Target::Class { name: "App\\Models\\Post".into() }), Some(("Post.php".into(), 4, "App\\Models\\Post".into())));
         // Inherited method: declared in the parent.
-        assert_eq!(at(Target::Member { class: "App\\Models\\Post".into(), name: "save".into(), member_kind: Some("method".into()) }), Some(("Model.php".into(), 6, "Model::save()".into())));
-        assert_eq!(at(Target::Member { class: "App\\Models\\Post".into(), name: "SAVE".into(), member_kind: None }).map(|x| x.1), Some(6), "methods are case-insensitive");
+        assert_eq!(
+            at(Target::Member { class: "App\\Models\\Post".into(), name: "save".into(), member_kind: Some("method".into()) }),
+            Some(("Model.php".into(), 6, "Model::save()".into()))
+        );
+        assert_eq!(
+            at(Target::Member { class: "App\\Models\\Post".into(), name: "SAVE".into(), member_kind: None }).map(|x| x.1),
+            Some(6),
+            "methods are case-insensitive"
+        );
         assert_eq!(at(Target::Member { class: "App\\Models\\Post".into(), name: "title".into(), member_kind: Some("property".into()) }).map(|x| x.1), Some(6));
         assert_eq!(at(Target::Member { class: "App\\Models\\Post".into(), name: "DRAFT".into(), member_kind: None }).map(|x| x.1), Some(7));
         assert_eq!(at(Target::Function { name: "helper".into(), namespace: Some("App\\Http".into()) }).map(|x| x.2), Some("App\\Http\\helper()".into()));
@@ -2089,13 +2191,27 @@ function current_user() { return null; }
     fn finds_the_declarations_a_rename_changes() {
         let draft = "<?php\nnamespace App\\Models;\n\nclass Draft extends Post\n{\n    public function save(): bool { return false; }\n}\n";
         let other = "<?php\nnamespace App\\Other;\n\nclass Cache\n{\n    public function save(): bool { return true; }\n}\n";
-        let idx = project(&[("/p/app/Models/Model.php", BASE), ("/p/app/Models/Post.php", POST), ("/p/app/Models/Draft.php", draft), ("/p/app/Other/Cache.php", other)]);
+        let idx = project(&[
+            ("/p/app/Models/Model.php", BASE),
+            ("/p/app/Models/Post.php", POST),
+            ("/p/app/Models/Draft.php", draft),
+            ("/p/app/Other/Cache.php", other),
+        ]);
         let at = |t: Target| declarations(&idx, &t).into_iter().map(|l| (l.path.rsplit('/').next().unwrap().to_string(), l.line)).collect::<Vec<_>>();
         // From the subclass that inherits it: the base declaration and the override, not Cache::save.
-        assert_eq!(at(Target::Member { class: "App\\Models\\Post".into(), name: "save".into(), member_kind: Some("method".into()) }), vec![("Draft.php".into(), 6), ("Model.php".into(), 6)]);
-        assert_eq!(at(Target::Member { class: "App\\Models\\Draft".into(), name: "save".into(), member_kind: Some("method".into()) }), vec![("Draft.php".into(), 6), ("Model.php".into(), 6)]);
+        assert_eq!(
+            at(Target::Member { class: "App\\Models\\Post".into(), name: "save".into(), member_kind: Some("method".into()) }),
+            vec![("Draft.php".into(), 6), ("Model.php".into(), 6)]
+        );
+        assert_eq!(
+            at(Target::Member { class: "App\\Models\\Draft".into(), name: "save".into(), member_kind: Some("method".into()) }),
+            vec![("Draft.php".into(), 6), ("Model.php".into(), 6)]
+        );
         assert_eq!(at(Target::Class { name: "App\\Models\\Post".into() }), vec![("Post.php".into(), 4)]);
-        assert_eq!(at(Target::Member { class: "App\\Models\\Post".into(), name: "title".into(), member_kind: Some("property".into()) }), vec![("Post.php".into(), 6)]);
+        assert_eq!(
+            at(Target::Member { class: "App\\Models\\Post".into(), name: "title".into(), member_kind: Some("property".into()) }),
+            vec![("Post.php".into(), 6)]
+        );
     }
 
     #[test]
@@ -2116,18 +2232,38 @@ function current_user() { return null; }
         assert_eq!(save, vec![("Post.php".into(), 11, false), ("PostController.php".into(), 13, true), ("PostController.php".into(), 14, true)]);
         // Model::find(): self::find in Post, Post::find, Base::find (alias), \App\Models\Post::find.
         let find = all(Target::Member { class: "App\\Models\\Model".into(), name: "find".into(), member_kind: Some("method".into()) }, "App\\Models\\Model");
-        assert_eq!(find, vec![("Post.php".into(), 12, false), ("PostController.php".into(), 15, false), ("PostController.php".into(), 16, false), ("PostController.php".into(), 17, false)]);
+        assert_eq!(
+            find,
+            vec![
+                ("Post.php".into(), 12, false),
+                ("PostController.php".into(), 15, false),
+                ("PostController.php".into(), 16, false),
+                ("PostController.php".into(), 17, false)
+            ]
+        );
         // Post::find() alone: Base::find (Model) is not a usage of Post's.
         let post_find = all(Target::Member { class: "App\\Models\\Post".into(), name: "find".into(), member_kind: Some("method".into()) }, "App\\Models\\Post");
         assert_eq!(post_find.iter().map(|u| u.1).collect::<Vec<_>>(), vec![12, 15, 17]);
         // Property and constant.
-        assert_eq!(all(Target::Member { class: "App\\Models\\Post".into(), name: "title".into(), member_kind: Some("property".into()) }, "App\\Models\\Post"), vec![("Post.php".into(), 13, false)]);
+        assert_eq!(
+            all(Target::Member { class: "App\\Models\\Post".into(), name: "title".into(), member_kind: Some("property".into()) }, "App\\Models\\Post"),
+            vec![("Post.php".into(), 13, false)]
+        );
         assert!(is_write(" = 1;", "$this->") && is_write(" .= 'x'", "") && is_write("++;", "") && is_write(" ??= []", ""));
         assert!(!is_write(" == 1", "") && !is_write(" => 1", "") && !is_write(";", "echo $this->") && !is_write("->save()", ""));
         assert!(is_write(";", "++$this->"));
-        let rw = usages_in(&idx, "/p/x.php", "<?php class W extends App\\Models\\Post { function f() { $this->title = 'a'; echo $this->title; $this->title .= 'b'; } }", &Target::Member { class: "App\\Models\\Post".into(), name: "title".into(), member_kind: Some("property".into()) }, Some("App\\Models\\Post"));
+        let rw = usages_in(
+            &idx,
+            "/p/x.php",
+            "<?php class W extends App\\Models\\Post { function f() { $this->title = 'a'; echo $this->title; $this->title .= 'b'; } }",
+            &Target::Member { class: "App\\Models\\Post".into(), name: "title".into(), member_kind: Some("property".into()) },
+            Some("App\\Models\\Post"),
+        );
         assert_eq!(rw.iter().map(|u| u.access).collect::<Vec<_>>(), vec!["write", "read", "write"]);
-        assert_eq!(all(Target::Member { class: "App\\Models\\Post".into(), name: "DRAFT".into(), member_kind: Some("const".into()) }, "App\\Models\\Post"), vec![("Post.php".into(), 13, false)]);
+        assert_eq!(
+            all(Target::Member { class: "App\\Models\\Post".into(), name: "DRAFT".into(), member_kind: Some("const".into()) }, "App\\Models\\Post"),
+            vec![("Post.php".into(), 13, false)]
+        );
         // Function: helper() resolved in its namespace; strlen() is not helper.
         assert_eq!(all(Target::Function { name: "helper".into(), namespace: None }, "App\\Http\\helper"), vec![("PostController.php".into(), 19, false)]);
         // Columns are 1-based UTF-16, like Monaco's.
@@ -2165,7 +2301,13 @@ function current_user() { return null; }
         assert!(hits.iter().all(|h| h.dynamic));
         assert!(took < std::time::Duration::from_secs(2), "{took:?}");
         // `Post::find` is resolved through the file's imports.
-        let finds = usages_in(&idx, "/p/app/Http/Many.php", &text, &Target::Member { class: "App\\Models\\Model".into(), name: "find".into(), member_kind: Some("method".into()) }, Some("App\\Models\\Model"));
+        let finds = usages_in(
+            &idx,
+            "/p/app/Http/Many.php",
+            &text,
+            &Target::Member { class: "App\\Models\\Model".into(), name: "find".into(), member_kind: Some("method".into()) },
+            Some("App\\Models\\Model"),
+        );
         assert_eq!(finds.len(), lines / 3);
         assert!(finds.iter().all(|h| !h.dynamic), "Post::find is exact: Post extends Model");
     }
@@ -2191,11 +2333,16 @@ function current_user() { return null; }
     }
 
     const USER_CTRL: &str = "<?php\nnamespace App\\Http\\Controllers;\n\nclass UserController\n{\n    public function save(): void {}\n    public function show(): void {}\n    private function secret(): void {}\n}\n";
-    const SEARCH_USER: &str = "<?php\nnamespace App\\Models;\n\nclass User\n{\n    public function save(): bool { return true; }\n}\n\nfunction user_helper(): void {}\n";
+    const SEARCH_USER: &str =
+        "<?php\nnamespace App\\Models;\n\nclass User\n{\n    public function save(): bool { return true; }\n}\n\nfunction user_helper(): void {}\n";
     const VENDOR_UC: &str = "<?php\nnamespace Vendor;\n\nclass UnitConverter\n{\n}\n\nclass UserCache\n{\n}\n";
 
     fn search_index() -> ProjectIndex {
-        project(&[("/p/app/Http/Controllers/UserController.php", USER_CTRL), ("/p/app/Models/User.php", SEARCH_USER), ("/p/vendor/acme/lib/src/Things.php", VENDOR_UC)])
+        project(&[
+            ("/p/app/Http/Controllers/UserController.php", USER_CTRL),
+            ("/p/app/Models/User.php", SEARCH_USER),
+            ("/p/vendor/acme/lib/src/Things.php", VENDOR_UC),
+        ])
     }
 
     fn names(hits: &[SearchHit]) -> Vec<String> {

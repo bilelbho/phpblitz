@@ -208,7 +208,8 @@ impl Poller {
             }
         }
         // Deleted: known entries of polled folders that are gone (and folders under them).
-        let gone: Vec<PathBuf> = self.seen.keys().filter(|p| !current.contains(*p) && p.parent().is_some_and(|d| self.dirs.iter().any(|x| x == d))).cloned().collect();
+        let gone: Vec<PathBuf> =
+            self.seen.keys().filter(|p| !current.contains(*p) && p.parent().is_some_and(|d| self.dirs.iter().any(|x| x == d))).cloned().collect();
         for path in gone {
             self.seen.remove(&path);
             self.dirs.retain(|d| !d.starts_with(&path));
@@ -478,7 +479,9 @@ mod tests {
 
         let mut seen: Vec<FsChange> = Vec::new();
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while std::time::Instant::now() < deadline && !(seen.iter().any(|c| c.path.ends_with("New.php") && c.exists) && seen.iter().any(|c| c.path.ends_with("Old.php") && !c.exists)) {
+        while std::time::Instant::now() < deadline
+            && !(seen.iter().any(|c| c.path.ends_with("New.php") && c.exists) && seen.iter().any(|c| c.path.ends_with("Old.php") && !c.exists))
+        {
             if let Ok(batch) = rx.recv_timeout(Duration::from_millis(200)) {
                 seen.extend(batch);
             }
@@ -578,7 +581,11 @@ mod tests {
         let (watched, failed) = watch_folders(dirs, |d| {
             tried += 1;
             // What notify's MaxFilesWatch error displays.
-            if d >= Path::new("c") { Err(notify::Error::new(notify::ErrorKind::MaxFilesWatch).add_path(d.to_path_buf()).to_string()) } else { Ok(()) }
+            if d >= Path::new("c") {
+                Err(notify::Error::new(notify::ErrorKind::MaxFilesWatch).add_path(d.to_path_buf()).to_string())
+            } else {
+                Ok(())
+            }
         });
         assert_eq!(watched, 2);
         assert_eq!(tried, 3, "stops at the limit");
@@ -619,7 +626,16 @@ mod tests {
     fn watches_project_folders_but_not_dependencies() {
         let root = std::env::temp_dir().join(format!("phpblitz-watch-folders-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        for d in ["app/Models", "node_modules/x/y", "themes/a/node_modules/z", "vendor/laravel/framework", "vendor/composer", ".git/refs/heads", ".git/objects/ab", "storage/logs"] {
+        for d in [
+            "app/Models",
+            "node_modules/x/y",
+            "themes/a/node_modules/z",
+            "vendor/laravel/framework",
+            "vendor/composer",
+            ".git/refs/heads",
+            ".git/objects/ab",
+            "storage/logs",
+        ] {
             std::fs::create_dir_all(root.join(d)).unwrap();
         }
         let watched: Vec<String> = folders_to_watch(&root).iter().map(|p| p.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/")).collect();

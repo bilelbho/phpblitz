@@ -1,0 +1,3 @@
+# The code is written in long lines; these settings keep that style (`cargo fmt` in CI checks it).
+max_width = 160
+use_small_heuristics = "Max"

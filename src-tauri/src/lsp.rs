@@ -81,24 +81,12 @@ fn read_messages(stdout: impl Read, mut on_message: impl FnMut(String)) {
 
 /// Starts a language server and returns its id. Its messages arrive through `on_event`.
 #[tauri::command(async)]
-pub fn lsp_start(
-    state: State<'_, LspState>,
-    command: String,
-    args: Vec<String>,
-    cwd: String,
-    on_event: Channel<LspEvent>,
-) -> Result<u32, String> {
+pub fn lsp_start(state: State<'_, LspState>, command: String, args: Vec<String>, cwd: String, on_event: Channel<LspEvent>) -> Result<u32, String> {
     crate::trust::check(&cwd)?;
     let mut cmd = Command::new(&command);
-    cmd.args(&args)
-        .current_dir(&cwd)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    cmd.args(&args).current_dir(&cwd).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     crate::process::hide_console(&mut cmd);
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("Could not start language server {command}: {e}"))?;
+    let mut child = cmd.spawn().map_err(|e| format!("Could not start language server {command}: {e}"))?;
 
     let id = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     let stdin = child.stdin.take().ok_or("no stdin")?;
@@ -119,11 +107,7 @@ pub fn lsp_start(
         }
     });
 
-    state
-        .servers
-        .lock()
-        .map_err(|e| e.to_string())?
-        .insert(id, Server { child, input: crate::process::spawn_writer(stdin) });
+    state.servers.lock().map_err(|e| e.to_string())?.insert(id, Server { child, input: crate::process::spawn_writer(stdin) });
     Ok(id)
 }
 

@@ -81,7 +81,6 @@ impl Excluded {
 mod tests {
     use super::*;
 
-
     #[test]
     fn package_data_folders_are_skipped() {
         assert!(is_vendor_data("C:/p/vendor/symfony/intl/Resources/data"));

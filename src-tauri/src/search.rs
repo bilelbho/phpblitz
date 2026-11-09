@@ -327,7 +327,12 @@ mod tests {
             std::fs::write(p, text).unwrap();
         }
         let files = |o: SearchOptions| -> Vec<String> {
-            search(&dir, &o, GENERATION.load(Ordering::SeqCst)).unwrap().files.iter().map(|f| f.path.rsplit_once("phpblitz-search-").unwrap().1.split_once('/').unwrap().1.to_string()).collect()
+            search(&dir, &o, GENERATION.load(Ordering::SeqCst))
+                .unwrap()
+                .files
+                .iter()
+                .map(|f| f.path.rsplit_once("phpblitz-search-").unwrap().1.split_once('/').unwrap().1.to_string())
+                .collect()
         };
         assert_eq!(files(opts("user")), vec!["app/User.php", "app/view.blade.php"], "skips vendor, gitignored and binary files");
         assert_eq!(files(SearchOptions { file_mask: "*.blade.php".into(), ..opts("user") }), vec!["app/view.blade.php"]);

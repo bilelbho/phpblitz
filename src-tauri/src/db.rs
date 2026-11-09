@@ -50,12 +50,8 @@ impl Canceller {
     fn cancel(&self) -> Result<(), String> {
         match self {
             Canceller::Postgres { token, ssl } => {
-                if *ssl {
-                    token.cancel_query(postgres_native_tls::MakeTlsConnector::new(tls_connector()?))
-                } else {
-                    token.cancel_query(postgres::NoTls)
-                }
-                .map_err(|e| pg_error(&e))
+                if *ssl { token.cancel_query(postgres_native_tls::MakeTlsConnector::new(tls_connector()?)) } else { token.cancel_query(postgres::NoTls) }
+                    .map_err(|e| pg_error(&e))
             }
             Canceller::Mysql { opts, id } => {
                 use mysql::prelude::Queryable;
@@ -198,11 +194,7 @@ fn version(conn: &mut Conn) -> String {
         Conn::Mysql(_) => "SELECT CONCAT(@@version_comment, ' ', VERSION())",
         Conn::Sqlite(_) => "SELECT 'SQLite ' || sqlite_version()",
     };
-    run(conn, sql, 1)
-        .ok()
-        .and_then(|r| r.rows.into_iter().next())
-        .and_then(|row| row.into_iter().next().flatten())
-        .unwrap_or_default()
+    run(conn, sql, 1).ok().and_then(|r| r.rows.into_iter().next()).and_then(|row| row.into_iter().next().flatten()).unwrap_or_default()
 }
 
 /// Runs one or more statements; returns the last result set (or the last statement's row count).
@@ -239,10 +231,8 @@ fn run_with(conn: &mut Conn, sql: &str, limit: usize, cancel: Option<&Canceller>
                         current = Some(QueryResult { columns: cols.iter().map(|c| c.name().to_string()).collect(), ..Default::default() });
                     }
                     postgres::SimpleQueryMessage::Row(row) => {
-                        let set = current.get_or_insert_with(|| QueryResult {
-                            columns: row.columns().iter().map(|c| c.name().to_string()).collect(),
-                            ..Default::default()
-                        });
+                        let set = current
+                            .get_or_insert_with(|| QueryResult { columns: row.columns().iter().map(|c| c.name().to_string()).collect(), ..Default::default() });
                         if set.rows.len() >= limit {
                             set.truncated = true;
                             continue;
@@ -429,11 +419,9 @@ fn mysql_text(v: mysql::Value) -> Option<String> {
         UInt(u) => Some(u.to_string()),
         Float(f) => Some(f.to_string()),
         Double(d) => Some(d.to_string()),
-        Date(y, mo, d, h, mi, s, us) => Some(if us > 0 {
-            format!("{y:04}-{mo:02}-{d:02} {h:02}:{mi:02}:{s:02}.{us:06}")
-        } else {
-            format!("{y:04}-{mo:02}-{d:02} {h:02}:{mi:02}:{s:02}")
-        }),
+        Date(y, mo, d, h, mi, s, us) => {
+            Some(if us > 0 { format!("{y:04}-{mo:02}-{d:02} {h:02}:{mi:02}:{s:02}.{us:06}") } else { format!("{y:04}-{mo:02}-{d:02} {h:02}:{mi:02}:{s:02}") })
+        }
         Time(neg, days, h, mi, s, _) => Some(format!("{}{:02}:{mi:02}:{s:02}", if neg { "-" } else { "" }, days * 24 + h as u32)),
     }
 }
@@ -632,9 +620,24 @@ mod tests {
     fn postgres_streams_cuts_and_cancels() {
         let Ok(spec) = std::env::var("PHPBLITZ_TEST_PG") else { return };
         let p: Vec<&str> = spec.split_whitespace().collect();
-        let source = DataSource { id: "pg-stream".into(), driver: "postgres".into(), host: p[0].into(), port: p[1].parse().ok(), user: p[2].into(), database: p[4].into(), file: String::new(), ssl: false };
+        let source = DataSource {
+            id: "pg-stream".into(),
+            driver: "postgres".into(),
+            host: p[0].into(),
+            port: p[1].parse().ok(),
+            user: p[2].into(),
+            database: p[4].into(),
+            file: String::new(),
+            ssl: false,
+        };
         let (mut conn, cancel) = open_with_cancel(&source, Some(p[3].into())).unwrap();
-        let big = run_with(&mut conn, "SELECT g AS n, CASE WHEN g % 2 = 0 THEN NULL ELSE '' END AS v, 'a,\"b\"' AS q FROM generate_series(1, 200000) g", 1000, Some(&cancel)).unwrap();
+        let big = run_with(
+            &mut conn,
+            "SELECT g AS n, CASE WHEN g % 2 = 0 THEN NULL ELSE '' END AS v, 'a,\"b\"' AS q FROM generate_series(1, 200000) g",
+            1000,
+            Some(&cancel),
+        )
+        .unwrap();
         assert!(big.truncated);
         assert_eq!(big.rows.len(), 1000);
         assert_eq!(big.columns, vec!["n", "v", "q"]);
@@ -669,7 +672,16 @@ mod tests {
     fn mysql_cuts_and_cancels() {
         let Ok(spec) = std::env::var("PHPBLITZ_TEST_MYSQL") else { return };
         let p: Vec<&str> = spec.split_whitespace().collect();
-        let source = DataSource { id: "my-stream".into(), driver: "mysql".into(), host: p[0].into(), port: p[1].parse().ok(), user: p[2].into(), database: p[4].into(), file: String::new(), ssl: false };
+        let source = DataSource {
+            id: "my-stream".into(),
+            driver: "mysql".into(),
+            host: p[0].into(),
+            port: p[1].parse().ok(),
+            user: p[2].into(),
+            database: p[4].into(),
+            file: String::new(),
+            ssl: false,
+        };
         let (mut conn, cancel) = open_with_cancel(&source, Some(p[3].into())).unwrap();
         let sql = "WITH RECURSIVE g(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM g WHERE n < 100000) SELECT n FROM g";
         let started = Instant::now();
@@ -697,7 +709,8 @@ mod tests {
         let mut conn = Conn::Sqlite(rusqlite::Connection::open_in_memory().unwrap());
         run(&mut conn, "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL); INSERT INTO t VALUES (1, 'a'), (2, 'b')", 10).unwrap();
         let st = |sql: &str, expect_row: bool| Statement { sql: sql.into(), expect_row };
-        let names = |conn: &mut Conn| run(conn, "SELECT name FROM t ORDER BY id", 10).unwrap().rows.into_iter().map(|r| r[0].clone().unwrap()).collect::<Vec<_>>();
+        let names =
+            |conn: &mut Conn| run(conn, "SELECT name FROM t ORDER BY id", 10).unwrap().rows.into_iter().map(|r| r[0].clone().unwrap()).collect::<Vec<_>>();
 
         let changed = execute_all(&mut conn, &[st("UPDATE t SET name = 'A' WHERE id = 1", true), st("INSERT INTO t (name) VALUES ('c')", false)]).unwrap();
         assert_eq!(changed, vec![1, 1]);
@@ -779,7 +792,13 @@ mod tests {
         });
         let started = Instant::now();
         // Counts to a billion: minutes without Cancel.
-        let err = run_with(&mut conn, "WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 1000000000) SELECT count(*) FROM c", 10, Some(&cancel)).unwrap_err();
+        let err = run_with(
+            &mut conn,
+            "WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 1000000000) SELECT count(*) FROM c",
+            10,
+            Some(&cancel),
+        )
+        .unwrap_err();
         t.join().unwrap();
         assert!(started.elapsed() < Duration::from_secs(10), "{err}");
         assert!(err.to_lowercase().contains("interrupt"), "{err}");

@@ -183,10 +183,7 @@ fn write_bash_integration() -> std::io::Result<std::path::PathBuf> {
 /// Adds shell integration: the shell marks each prompt and the exit code of the last command
 /// (OSC 133), which the terminal uses to draw command blocks. Shells it doesn't know run as is.
 fn with_integration(shell: &str, args: Vec<String>, cmd: &mut CommandBuilder) -> Vec<String> {
-    let exe = std::path::Path::new(shell)
-        .file_stem()
-        .map(|s| s.to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_default();
+    let exe = std::path::Path::new(shell).file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     let has = |flags: &[&str]| args.iter().any(|a| flags.iter().any(|f| a.eq_ignore_ascii_case(f)));
     match exe.as_str() {
         // -EncodedCommand (UTF-16LE, base64) runs under any execution policy, unlike a .ps1 file.
