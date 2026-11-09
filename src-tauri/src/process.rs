@@ -102,24 +102,37 @@ pub fn reveal_in_explorer(path: String) -> Result<(), String> {
 /// Opens an http(s) link in the default browser (links clicked in the terminal).
 #[tauri::command(async)]
 pub fn open_external(url: String) -> Result<(), String> {
-    let lower = url.to_ascii_lowercase();
-    if !(lower.starts_with("http://") || lower.starts_with("https://")) || url.chars().any(|c| c.is_control() || c == '"') {
+    if !is_openable_url(&url) {
         return Err("Only http and https links can be opened".into());
     }
+    // Windows: ShellExecuteW hands the URL to the default browser as is. Going through
+    // `cmd /C start` would expand `%NAME%` in it, sending environment variables to the site.
     #[cfg(windows)]
     let result = {
-        use std::os::windows::process::CommandExt;
-        let mut c = Command::new("cmd");
-        // `start "" "url"`: the empty title keeps `start` from treating the URL as a window title.
-        c.raw_arg(format!("/C start \"\" \"{url}\""));
-        hide_console(&mut c);
-        c.spawn()
+        use windows::core::{w, HSTRING, PCWSTR};
+        use windows::Win32::UI::Shell::ShellExecuteW;
+        use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+        let file = HSTRING::from(url.as_str());
+        // SAFETY: every string is NUL-terminated and outlives the call.
+        let code = unsafe { ShellExecuteW(None, w!("open"), &file, PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL) };
+        // Values above 32 mean success.
+        if code.0 as isize > 32 {
+            Ok(())
+        } else {
+            Err(format!("Couldn't open the link (error {})", code.0 as isize))
+        }
     };
     #[cfg(target_os = "macos")]
-    let result = Command::new("open").arg(&url).spawn();
+    let result = Command::new("open").arg(&url).spawn().map(|_| ()).map_err(|e| e.to_string());
     #[cfg(all(unix, not(target_os = "macos")))]
-    let result = Command::new("xdg-open").arg(&url).spawn();
-    result.map(|_| ()).map_err(|e| e.to_string())
+    let result = Command::new("xdg-open").arg(&url).spawn().map(|_| ()).map_err(|e| e.to_string());
+    result
+}
+
+/// An http(s) URL without control characters or quotes: what [`open_external`] passes on.
+fn is_openable_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    (lower.starts_with("http://") || lower.starts_with("https://")) && !url.chars().any(|c| c.is_control() || c == '"')
 }
 
 /// Finds the first of `names` on PATH or in the folders installers use that GUI apps often start
@@ -417,8 +430,18 @@ pub fn spawn_writer(mut writer: impl std::io::Write + Send + 'static) -> std::sy
 
 #[cfg(test)]
 mod tests {
-    use super::{expand_vars, spawn_writer};
+    use super::{expand_vars, is_openable_url, spawn_writer};
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn openable_urls_are_http_without_quotes_or_control_characters() {
+        assert!(is_openable_url("https://example.com/?q=%OS%&x=%20a"));
+        assert!(is_openable_url("HTTP://example.com"));
+        assert!(!is_openable_url("file:///C:/Windows/System32/calc.exe"));
+        assert!(!is_openable_url("javascript:alert(1)"));
+        assert!(!is_openable_url("https://example.com/\" & calc"));
+        assert!(!is_openable_url("https://example.com/\n"));
+    }
 
     /// A job that leaves a process running in the background (holding its output pipes) still
     /// ends, with its output, instead of waiting for that process forever.
