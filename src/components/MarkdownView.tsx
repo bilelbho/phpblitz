@@ -119,6 +119,7 @@ function MarkdownPreview({ ws, path, editor, sync }: { ws: Workspace; path: stri
       const lang = [...code.classList].find((c) => c.startsWith('language-'))?.slice(9) ?? '';
       if (!lang) return;
       colorizeCode(code.textContent ?? '', lang).then((html) => {
+        // eslint-disable-next-line no-restricted-syntax -- colorizeCode: Monaco's colorizer escapes the code.
         if (live) code.innerHTML = html;
       });
     });
@@ -195,6 +196,7 @@ function MarkdownPreview({ ws, path, editor, sync }: { ws: Workspace; path: stri
     }
   };
 
+  // eslint-disable-next-line no-restricted-syntax -- sanitized with DOMPurify (render above).
   return <div ref={box} className="md-preview" onClick={onClick} dangerouslySetInnerHTML={{ __html: rendered.html }} />;
 }
 

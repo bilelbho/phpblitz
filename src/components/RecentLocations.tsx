@@ -196,6 +196,7 @@ function Location({
               </span>
             ))}
           </div>
+          {/* eslint-disable-next-line no-restricted-syntax -- colorizeCode: Monaco's colorizer escapes the code. */}
           {html !== null ? <pre className="md-code" dangerouslySetInnerHTML={{ __html: html }} /> : <pre className="md-code">{snippet.code}</pre>}
         </div>
       )}

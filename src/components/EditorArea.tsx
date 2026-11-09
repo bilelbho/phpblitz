@@ -614,6 +614,7 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     const bulb = document.createElement('div');
     bulb.className = 'pb-bulb';
     bulb.title = withKeys('Show Context Actions', 'phpblitz.contextActions');
+    // eslint-disable-next-line no-restricted-syntax -- a fixed icon.
     bulb.innerHTML =
       '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5a4.5 4.5 0 0 0-2.7 8.1c.4.3.7.8.7 1.3V12h4v-1.1c0-.5.3-1 .7-1.3A4.5 4.5 0 0 0 8 1.5Z" fill="#F2C55C"/><path d="M6 13.2h4M6.6 14.6h2.8" stroke="#CED0D6" stroke-width="1.2" stroke-linecap="round"/></svg>' +
       '<svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M1.5 3 4 5.5 6.5 3" stroke="#A8ADBD" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>';
@@ -1376,10 +1377,10 @@ function CodeEditor({ ws, path, onEditor }: { ws: Workspace; path: string; onEdi
     >
     {lens && (
       <div className="scrollbar-lens" style={{ top: Math.max(4, lens.top - 70), right: lens.right }} aria-hidden>
-        {/* Monaco's colorizer escapes the text: its HTML is safe to show. */}
         {lens.html.split('<br/>').map((line, i) => (
           <div key={i} className="scrollbar-lens-line">
             <span className="scrollbar-lens-num">{lens.first + i}</span>
+            {/* eslint-disable-next-line no-restricted-syntax -- Monaco's colorizer escapes the text. */}
             <span dangerouslySetInnerHTML={{ __html: line }} />
           </div>
         ))}

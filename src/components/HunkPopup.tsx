@@ -98,6 +98,7 @@ export function HunkPopup({ x, y, hunk, index, total, language, onMove, onRollba
       </div>
       {hunk.oldLines.length > 0 ? (
         <pre className="hunk-old">
+          {/* eslint-disable-next-line no-restricted-syntax -- colorizeCode: Monaco's colorizer escapes the code. */}
           {html ? <span dangerouslySetInnerHTML={{ __html: html }} /> : hunk.oldLines.join('\n')}
         </pre>
       ) : (

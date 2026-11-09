@@ -20,6 +20,14 @@ export default tseslint.config(
       // `ok ? a() : b()` and `x && y()` as statements are used on purpose.
       '@typescript-eslint/no-unused-expressions': ['error', { allowShortCircuit: true, allowTernary: true }],
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrors: 'none' }],
+      // HTML put into the page must be escaped or sanitized (DOMPurify): each place that does it
+      // says why it's safe in an eslint-disable comment, so a new one gets looked at.
+      'no-restricted-syntax': [
+        'error',
+        { selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']", message: 'Inserts HTML: escape or sanitize it, and say why it is safe.' },
+        { selector: "AssignmentExpression[left.property.name=/^(innerHTML|outerHTML)$/]", message: 'Inserts HTML: escape or sanitize it, and say why it is safe.' },
+        { selector: "CallExpression[callee.property.name=/^(insertAdjacentHTML|write|writeln)$/][callee.object.name='document'], CallExpression[callee.property.name='insertAdjacentHTML']", message: 'Inserts HTML: escape or sanitize it, and say why it is safe.' },
+      ],
     },
   },
   {

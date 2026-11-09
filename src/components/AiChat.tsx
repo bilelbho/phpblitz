@@ -169,7 +169,7 @@ function MarkdownText({ text }: { text: string }) {
       live = false;
     };
   }, [text]);
-  // renderMarkdown escapes everything it doesn't format itself.
+  // eslint-disable-next-line no-restricted-syntax -- renderMarkdown escapes everything it doesn't format itself.
   return <div className="ai-text md" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
@@ -235,6 +235,7 @@ function CodeBlock({ turn, ws, code, lang, done }: { turn: ChatTurn; ws: Workspa
           <Icon name={copied ? 'check' : 'copy'} size={13} />
         </button>
       </div>
+      {/* eslint-disable-next-line no-restricted-syntax -- colorizeCode: Monaco's colorizer escapes the code. */}
       {html !== null ? <pre className="md-code" dangerouslySetInnerHTML={{ __html: html }} /> : <pre className="md-code">{code}</pre>}
     </div>
   );

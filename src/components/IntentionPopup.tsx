@@ -296,6 +296,7 @@ function IntentionPreview({ anchor, preview }: { anchor: React.RefObject<HTMLDiv
                 .map((m, j) => (
                   <span key={j} className="mark" style={{ left: `${m.from}ch`, width: `${m.to - m.from}ch` }} />
                 ))}
+              {/* eslint-disable-next-line no-restricted-syntax -- Monaco's colorizer escapes the code. */}
               <span dangerouslySetInnerHTML={{ __html: html || '&nbsp;' }} />
             </span>
           </div>

@@ -214,6 +214,7 @@ export function EditorHover({ editor, ws, path, request, onMoreActions, onClose,
           </div>
         </div>
       )}
+      {/* eslint-disable-next-line no-restricted-syntax -- renderMarkdown escapes everything it doesn't format itself. */}
       {doc && <div className="pb-hover-doc md" dangerouslySetInnerHTML={{ __html: doc }} />}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </div>

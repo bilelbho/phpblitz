@@ -452,6 +452,7 @@ function ColorSchemePage({ value, onChange }: { value: EditorSettings; onChange:
       </p>
       <div className="scheme-grid" role="radiogroup" aria-label="Color scheme">
         <button type="button" role="radio" aria-checked={value.scheme === 'theme'} className={'scheme-card' + (value.scheme === 'theme' ? ' on' : '')} onClick={() => onChange({ scheme: 'theme' })}>
+          {/* eslint-disable-next-line no-restricted-syntax -- schemePreview escapes the code; colors come from the built-in schemes. */}
           <pre className="scheme-preview" style={{ background: schemeOf('theme').bg, color: schemeOf('theme').fg }} dangerouslySetInnerHTML={{ __html: schemePreview('theme', SAMPLE) }} />
           <span className="scheme-name">
             {value.scheme === 'theme' && <Icon name="check" size={12} />}
@@ -469,6 +470,7 @@ function ColorSchemePage({ value, onChange }: { value: EditorSettings; onChange:
               className={'scheme-card' + (value.scheme === id ? ' on' : '')}
               onClick={() => onChange({ scheme: id })}
             >
+              {/* eslint-disable-next-line no-restricted-syntax -- schemePreview escapes the code; colors come from the built-in schemes. */}
               <pre className="scheme-preview" style={{ background: p.bg, color: p.fg }} dangerouslySetInnerHTML={{ __html: schemePreview(id, SAMPLE) }} />
               <span className="scheme-name">
                 {value.scheme === id && <Icon name="check" size={12} />}
@@ -509,6 +511,7 @@ function EditorFontPage({ value: e, onChange, highlight }: { value: EditorSettin
       <pre
         className="scheme-preview large"
         style={{ background: schemeOf(e.scheme).bg, fontFamily: `'${e.fontFamily}', 'JetBrains Mono', monospace`, fontSize: e.fontSize, lineHeight: e.lineHeight, fontVariantLigatures: e.ligatures ? 'normal' : 'none' }}
+        // eslint-disable-next-line no-restricted-syntax -- schemePreview escapes the code; colors come from the built-in schemes.
         dangerouslySetInnerHTML={{ __html: schemePreview(e.scheme, SAMPLE + '\n// -> => != === <= >=') }}
       />
     </>

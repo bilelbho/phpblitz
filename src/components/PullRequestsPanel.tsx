@@ -39,6 +39,7 @@ function Markdown({ text }: { text: string }) {
     if (/^https?:\/\//i.test(href)) openUrl(href);
   };
   if (!text.trim()) return <div className="muted pr-empty-text">No description.</div>;
+  // eslint-disable-next-line no-restricted-syntax -- sanitized with DOMPurify.
   return <div className="pr-markdown" onClick={click} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 

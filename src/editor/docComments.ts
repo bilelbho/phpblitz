@@ -244,6 +244,7 @@ export function setupDocComments(editor: monaco.editor.IStandaloneCodeEditor, en
     const inner = document.createElement('div');
     inner.className = 'doc-render-inner';
     inner.style.marginLeft = `${b.indent * char}px`;
+    // eslint-disable-next-line no-restricted-syntax -- renderDocBlock escapes the comment's text.
     inner.innerHTML = renderDocBlock(b);
     dom.appendChild(inner);
     const margin = document.createElement('div');
@@ -252,6 +253,7 @@ export function setupDocComments(editor: monaco.editor.IStandaloneCodeEditor, en
     pencil.type = 'button';
     pencil.className = 'doc-render-edit';
     pencil.title = 'Toggle Rendered View (Ctrl+Alt+Q)';
+    // eslint-disable-next-line no-restricted-syntax -- a fixed icon.
     pencil.innerHTML =
       '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
     margin.appendChild(pencil);
