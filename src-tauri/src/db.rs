@@ -33,7 +33,8 @@ pub struct DataSource {
 }
 
 enum Conn {
-    Postgres(postgres::Client),
+    // Boxed: the client is several times bigger than the others (clippy's large_enum_variant on macOS).
+    Postgres(Box<postgres::Client>),
     Mysql(mysql::Conn),
     Sqlite(rusqlite::Connection),
 }
@@ -130,7 +131,7 @@ fn open_with_cancel(ds: &DataSource, password: Option<String>) -> Result<(Conn, 
             };
             let client = client.map_err(|e| pg_error(&e))?;
             let cancel = Canceller::Postgres { token: client.cancel_token(), ssl: ds.ssl };
-            Ok((Conn::Postgres(client), cancel))
+            Ok((Conn::Postgres(Box::new(client)), cancel))
         }
         "mysql" => {
             let mut opts = mysql::OptsBuilder::new()

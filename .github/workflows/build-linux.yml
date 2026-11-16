@@ -112,14 +112,16 @@ jobs:
       - name: Build packages
         run: npx tauri build --bundles deb,rpm,appimage
 
-      # The app just built, driven through WebDriver (smoke/run.mjs) on a virtual display.
+      # The app just built, driven through WebDriver (smoke/run.mjs) on a virtual display. A window
+      # manager gives the app's window the input focus: without one, the editor never knows it has
+      # the focus and ignores its own shortcuts (Ctrl+B, Ctrl+S).
       - name: UI smoke tests
         env:
           PHPBLITZ_APP: ${{ github.workspace }}/src-tauri/target/release/phpblitz
         run: |
-          sudo apt-get install -y --no-install-recommends webkit2gtk-driver xvfb
+          sudo apt-get install -y --no-install-recommends webkit2gtk-driver xvfb openbox
           cargo install tauri-driver --locked
-          xvfb-run -a -s '-screen 0 1600x1000x24' npm run smoke
+          xvfb-run -a -s '-screen 0 1600x1000x24' sh -c 'openbox --sm-disable & sleep 1; npm run smoke'
 
       - uses: actions/upload-artifact@v7
         if: failure()

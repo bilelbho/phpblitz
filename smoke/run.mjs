@@ -276,6 +276,10 @@ try {
         writeFileSync(file, Buffer.from(await wd.screenshot(), 'base64'));
         console.log(`    screenshot: ${file}`);
         console.log(`    active tab: ${await activeTab().catch(() => '?')}`);
+        const focus = await wd
+          .exec(`const a = document.activeElement; return 'window focused: ' + document.hasFocus() + ', focus on: ' + (a ? a.tagName.toLowerCase() + (a.className ? '.' + String(a.className).split(' ')[0] : '') : 'nothing')`)
+          .catch(() => '?');
+        console.log(`    ${focus}`);
       } catch {
         // No screenshot: the message says enough.
       }
