@@ -156,8 +156,11 @@ step('Go to Class opens a class', async () => {
 });
 
 step('Search Everywhere finds a method on the Symbols tab', async () => {
+  // The class opened by the last step focuses its editor once it's shown: wait for that first, or
+  // it can take the focus back from the popup.
+  await waitFor('the editor focused', `return !!document.activeElement?.closest('.editor-host')`);
   await wd.doubleShift();
-  await waitFor('Search Everywhere', `return !!document.querySelector('[aria-label="Search everywhere"]')`);
+  await waitFor('Search Everywhere', `return !!document.activeElement?.closest('[aria-label="Search everywhere"]')`);
   await wd.type('findActive');
   await wd.exec(`[...document.querySelectorAll('[aria-label="Search everywhere"] [role=tab]')].find((t) => t.innerText.trim() === 'Symbols')?.click();`);
   await waitFor('findActiveUsers on Symbols', `return [...document.querySelectorAll('[aria-label="Search everywhere"] .result')].some((o) => o.innerText.includes('findActiveUsers'))`);
@@ -180,7 +183,8 @@ step('Go to Declaration (Ctrl+B) opens the parent class', async () => {
 
 step('edit and save a file', async () => {
   await gotoFile('notes.txt');
-  await wd.exec(`document.querySelector('.editor-host .monaco-editor textarea').focus();`);
+  // The tab shows before its editor exists.
+  await waitFor('the notes.txt editor', `const t = document.querySelector('.editor-host .monaco-editor textarea'); t?.focus(); return !!t`);
   await wd.press('Ctrl+End');
   await wd.type('Saved by the smoke test.');
   await wd.press('Ctrl+S');
