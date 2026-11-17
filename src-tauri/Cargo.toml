@@ -62,7 +62,7 @@ postgres = "0.19"
 postgres-native-tls = "0.5"
 native-tls = "0.2"
 mysql = { version = "28", default-features = false, features = ["minimal-rust", "native-tls"] }
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 # The AI assistant's calls to Anthropic (ai.rs): the same HTTP client and TLS as the updater.
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls-no-provider", "system-proxy"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }

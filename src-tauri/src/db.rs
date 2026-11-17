@@ -282,9 +282,11 @@ fn run_with(conn: &mut Conn, sql: &str, limit: usize, cancel: Option<&Canceller>
             drop(result);
         }
         Conn::Sqlite(db) => {
+            // Batch's next() comes from this trait.
+            use rusqlite::fallible_iterator::FallibleIterator as _;
             let mut batch = rusqlite::Batch::new(db, sql);
             while let Some(mut stmt) = batch.next().map_err(|e| e.to_string())? {
-                let columns: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+                let columns: Vec<String> = stmt.column_names().map(|s| s.to_string()).collect();
                 if columns.is_empty() {
                     let n = stmt.execute([]).map_err(|e| e.to_string())?;
                     out = QueryResult { affected: Some(n as u64), ..Default::default() };

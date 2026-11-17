@@ -11,4 +11,5 @@ ignore = [
     { id = "RUSTSEC-2025-0141", reason = "bincode 1 (the index cache file): moving to a maintained format is planned" },
     { id = "RUSTSEC-2024-0436", reason = "paste: a compile-time macro, pulled in by dependencies" },
     { id = "RUSTSEC-2024-0370", reason = "proc-macro-error: a compile-time macro, pulled in by dependencies" },
+    { id = "RUSTSEC-2026-0543", reason = "chrono: pulled in by trash (the Recycle Bin), no maintained release to move to" },
 ]
