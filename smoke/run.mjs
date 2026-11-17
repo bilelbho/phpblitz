@@ -172,13 +172,14 @@ step('Search Everywhere finds a method on the Symbols tab', async () => {
 
 step('Go to Declaration (Ctrl+B) opens the parent class', async () => {
   await waitTab('UserRepository.php');
-  const span = await waitFor(
-    'AbstractRepository in the extends line',
-    `const line = [...document.querySelectorAll('.editor-host .view-line')].find((l) => /extends\\s+AbstractRepository/.test(l.innerText));
-     return line ? [...line.querySelectorAll('span span')].reverse().find((s) => s.innerText.includes('AbstractRepository')) ?? null : null`,
-  );
-  await wd.pointerClick(WebDriver.ref(span));
-  await sleep(200);
+  // The cursor goes into "AbstractRepository" on line 12 ("final class UserRepository extends
+  // AbstractRepository") with Go to Line: on Linux a WebDriver click doesn't focus the editor.
+  await waitFor('the UserRepository editor', `const t = document.querySelector('.editor-host .monaco-editor textarea'); t?.focus(); return !!t && document.activeElement === t`);
+  await wd.press('Ctrl+G');
+  await waitFor('Go to Line', `return document.activeElement?.id === 'goto-line'`);
+  await wd.type('12:40');
+  await wd.press('Enter');
+  await waitFor('the cursor on line 12', `return !!document.activeElement?.closest('.editor-host') && !document.getElementById('goto-line')`);
   await wd.press('Ctrl+B');
   await waitTab('AbstractRepository.php');
 });
