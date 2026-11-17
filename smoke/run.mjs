@@ -108,7 +108,7 @@ async function gotoFile(name) {
   await wd.press('Ctrl+Shift+N');
   await waitFor('Go to File', `return document.activeElement?.tagName === 'INPUT' && !!document.activeElement.closest('[role=dialog]')`);
   await wd.type(name);
-  await waitFor(`${name} in the list`, `return [...document.querySelectorAll('[role=dialog] .result')].some((o) => o.innerText.includes(arguments[0]))`, 10000, name);
+  await waitFor(`${name} selected`, `return !!document.querySelector('[role=dialog] .result.selected')?.innerText.includes(arguments[0])`, 10000, name);
   await wd.press('Enter');
   await waitTab(name);
 }
@@ -150,7 +150,9 @@ step('Go to Class opens a class', async () => {
   await wd.press('Ctrl+N');
   await waitFor('Go to Class', `return document.activeElement?.tagName === 'INPUT' && !!document.activeElement.closest('[role=dialog]')`);
   await wd.type('UserRepository');
-  await waitFor('UserRepository in the list', `return [...document.querySelectorAll('[role=dialog] .result')].some((o) => o.innerText.includes('UserRepository'))`);
+  // The selected result, not just one in the list: Enter would open the first one of the list
+  // shown before the query.
+  await waitFor('UserRepository selected', `return !!document.querySelector('[role=dialog] .result.selected')?.innerText.includes('UserRepository')`);
   await wd.press('Enter');
   await waitTab('UserRepository.php');
 });
