@@ -186,10 +186,18 @@ step('Go to Declaration (Ctrl+B) opens the parent class', async () => {
 
 step('edit and save a file', async () => {
   await gotoFile('notes.txt');
-  // The tab shows before its editor exists.
-  await waitFor('the notes.txt editor', `const t = document.querySelector('.editor-host .monaco-editor textarea'); t?.focus(); return !!t`);
+  // The tab shows before its editor has the file, and the closing dialog can move the focus: wait
+  // until the editor showing notes.txt has it, and for the typed text before saving.
+  // (The editor draws spaces as non-breaking ones.)
+  const NOTES = `const text = (e) => e?.querySelector('.view-lines')?.innerText.replace(/\\u00a0/g, ' ') ?? '';
+    const ed = [...document.querySelectorAll('.editor-host .monaco-editor')].find((e) => text(e).includes('add a line to this file'));`;
+  await waitFor(
+    'the notes.txt editor focused',
+    `${NOTES} const t = ed?.querySelector('textarea'); if (!t || document.querySelector('[role=dialog]')) return false; t.focus(); return document.activeElement === t`,
+  );
   await wd.press('Ctrl+End');
   await wd.type('Saved by the smoke test.');
+  await waitFor('the typed text in notes.txt', `${NOTES} return text(ed).includes('Saved by the smoke test.')`, 5000);
   await wd.press('Ctrl+S');
   const file = join(project, 'notes.txt');
   const end = Date.now() + 5000;
