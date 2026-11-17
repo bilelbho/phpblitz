@@ -72,11 +72,9 @@ export function installErrorLog() {
   installed = true;
   window.addEventListener('error', (e) => logError('Unhandled error', e.error ?? e.message));
   window.addEventListener('unhandledrejection', (e) => {
-    // Not errors: the editor cancelling work it no longer needs (switching files mid-highlight),
-    // and its Ctrl+hover preview of a declaration in a file that isn't open (no preview shows; the
-    // editor's model service only knows open files).
+    // Not an error: the editor cancelling work it no longer needs (switching files mid-highlight).
     const r = e.reason as { name?: string; message?: string } | null;
-    if ((r?.name === 'Canceled' && r.message === 'Canceled') || (r?.name === 'Error' && r.message === 'Model not found')) {
+    if (r?.name === 'Canceled' && r.message === 'Canceled') {
       e.preventDefault();
       return;
     }

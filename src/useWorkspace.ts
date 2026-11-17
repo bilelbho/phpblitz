@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { invalidateLaravelFiles, setLaravelProject } from './completion/laravel';
+import { setModelFileReader } from './editor/textModels';
 import { isScriptModel, scriptFileChanged, scriptFilesChanged, scriptProblem, scriptUsages, setScriptContext } from './jsProjects';
 import { anchorOf, DEFAULT_LAYOUT, FOCUS_START, focusStateFrom, hidePanel, isBottomTool, loadToolLayout, movePanel, panelShown, resizeColumn, resizeGroups, setColumnWidth, setIconsSide, showPanel, toggleFirstColumn, moveTool as moveToolIn, saveToolLayout, type Anchor, type BottomTool, type FocusDrop, type FocusPanel, type FocusState, type IconsSide, type SideAnchor, type SideTool, type Tool, type ToolLayout } from './toolLayout';
 import * as monaco from 'monaco-editor';
@@ -1132,6 +1133,11 @@ export function useWorkspace(backend: Backend) {
     setLaravelProject({ root: backend.root, files, read: (path) => backend.readFile(path) });
   }, [backend, files]);
   useEffect(() => () => setLaravelProject(null), [backend]);
+  // The editor's previews of declarations in files that aren't open (editor/textModels.ts).
+  useEffect(() => {
+    setModelFileReader((path) => backend.readFile(path));
+    return () => setModelFileReader(null);
+  }, [backend]);
   // JS and TS projects inside this one (resources/js, a front end): loaded with the first .js/.ts file.
   useEffect(() => {
     if (files.length) setScriptContext({ backend, files, notify });

@@ -1,4 +1,6 @@
 import * as monaco from 'monaco-editor';
+// First: it replaces a service Monaco only takes before it starts its others.
+import './editor/textModels';
 import { loader } from '@monaco-editor/react';
 import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';

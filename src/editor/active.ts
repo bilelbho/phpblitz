@@ -18,7 +18,11 @@ export function activeEditor(): monaco.editor.ICodeEditor | null {
 
 /** A model's file path: `file:///c%3A/x/y.php` → `c:/x/y.php` as the workspace writes it. */
 export function pathOfModel(model: monaco.editor.ITextModel): string {
-  let p = decodeURIComponent(model.uri.path);
+  return pathOfUri(model.uri);
+}
+
+export function pathOfUri(uri: monaco.Uri): string {
+  let p = decodeURIComponent(uri.path);
   if (/^\/[A-Za-z]:/.test(p)) p = p.slice(1);
   return p;
 }
